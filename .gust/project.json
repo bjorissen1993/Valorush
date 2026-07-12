@@ -1,0 +1,197 @@
+{
+  "scopeId": "2331ce1e-35d9-4e49-9356-a98c3ce0b47c",
+  "projectName": "ValoRush",
+  "createdAt": "2026-03-30T07:22:57.318Z",
+  "agentMetadata": {
+    "8f1e8b98-813b-4213-af53-5e8b452139c2": {
+      "id": "8f1e8b98-813b-4213-af53-5e8b452139c2",
+      "name": "ValoRush manager",
+      "agentType": "scope_manager"
+    },
+    "cded9f16-48a8-4880-bc97-06e57de1a204": {
+      "id": "cded9f16-48a8-4880-bc97-06e57de1a204",
+      "name": "Scan Assistant:  . (root)",
+      "agentType": "FolderScanAgent"
+    },
+    "5b5c3ef6-1008-4e73-9174-f003881334a4": {
+      "id": "5b5c3ef6-1008-4e73-9174-f003881334a4",
+      "name": "Lorenzo King",
+      "agentType": "DeveloperAgent"
+    },
+    "2b0e5381-a7ed-4be8-b906-24b01b8add89": {
+      "id": "2b0e5381-a7ed-4be8-b906-24b01b8add89",
+      "name": "Scan Assistant:  src",
+      "agentType": "FolderScanAgent"
+    },
+    "d573045c-6545-4a7c-aa19-95174638130d": {
+      "id": "d573045c-6545-4a7c-aa19-95174638130d",
+      "name": "Scan Assistant:  src/data",
+      "agentType": "FolderScanAgent"
+    },
+    "88e64efd-8f97-4e5b-b866-9a434633f50c": {
+      "id": "88e64efd-8f97-4e5b-b866-9a434633f50c",
+      "name": "Claire Schmitt",
+      "agentType": "DeveloperAgent"
+    },
+    "7964b815-bd64-4d6d-82c0-33200d97a634": {
+      "id": "7964b815-bd64-4d6d-82c0-33200d97a634",
+      "name": "Jamie Bruen",
+      "agentType": "DeveloperAgent"
+    },
+    "7578de85-8c45-46ba-b8ad-cce7ac61e4b4": {
+      "id": "7578de85-8c45-46ba-b8ad-cce7ac61e4b4",
+      "name": "Scan Assistant:  src/game",
+      "agentType": "FolderScanAgent"
+    },
+    "93fb34e6-d02b-434f-845a-c9ce5809358d": {
+      "id": "93fb34e6-d02b-434f-845a-c9ce5809358d",
+      "name": "Scan Assistant:  src/types",
+      "agentType": "FolderScanAgent"
+    },
+    "37ee853b-da7e-4e8c-b496-08cf02464f26": {
+      "id": "37ee853b-da7e-4e8c-b496-08cf02464f26",
+      "name": "Ramona Boehm-Rempel",
+      "agentType": "DeveloperAgent"
+    },
+    "40660a5c-5485-44a4-984a-cb177a604f22": {
+      "id": "40660a5c-5485-44a4-984a-cb177a604f22",
+      "name": "Molly Harris",
+      "agentType": "DeveloperAgent"
+    },
+    "854d32cc-706f-4b4b-a0a6-1a0a769789f0": {
+      "id": "854d32cc-706f-4b4b-a0a6-1a0a769789f0",
+      "name": "Scan Assistant:  src/webviews",
+      "agentType": "FolderScanAgent"
+    },
+    "9c68fa9c-702c-4994-aa85-60336a6fe090": {
+      "id": "9c68fa9c-702c-4994-aa85-60336a6fe090",
+      "name": "Scan Assistant:  src/components",
+      "agentType": "FolderScanAgent"
+    },
+    "23972d5e-40ec-4b6c-bdeb-b28043be1500": {
+      "id": "23972d5e-40ec-4b6c-bdeb-b28043be1500",
+      "name": "Scan Assistant:  src/game/systems",
+      "agentType": "FolderScanAgent"
+    },
+    "b5c7edbf-abc7-43ab-84bc-7816ef7a357a": {
+      "id": "b5c7edbf-abc7-43ab-84bc-7816ef7a357a",
+      "name": "Julio Carter",
+      "agentType": "DeveloperAgent"
+    },
+    "3295cac2-991e-4102-a13a-bfd6c8fe000e": {
+      "id": "3295cac2-991e-4102-a13a-bfd6c8fe000e",
+      "name": "Scan Assistant:  src/webviews/components",
+      "agentType": "FolderScanAgent"
+    },
+    "f4adb921-08a8-407d-b7bf-4c2d3c88da18": {
+      "id": "f4adb921-08a8-407d-b7bf-4c2d3c88da18",
+      "name": "Sheldon Schaefer",
+      "agentType": "DeveloperAgent"
+    },
+    "5f456f5c-aecd-45fc-a5c6-6e278983c396": {
+      "id": "5f456f5c-aecd-45fc-a5c6-6e278983c396",
+      "name": "Kimberly Brekke",
+      "agentType": "DeveloperAgent"
+    },
+    "fad2be1e-561c-4a28-9f4b-af04e81683c5": {
+      "id": "fad2be1e-561c-4a28-9f4b-af04e81683c5",
+      "name": "Betsy Gulgowski",
+      "agentType": "DeveloperAgent"
+    }
+  },
+  "rootScope": {
+    "id": "2331ce1e-35d9-4e49-9356-a98c3ce0b47c",
+    "name": "ValoRush",
+    "agents": [
+      "c90d4f2c-d82b-4125-8465-70ed1082a242",
+      "325943d0-6d8e-4ab0-bd80-b347d87a5728",
+      "9881a9e7-ee8d-4d9b-bd23-0949fcb9141a",
+      "8f1e8b98-813b-4213-af53-5e8b452139c2"
+    ],
+    "children": [
+      {
+        "id": "959d249e-4e57-4ba6-a0d4-1b0d72a1d10f",
+        "name": ". (root)",
+        "agents": [
+          "cded9f16-48a8-4880-bc97-06e57de1a204",
+          "5b5c3ef6-1008-4e73-9174-f003881334a4"
+        ],
+        "children": []
+      },
+      {
+        "id": "e5588620-c56a-4e9e-b0d0-f1fefeb351c7",
+        "name": "src",
+        "agents": [
+          "2b0e5381-a7ed-4be8-b906-24b01b8add89",
+          "88e64efd-8f97-4e5b-b866-9a434633f50c"
+        ],
+        "children": [
+          {
+            "id": "cc007dc7-66d1-42be-a13b-fa4976499f0e",
+            "name": "src/data",
+            "agents": [
+              "d573045c-6545-4a7c-aa19-95174638130d",
+              "7964b815-bd64-4d6d-82c0-33200d97a634"
+            ],
+            "children": []
+          },
+          {
+            "id": "311e8712-49d9-4784-b40b-8d8e8481ded6",
+            "name": "src/game",
+            "agents": [
+              "7578de85-8c45-46ba-b8ad-cce7ac61e4b4",
+              "37ee853b-da7e-4e8c-b496-08cf02464f26"
+            ],
+            "children": [
+              {
+                "id": "24495aa0-8c31-447b-9f06-cf39dbfd1bd7",
+                "name": "src/game/systems",
+                "agents": [
+                  "23972d5e-40ec-4b6c-bdeb-b28043be1500",
+                  "5f456f5c-aecd-45fc-a5c6-6e278983c396"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "5f12bdf8-26a7-44ec-8742-3e713482d61c",
+            "name": "src/types",
+            "agents": [
+              "93fb34e6-d02b-434f-845a-c9ce5809358d",
+              "40660a5c-5485-44a4-984a-cb177a604f22"
+            ],
+            "children": []
+          },
+          {
+            "id": "09127b41-48cd-46ec-8c1f-ed798a95b9bc",
+            "name": "src/webviews",
+            "agents": [
+              "854d32cc-706f-4b4b-a0a6-1a0a769789f0",
+              "b5c7edbf-abc7-43ab-84bc-7816ef7a357a"
+            ],
+            "children": [
+              {
+                "id": "9e4e63f0-c86c-4746-a1b3-5561d0bc0280",
+                "name": "src/webviews/components",
+                "agents": [
+                  "3295cac2-991e-4102-a13a-bfd6c8fe000e"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "874b40a4-9654-4755-aacd-14d6fcea4d50",
+            "name": "src/components",
+            "agents": [
+              "9c68fa9c-702c-4994-aa85-60336a6fe090",
+              "f4adb921-08a8-407d-b7bf-4c2d3c88da18"
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,233 @@
+{
+  "meta": {
+    "snapshot": "lobby_snapshot",
+    "timestamp": "2026-03-31T02:32:27Z",
+    "notes": "Backup before refactor attempt — contains current Lobby/App/Container/hook files"
+  },
+  "files": {
+    "src/App.tsx": "import { useState } from \"react\";
+import LobbyContainer from \"./containers/LobbyContainer\";
+import LoadingScreen from \"./components/LoadingScreen\";
+import GamePage from \"./components/GamePage\";
+
+import type { Player } from \"./types/Player\";
+import type { Agent } from \"./types/Agent\";
+import type { GameState } from \"./gameState\";
+
+export default function App() {
+  const [screen, setScreen] = useState<\"lobby\" | \"pregame\" | \"game\">(\"lobby\");
+
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+
+  const [gameState, setGameState] = useState<GameState | null>(null);
+
+  function startGame() {
+    setScreen(\"game\");
+  }
+
+  function goToPreGame() {
+    setScreen(\"pregame\");
+  }
+
+  function backToLobby() {
+    setScreen(\"lobby\");
+  }
+
+  if (screen === \"lobby\") {
+    return (
+      <LobbyContainer
+        onContinue={(state: GameState) => {
+          // capture created game state and move to pregame
+          setGameState(state);
+          setPlayers(state.players);
+          goToPreGame();
+        }}
+      />
+    );
+  }
+
+  if (screen === \"pregame\") {
+    return (
+      <LoadingScreen
+        players={players}
+        agents={agents}
+        onContinue={startGame}
+        onBack={backToLobby}
+      />
+    );
+  }
+
+  if (screen === \"game\") {
+    return <GamePage players={players} agents={agents} />;
+  }
+
+  return null;
+}
+",    
+    "src/components/LobbyPage.tsx": "import React from 'react'
+import type { Player } from '../gameState'
+import type { Agent } from '../types/Agent'
+
+type Props = {
+  players: Player[]
+  agents: Agent[]
+  onAddPlayer: (name?: string) => void
+  onRemovePlayer: (id: string) => void
+  onChangeName: (id: string, name: string) => void
+  onToggleAgent: (a: Agent) => void
+  onStart: () => void
+}
+
+export default function LobbyPage({ players, agents, onAddPlayer, onRemovePlayer, onChangeName, onToggleAgent, onStart }: Props) {
+  return (
+    <div className=\"lobby\">
+      <h1>Lobby</h1>
+
+      <div className=\"player-list\">
+        {players.map((p, idx) => (
+          <div key={p.id} className=\"player-row\">
+            <input
+              aria-label={`player-name-${idx}`}
+              value={p.name}
+              onChange={(e) => onChangeName(p.id, e.target.value)}
+            />
+            <button type=\"button\" onClick={() => onRemovePlayer(p.id)}>
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className=\"agent-list\">
+        <h2>Agents</h2>
+        {agents.length === 0 && <p className=\"muted\">No agents selected</p>}
+        <div className=\"agents-grid\">
+          {agents.map((a) => (
+            <div key={a.uuid} className=\"agent-row\">
+              <img src={a.displayIcon || ''} alt={a.displayName} width={24} height={24} />
+              <span>{a.displayName}</span>
+              <button type=\"button\" onClick={() => onToggleAgent(a)}>Toggle</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className=\"lobby-controls\">
+        <button type=\"button\" onClick={() => onAddPlayer()}>
+          Add player
+        </button>
+        <button type=\"button\" onClick={onStart} disabled={players.length < 2}>
+          Start Game
+        </button>
+      </div>
+    </div>
+  )
+}
+",    
+    "src/containers/LobbyContainer.tsx": "import React from 'react'
+import LobbyPage from '../components/LobbyPage'
+import { useLobby } from '../hooks/useLobby'
+import type { GameState } from '../gameState'
+
+type Props = {
+  onContinue: (state: GameState, agents: any[]) => void
+}
+
+export default function LobbyContainer({ onContinue }: Props) {
+  const { players, addPlayer, removePlayer, changeName, start, agents, toggleAgent } = useLobby()
+
+  const handleStart = () => {
+    const state = start()
+    onContinue(state, agents)
+  }
+
+  return (
+    <LobbyPage
+      players={players}
+      agents={agents}
+      onAddPlayer={(name?: string) => addPlayer(name)}
+      onRemovePlayer={removePlayer}
+      onChangeName={changeName}
+      onToggleAgent={toggleAgent}
+      onStart={handleStart}
+    />
+  )
+}
+",    
+    "src/hooks/useLobby.ts": "import { useCallback, useEffect, useState } from 'react'
+import type { Player, GameState } from '../gameState'
+import { createPlayer, loadState, createStateFromNames, saveState } from '../gameState'
+import type { Agent } from '../types/Agent'
+
+/**
+ * Lightweight hook to manage lobby player list, agents selection and starting a game.
+ * Persists created game state and selected agents to localStorage via saveState.
+ */
+export function useLobby(initialNames: string[] = [], initialAgents: Agent[] = []) {
+  const [players, setPlayers] = useState<Player[]>(() => {
+    // Prefer restoring an existing saved game if present, otherwise use provided initial names
+    const saved = loadState()
+    if (saved && Array.isArray(saved.players) && saved.players.length > 0) return saved.players
+    if (initialNames.length) return initialNames.map((n) => createPlayer(n))
+    return []
+  })
+
+  const [agents, setAgents] = useState<Agent[]>(() => {
+    // Use provided initialAgents or restore from saved state if present
+    const saved = loadState()
+    if (saved && (saved as any).agents && Array.isArray((saved as any).agents)) return (saved as any).agents
+    return initialAgents
+  })
+
+  // Expose operations for the container/presentational component
+  const addPlayer = useCallback((name = '') => {
+    setPlayers((prev) => [...prev, createPlayer(name)])
+  }, [])
+
+  const removePlayer = useCallback((id: string) => {
+    setPlayers((prev) => prev.filter((p) => p.id !== id))
+  }, [])
+
+  const changeName = useCallback((id: string, name: string) => {
+    setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)))
+  }, [])
+
+  const toggleAgent = useCallback((agent: Agent) => {
+    setAgents((prev) => {
+      const exists = prev.find((a) => a.uuid === agent.uuid)
+      if (exists) return prev.filter((a) => a.uuid !== agent.uuid)
+      return [...prev, agent]
+    })
+  }, [])
+
+  const start = useCallback((maxRounds = 20): GameState => {
+    const names = players.map((p) => (p.name && p.name.trim() ? p.name.trim() : 'Speler'))
+    // createStateFromNames saves state before returning it; additionally persist agents
+    const s = createStateFromNames(names, maxRounds)
+    try {
+      // store agents alongside saved state for convenience
+      const raw = localStorage.getItem('pgpp-game-v1')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        parsed.agents = agents
+        localStorage.setItem('pgpp-game-v1', JSON.stringify(parsed))
+      }
+    } catch (e) {
+      // ignore storage errors per conventions
+      // eslint-disable-next-line no-console
+      console.error('Failed to persist agents with game state', e)
+    }
+    return s
+  }, [players, agents])
+
+  // Optionally persist a lightweight lobby snapshot or perform side-effects here.
+  useEffect(() => {
+    // Intentionally empty for now; keep hook focused and side-effect free where possible.
+  }, [players, agents])
+
+  return { players, addPlayer, removePlayer, changeName, start, agents, toggleAgent, setAgents }
+}
+"
+  }
+}
