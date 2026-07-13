@@ -209,6 +209,60 @@ function readIndexAssetRefs(): string[] {
   );
 }
 
+type DistIntegrity = {
+  ok: boolean;
+  assetRefs: string[];
+  missingAssets: string[];
+  assetsOnDisk: string[];
+};
+
+function checkDistIntegrity(): DistIntegrity {
+  const indexPath = join(DIST_DIR, "index.html");
+  if (!existsSync(indexPath)) {
+    return {
+      ok: false,
+      assetRefs: [],
+      missingAssets: [],
+      assetsOnDisk: listDistAssets(),
+    };
+  }
+
+  const assetRefs = readIndexAssetRefs();
+  const missingAssets = assetRefs.filter(
+    (ref) => !existsSync(resolveDistFile(ref) ?? "")
+  );
+
+  return {
+    ok: assetRefs.length > 0 && missingAssets.length === 0,
+    assetRefs,
+    missingAssets,
+    assetsOnDisk: listDistAssets(),
+  };
+}
+
+function enforceDistIntegrityAtStartup(): void {
+  const integrity = checkDistIntegrity();
+  if (integrity.ok) return;
+
+  console.error("dist integrity check failed at startup:");
+  console.error(`  distDir: ${DIST_DIR}`);
+  console.error(`  assetRefs: ${integrity.assetRefs.join(", ") || "(none)"}`);
+  console.error(
+    `  missingAssets: ${integrity.missingAssets.join(", ") || "(none)"}`
+  );
+  console.error(
+    `  assetsOnDisk: ${integrity.assetsOnDisk.join(", ") || "(none)"}`
+  );
+
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
+
+  console.warn(
+    "continuing in non-production mode despite dist/index.html bundle mismatch"
+  );
+}
+
 function serveStaticFile(
   res: ServerResponse,
   filePath: string,
@@ -253,19 +307,16 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
 
   if (pathname === "/api/health") {
     const indexPath = join(DIST_DIR, "index.html");
-    const assetRefs = readIndexAssetRefs();
-    const missingAssets = assetRefs.filter(
-      (ref) => !existsSync(resolveDistFile(ref) ?? "")
-    );
+    const integrity = checkDistIntegrity();
 
-    sendJson(res, 200, {
-      ok: true,
+    sendJson(res, integrity.ok ? 200 : 503, {
+      ok: integrity.ok,
       wsPath: "/ws",
       servingApp: existsSync(indexPath),
       distDir: DIST_DIR,
-      assetRefs,
-      missingAssets,
-      assetsOnDisk: listDistAssets(),
+      assetRefs: integrity.assetRefs,
+      missingAssets: integrity.missingAssets,
+      assetsOnDisk: integrity.assetsOnDisk,
     });
     return;
   }
@@ -851,6 +902,8 @@ wss.on("connection", (ws) => {
     if (ctx) disconnectClient(ctx.playerId);
   });
 });
+
+enforceDistIntegrityAtStartup();
 
 httpServer.listen(PORT, "0.0.0.0", () => {
   const servingApp = existsSync(join(DIST_DIR, "index.html"));

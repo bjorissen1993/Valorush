@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-server
+dist.staging
+.git
+.vite
+*.log
+.env
+.env.local

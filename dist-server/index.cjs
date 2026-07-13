@@ -4039,6 +4039,46 @@ function readIndexAssetRefs() {
     (match) => match[1]
   );
 }
+function checkDistIntegrity() {
+  const indexPath = (0, import_node_path.join)(DIST_DIR, "index.html");
+  if (!(0, import_node_fs.existsSync)(indexPath)) {
+    return {
+      ok: false,
+      assetRefs: [],
+      missingAssets: [],
+      assetsOnDisk: listDistAssets()
+    };
+  }
+  const assetRefs = readIndexAssetRefs();
+  const missingAssets = assetRefs.filter(
+    (ref) => !(0, import_node_fs.existsSync)(resolveDistFile(ref) ?? "")
+  );
+  return {
+    ok: assetRefs.length > 0 && missingAssets.length === 0,
+    assetRefs,
+    missingAssets,
+    assetsOnDisk: listDistAssets()
+  };
+}
+function enforceDistIntegrityAtStartup() {
+  const integrity = checkDistIntegrity();
+  if (integrity.ok) return;
+  console.error("dist integrity check failed at startup:");
+  console.error(`  distDir: ${DIST_DIR}`);
+  console.error(`  assetRefs: ${integrity.assetRefs.join(", ") || "(none)"}`);
+  console.error(
+    `  missingAssets: ${integrity.missingAssets.join(", ") || "(none)"}`
+  );
+  console.error(
+    `  assetsOnDisk: ${integrity.assetsOnDisk.join(", ") || "(none)"}`
+  );
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
+  console.warn(
+    "continuing in non-production mode despite dist/index.html bundle mismatch"
+  );
+}
 function serveStaticFile(res, filePath, cacheControl) {
   if (!(0, import_node_fs.existsSync)(filePath) || !(0, import_node_fs.statSync)(filePath).isFile()) return false;
   const ext = (0, import_node_path.extname)(filePath).toLowerCase();
@@ -4071,18 +4111,15 @@ function handleHttpRequest(req, res) {
   }
   if (pathname === "/api/health") {
     const indexPath2 = (0, import_node_path.join)(DIST_DIR, "index.html");
-    const assetRefs = readIndexAssetRefs();
-    const missingAssets = assetRefs.filter(
-      (ref) => !(0, import_node_fs.existsSync)(resolveDistFile(ref) ?? "")
-    );
-    sendJson(res, 200, {
-      ok: true,
+    const integrity = checkDistIntegrity();
+    sendJson(res, integrity.ok ? 200 : 503, {
+      ok: integrity.ok,
       wsPath: "/ws",
       servingApp: (0, import_node_fs.existsSync)(indexPath2),
       distDir: DIST_DIR,
-      assetRefs,
-      missingAssets,
-      assetsOnDisk: listDistAssets()
+      assetRefs: integrity.assetRefs,
+      missingAssets: integrity.missingAssets,
+      assetsOnDisk: integrity.assetsOnDisk
     });
     return;
   }
@@ -4574,6 +4611,7 @@ wss.on("connection", (ws) => {
     if (ctx) disconnectClient(ctx.playerId);
   });
 });
+enforceDistIntegrityAtStartup();
 httpServer.listen(PORT, "0.0.0.0", () => {
   const servingApp = (0, import_node_fs.existsSync)((0, import_node_path.join)(DIST_DIR, "index.html"));
   console.log(

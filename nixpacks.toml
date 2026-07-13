@@ -1,0 +1,11 @@
+# Atomic frontend build — never cache dist between deploys (stale hashed assets
+# mixed with a fresh index.html caused production 404s on /assets/*.js).
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+dependsOn = ["install"]
+cmds = ["node scripts/build-production.mjs"]
+
+[start]
+cmd = "node dist-server/index.cjs"
