@@ -39,7 +39,9 @@ export function isTwitchOAuthConfigured(): boolean {
 export function getTwitchOAuthSetupHint(): string | undefined {
   const env = readTwitchEnv();
   if (!env.clientId) {
-    return "Add VITE_TWITCH_CLIENT_ID to .env.local and restart npm run dev.";
+    return env.isDev
+      ? "Add VITE_TWITCH_CLIENT_ID to .env.local and restart npm run dev."
+      : "Twitch sign-in is unavailable. Rebuild with VITE_TWITCH_CLIENT_ID set.";
   }
   if (env.isDev && !env.clientSecret) {
     return "Add VITE_TWITCH_CLIENT_SECRET to .env.local and restart npm run dev.";
@@ -152,18 +154,24 @@ async function exchangeCodeForToken(code: string, verifier: string): Promise<str
       json.error.includes("VITE_TWITCH_CLIENT")
     ) {
       throw new Error(
-        "Twitch OAuth is not configured. Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local and restart npm run dev."
+        readTwitchEnv().isDev
+          ? "Twitch OAuth is not configured. Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local and restart npm run dev."
+          : "Twitch OAuth is not configured on the server."
       );
     }
     if (response.status === 404) {
       throw new Error(
-        "Twitch OAuth proxy unreachable. Run npm run dev (not preview only) and restart after .env.local changes."
+        readTwitchEnv().isDev
+          ? "Twitch OAuth proxy unreachable. Run npm run dev (not preview only) and restart after .env.local changes."
+          : "Twitch sign-in service is unavailable."
       );
     }
     throw new Error(
       json.message ??
         (json.error === "invalid_client"
-          ? "Twitch rejected the client ID or client secret. Check .env.local and restart npm run dev."
+          ? readTwitchEnv().isDev
+            ? "Twitch rejected the client ID or client secret. Check .env.local and restart npm run dev."
+            : "Twitch rejected the client ID or client secret."
           : json.error) ??
         "Twitch sign-in could not be completed."
     );

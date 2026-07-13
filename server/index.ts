@@ -94,7 +94,9 @@ async function handleTwitchAppToken(res: ServerResponse): Promise<void> {
   if (!clientId || !clientSecret) {
     sendJson(res, 400, {
       error:
-        "Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local, then restart the server.",
+        process.env.NODE_ENV === "production"
+          ? "Twitch credentials are not configured on the server."
+          : "Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local, then restart the server.",
     });
     return;
   }
@@ -130,7 +132,9 @@ async function handleTwitchOAuthToken(
   if (!clientId || !clientSecret) {
     sendJson(res, 400, {
       error:
-        "Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local for OAuth sign-in.",
+        process.env.NODE_ENV === "production"
+          ? "Twitch OAuth credentials are not configured on the server."
+          : "Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local for OAuth sign-in.",
     });
     return;
   }

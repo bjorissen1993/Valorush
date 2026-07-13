@@ -25,6 +25,21 @@ git push origin main
 
 Railway redeploys from `main`. No manual dashboard changes required.
 
+## Required Railway variables
+
+Set these in the Railway service **Variables** tab. They are used at **Docker build time** (baked into the Vite client) and at **runtime** (server-side OAuth token exchange).
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `VITE_TWITCH_CLIENT_ID` | Yes | Twitch app Client ID. Must match the redirect URI registered in the [Twitch developer console](https://dev.twitch.tv/console/apps). |
+| `VITE_TWITCH_CLIENT_SECRET` | Yes | Used by the production server at `/api/twitch/oauth/token` (not exposed in the browser bundle for OAuth). |
+| `VITE_TWITCH_REDIRECT_URI` | Yes (production) | Exact callback URL, e.g. `https://valorush.freakydev.com/`. Must be registered in the Twitch app. |
+| `PORT` | Auto | Injected by Railway; do not override unless you know why. |
+
+`VITE_*` variables are embedded during `node scripts/build-production.mjs` inside the Docker builder stage. The `Dockerfile` declares them as `ARG`/`ENV` so Railway passes them into the image build. Changing a `VITE_*` value requires a **redeploy** (rebuild), not just a service restart.
+
+After setting variables, trigger a fresh deploy and confirm Twitch Link is enabled on the lobby identity screen (no `.env.local` hint).
+
 ## Local smoke test
 
 ```bash
