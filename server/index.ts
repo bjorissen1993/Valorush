@@ -1,7 +1,7 @@
-import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import type {
@@ -20,10 +20,9 @@ import {
 } from "../shared/turnOrderDiceSystem.js";
 
 const PORT = Number(process.env.PORT ?? process.env.LOBBY_PORT ?? 3001);
+const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR =
-  process.env.VALORUSH_ROOT?.trim() ||
-  process.cwd() ||
-  join(dirname(fileURLToPath(import.meta.url)), "..");
+  process.env.VALORUSH_ROOT?.trim() || join(SERVER_DIR, "..");
 const DIST_DIR =
   process.env.VALORUSH_DIST?.trim() || join(ROOT_DIR, "dist");
 
@@ -171,24 +170,71 @@ async function handleTwitchOAuthToken(
   }
 }
 
+function resolveDistFile(pathname: string): string | null {
+  const safePath = pathname.replace(/^\/+/, "");
+  if (!safePath) return null;
+
+  const filePath = resolve(DIST_DIR, safePath);
+  const distRoot = resolve(DIST_DIR);
+  if (filePath !== distRoot && !filePath.startsWith(distRoot + sep)) {
+    return null;
+  }
+
+  return filePath;
+}
+
+function isStaticAssetPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/assets/") ||
+    /\.[a-z0-9]+$/i.test(pathname)
+  );
+}
+
+function listDistAssets(): string[] {
+  const assetsDir = join(DIST_DIR, "assets");
+  if (!existsSync(assetsDir)) return [];
+  try {
+    return readdirSync(assetsDir);
+  } catch {
+    return [];
+  }
+}
+
+function readIndexAssetRefs(): string[] {
+  const indexPath = join(DIST_DIR, "index.html");
+  if (!existsSync(indexPath)) return [];
+  const html = readFileSync(indexPath, "utf8");
+  return [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(
+    (match) => match[1]
+  );
+}
+
 function serveStaticFile(
-  req: IncomingMessage,
   res: ServerResponse,
-  filePath: string
+  filePath: string,
+  cacheControl?: string
 ): boolean {
   if (!existsSync(filePath) || !statSync(filePath).isFile()) return false;
 
   const ext = extname(filePath).toLowerCase();
-  res.writeHead(200, {
+  const headers: Record<string, string> = {
     "Content-Type": STATIC_MIME[ext] ?? "application/octet-stream",
-  });
+  };
+  if (cacheControl) headers["Cache-Control"] = cacheControl;
+
+  res.writeHead(200, headers);
   createReadStream(filePath).pipe(res);
   return true;
 }
 
+function sendNotFound(res: ServerResponse): void {
+  res.writeHead(404, { "Content-Type": "text/plain" });
+  res.end("Not Found");
+}
+
 function handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const pathname = url.pathname;
+  const pathname = normalize(url.pathname).replace(/\\/g, "/");
 
   if (pathname === "/api/twitch/token" && req.method === "POST") {
     void handleTwitchAppToken(res);
@@ -206,10 +252,20 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
   }
 
   if (pathname === "/api/health") {
+    const indexPath = join(DIST_DIR, "index.html");
+    const assetRefs = readIndexAssetRefs();
+    const missingAssets = assetRefs.filter(
+      (ref) => !existsSync(resolveDistFile(ref) ?? "")
+    );
+
     sendJson(res, 200, {
       ok: true,
       wsPath: "/ws",
-      servingApp: existsSync(join(DIST_DIR, "index.html")),
+      servingApp: existsSync(indexPath),
+      distDir: DIST_DIR,
+      assetRefs,
+      missingAssets,
+      assetsOnDisk: listDistAssets(),
     });
     return;
   }
@@ -227,11 +283,22 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
 
-  const safePath = pathname.replace(/^\/+/, "");
-  const assetPath = join(DIST_DIR, safePath);
-  if (safePath && serveStaticFile(req, res, assetPath)) return;
+  const assetPath = resolveDistFile(pathname);
+  if (assetPath) {
+    const cacheControl =
+      pathname.startsWith("/assets/") && pathname !== "/assets/"
+        ? "public, max-age=31536000, immutable"
+        : undefined;
 
-  serveStaticFile(req, res, indexPath);
+    if (serveStaticFile(res, assetPath, cacheControl)) return;
+
+    if (isStaticAssetPath(pathname)) {
+      sendNotFound(res);
+      return;
+    }
+  }
+
+  serveStaticFile(res, indexPath, "no-cache");
 }
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CODE_LENGTH = 6;

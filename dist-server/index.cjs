@@ -3889,7 +3889,8 @@ function buildPlayerIndexById(players) {
 
 // server/index.ts
 var PORT = Number(process.env.PORT ?? process.env.LOBBY_PORT ?? 3001);
-var ROOT_DIR = process.env.VALORUSH_ROOT?.trim() || process.cwd() || (0, import_node_path.join)((0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(__import_meta_url)), "..");
+var SERVER_DIR = (0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(__import_meta_url));
+var ROOT_DIR = process.env.VALORUSH_ROOT?.trim() || (0, import_node_path.join)(SERVER_DIR, "..");
 var DIST_DIR = process.env.VALORUSH_DIST?.trim() || (0, import_node_path.join)(ROOT_DIR, "dist");
 function loadEnvFiles() {
   const envDirs = [ROOT_DIR];
@@ -3927,14 +3928,14 @@ var STATIC_MIME = {
   ".woff2": "font/woff2"
 };
 function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     let data = "";
     req.on("data", (chunk) => {
       data += chunk;
     });
     req.on("end", () => {
       try {
-        resolve(data ? JSON.parse(data) : {});
+        resolve2(data ? JSON.parse(data) : {});
       } catch (error) {
         reject(error);
       }
@@ -4008,18 +4009,54 @@ async function handleTwitchOAuthToken(req, res) {
     sendJson(res, 502, { error: "Failed to exchange Twitch OAuth code." });
   }
 }
-function serveStaticFile(req, res, filePath) {
+function resolveDistFile(pathname) {
+  const safePath = pathname.replace(/^\/+/, "");
+  if (!safePath) return null;
+  const filePath = (0, import_node_path.resolve)(DIST_DIR, safePath);
+  const distRoot = (0, import_node_path.resolve)(DIST_DIR);
+  if (filePath !== distRoot && !filePath.startsWith(distRoot + import_node_path.sep)) {
+    return null;
+  }
+  return filePath;
+}
+function isStaticAssetPath(pathname) {
+  return pathname.startsWith("/assets/") || /\.[a-z0-9]+$/i.test(pathname);
+}
+function listDistAssets() {
+  const assetsDir = (0, import_node_path.join)(DIST_DIR, "assets");
+  if (!(0, import_node_fs.existsSync)(assetsDir)) return [];
+  try {
+    return (0, import_node_fs.readdirSync)(assetsDir);
+  } catch {
+    return [];
+  }
+}
+function readIndexAssetRefs() {
+  const indexPath = (0, import_node_path.join)(DIST_DIR, "index.html");
+  if (!(0, import_node_fs.existsSync)(indexPath)) return [];
+  const html = (0, import_node_fs.readFileSync)(indexPath, "utf8");
+  return [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(
+    (match) => match[1]
+  );
+}
+function serveStaticFile(res, filePath, cacheControl) {
   if (!(0, import_node_fs.existsSync)(filePath) || !(0, import_node_fs.statSync)(filePath).isFile()) return false;
   const ext = (0, import_node_path.extname)(filePath).toLowerCase();
-  res.writeHead(200, {
+  const headers = {
     "Content-Type": STATIC_MIME[ext] ?? "application/octet-stream"
-  });
+  };
+  if (cacheControl) headers["Cache-Control"] = cacheControl;
+  res.writeHead(200, headers);
   (0, import_node_fs.createReadStream)(filePath).pipe(res);
   return true;
 }
+function sendNotFound(res) {
+  res.writeHead(404, { "Content-Type": "text/plain" });
+  res.end("Not Found");
+}
 function handleHttpRequest(req, res) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const pathname = url.pathname;
+  const pathname = (0, import_node_path.normalize)(url.pathname).replace(/\\/g, "/");
   if (pathname === "/api/twitch/token" && req.method === "POST") {
     void handleTwitchAppToken(res);
     return;
@@ -4033,10 +4070,19 @@ function handleHttpRequest(req, res) {
     return;
   }
   if (pathname === "/api/health") {
+    const indexPath2 = (0, import_node_path.join)(DIST_DIR, "index.html");
+    const assetRefs = readIndexAssetRefs();
+    const missingAssets = assetRefs.filter(
+      (ref) => !(0, import_node_fs.existsSync)(resolveDistFile(ref) ?? "")
+    );
     sendJson(res, 200, {
       ok: true,
       wsPath: "/ws",
-      servingApp: (0, import_node_fs.existsSync)((0, import_node_path.join)(DIST_DIR, "index.html"))
+      servingApp: (0, import_node_fs.existsSync)(indexPath2),
+      distDir: DIST_DIR,
+      assetRefs,
+      missingAssets,
+      assetsOnDisk: listDistAssets()
     });
     return;
   }
@@ -4051,10 +4097,16 @@ function handleHttpRequest(req, res) {
     res.end("ValoRush lobby server\n");
     return;
   }
-  const safePath = pathname.replace(/^\/+/, "");
-  const assetPath = (0, import_node_path.join)(DIST_DIR, safePath);
-  if (safePath && serveStaticFile(req, res, assetPath)) return;
-  serveStaticFile(req, res, indexPath);
+  const assetPath = resolveDistFile(pathname);
+  if (assetPath) {
+    const cacheControl = pathname.startsWith("/assets/") && pathname !== "/assets/" ? "public, max-age=31536000, immutable" : void 0;
+    if (serveStaticFile(res, assetPath, cacheControl)) return;
+    if (isStaticAssetPath(pathname)) {
+      sendNotFound(res);
+      return;
+    }
+  }
+  serveStaticFile(res, indexPath, "no-cache");
 }
 var CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 var CODE_LENGTH = 6;
@@ -4477,6 +4529,29 @@ function handleMessage(ws, raw) {
       }
       for (const client of room.clients.values()) {
         send(client.ws, { type: "turn_order_done" });
+      }
+      return;
+    }
+    case "chat_message": {
+      if (room.status !== "waiting") return;
+      const text = message.text.trim().slice(0, 500);
+      if (!text) {
+        send(ws, { type: "error", message: "Message cannot be empty." });
+        return;
+      }
+      const chatMessage = {
+        id: (0, import_node_crypto.randomBytes)(8).toString("hex"),
+        playerId,
+        playerName: player.name,
+        text,
+        sentAt: Date.now()
+      };
+      const payload = {
+        type: "chat_message",
+        message: chatMessage
+      };
+      for (const client of room.clients.values()) {
+        send(client.ws, payload);
       }
       return;
     }

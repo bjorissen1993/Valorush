@@ -156,6 +156,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     cacheDir: ".vite",
+    build: {
+      emptyOutDir: true,
+    },
     plugins: [react(), twitchDevRoutes(env)],
     server: {
       host: true,

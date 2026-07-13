@@ -9,6 +9,7 @@
     "dev:all": "concurrently -n lobby,vite -c magenta,cyan \"npm run dev:lobby\" \"npm run dev\"",
     "build": "vite build",
     "build:server": "node scripts/bundle-server.mjs",
+    "verify:dist": "node scripts/verify-dist.mjs",
     "build:electron-host": "cross-env VITE_VALORUSH_CLIENT=host vite build",
     "build:electron-join": "cross-env VITE_VALORUSH_CLIENT=join vite build --base ./",
     "start": "tsx server/index.ts",
