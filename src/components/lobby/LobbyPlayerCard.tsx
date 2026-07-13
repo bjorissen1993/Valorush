@@ -30,6 +30,7 @@ type LobbyPlayerCardProps = {
   isActive?: boolean;
   isYou?: boolean;
   isHost?: boolean;
+  isReady?: boolean;
   isEmpty?: boolean;
   isRandomizePending?: boolean;
   mirrored?: boolean;
@@ -55,6 +56,7 @@ function LobbyPlayerCard({
   isActive = false,
   isYou = false,
   isHost = false,
+  isReady = false,
   isEmpty = false,
   isRandomizePending = false,
   mirrored = false,
@@ -148,6 +150,17 @@ function LobbyPlayerCard({
 
       {headerAction}
 
+      {isReady && (
+        <div
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-emerald-950/40 backdrop-blur-[1px]"
+          aria-hidden
+        >
+          <span className="select-none text-4xl font-black uppercase tracking-[0.15em] text-emerald-300 drop-shadow-[0_0_24px_rgba(52,211,153,0.55)] sm:text-5xl">
+            Ready!
+          </span>
+        </div>
+      )}
+
       <div
         className={`relative z-10 flex h-full min-w-0 flex-col gap-4 ${
           showPortrait ? (mirrored ? "pl-[25%]" : "pr-[25%]") : ""
@@ -186,13 +199,12 @@ function LobbyPlayerCard({
               />
 
               {isHost && (
-                <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-orange-300">
-                  Host
-                </span>
-              )}
-              {isYou && (
-                <span className="rounded-full bg-cyan-400/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
-                  You
+                <span
+                  className="text-base leading-none drop-shadow-[0_0_8px_rgba(251,191,36,0.45)]"
+                  title="Host"
+                  aria-label="Host"
+                >
+                  👑
                 </span>
               )}
               {isActive && (

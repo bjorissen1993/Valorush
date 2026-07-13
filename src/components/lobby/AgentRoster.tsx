@@ -22,6 +22,9 @@ type AgentRosterProps = {
   disabled?: boolean;
   onToggleRandomize?: () => void;
   onRandomizeAll?: () => void;
+  onToggleReady?: () => void;
+  isReady?: boolean;
+  canReady?: boolean;
   onSelectAgent: (agentId: string) => void;
 };
 
@@ -95,6 +98,51 @@ const RandomizeAgentButton = memo(function RandomizeAgentButton({
           className="lobby-randomize-roster-img h-full w-full object-contain"
         />
       </div>
+    </button>
+  );
+});
+
+type ReadyUpButtonProps = {
+  isReady: boolean;
+  isClickable: boolean;
+  onToggle: () => void;
+};
+
+const ReadyUpButton = memo(function ReadyUpButton({
+  isReady,
+  isClickable,
+  onToggle,
+}: ReadyUpButtonProps) {
+  const handleClick = useCallback(() => {
+    onToggle();
+  }, [onToggle]);
+
+  let stateClass: string;
+  if (isReady) {
+    stateClass =
+      "border-emerald-400/50 bg-emerald-500/20 ring-1 ring-emerald-400/40 text-emerald-200";
+  } else if (isClickable) {
+    stateClass =
+      "border-white/15 bg-white/5 text-white transition-colors duration-150 ease-out hover:bg-white/10";
+  } else {
+    stateClass = "cursor-not-allowed border-white/5 bg-zinc-900/30 text-zinc-500 opacity-60";
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={!isClickable}
+      onClick={handleClick}
+      title={
+        isClickable
+          ? isReady
+            ? "Click to unready"
+            : "Mark yourself as ready"
+          : "Pick an agent or random first"
+      }
+      className={`flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-bold sm:rounded-xl sm:py-3 ${stateClass}`}
+    >
+      {isReady ? "Ready ✓" : "Ready Up"}
     </button>
   );
 });
@@ -205,10 +253,14 @@ function AgentRoster({
   disabled = false,
   onToggleRandomize,
   onRandomizeAll,
+  onToggleReady,
+  isReady = false,
+  canReady = false,
   onSelectAgent,
 }: AgentRosterProps) {
   const canPick = !disabled && activePlayerId != null && !loading;
   const canRandomizeAll = !disabled && !loading && players.length > 0;
+  const canToggleReady = canReady && !!onToggleReady;
 
   const rosterCellCount = agents.length + (onToggleRandomize ? 1 : 0);
 
@@ -240,6 +292,15 @@ function AgentRoster({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/80">
+      {onRandomizeAll && (
+        <div className="shrink-0 border-b border-white/10 p-1.5 sm:p-2">
+          <RandomizeAllButton
+            isActive={allRandomizePending}
+            isClickable={canRandomizeAll}
+            onClick={onRandomizeAll}
+          />
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-1.5 sm:p-2 [container-type:size]">
         {loading ? (
           <div className="text-sm text-zinc-500">Loading roster...</div>
@@ -274,12 +335,12 @@ function AgentRoster({
           </div>
         )}
       </div>
-      {onRandomizeAll && (
+      {onToggleReady && (
         <div className="shrink-0 border-t border-white/10 p-1.5 sm:p-2">
-          <RandomizeAllButton
-            isActive={allRandomizePending}
-            isClickable={canRandomizeAll}
-            onClick={onRandomizeAll}
+          <ReadyUpButton
+            isReady={isReady}
+            isClickable={canToggleReady}
+            onToggle={onToggleReady}
           />
         </div>
       )}

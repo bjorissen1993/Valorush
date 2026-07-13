@@ -5,24 +5,27 @@ import GamePage from "./components/GamePage";
 import HomePage from "./components/HomePage";
 import LobbyIdentityPage from "./components/LobbyIdentityPage";
 import MultiplayerLobbyPage from "./components/MultiplayerLobbyPage";
+import MultiplayerTurnOrderPage from "./components/MultiplayerTurnOrderPage";
 import SpectatorWaitingPage from "./components/SpectatorWaitingPage";
 import { usePerformanceSettings } from "./hooks/usePerformanceSettings";
 import { useAgents } from "./hooks/useLobbyRoom";
 import { clearJoinCodeFromUrl, readJoinCodeFromUrl } from "./services/lobbyClient";
 import {
   completeTwitchOAuthIfPending,
+  consumeTwitchOAuthError,
   identityToProfile,
 } from "./services/twitchOAuth";
 import { lobbyPlayersToLocalIds } from "../shared/lobbyTypes";
 import type { Player } from "./types/Player";
 import type { Agent } from "./types/Agent";
-import type { LobbyPlayer, PlayerProfile } from "../shared/lobbyTypes";
+import type { GameStartingPayload, LobbyPlayer, PlayerProfile } from "../shared/lobbyTypes";
 
 type Screen =
   | "home"
   | "identity_create"
   | "identity_join"
   | "mp_lobby"
+  | "mp_turn_order"
   | "local_lobby"
   | "pregame"
   | "game"
@@ -35,6 +38,12 @@ export default function App() {
   const [joinCode, setJoinCode] = useState("");
   const [lobbyProfile, setLobbyProfile] = useState<PlayerProfile | null>(null);
   const [spectatorPlayers, setSpectatorPlayers] = useState<LobbyPlayer[]>([]);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+  const [mpSession, setMpSession] = useState<{
+    payload: GameStartingPayload;
+    isHost: boolean;
+    yourPlayerId: string;
+  } | null>(null);
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [localAgents, setLocalAgents] = useState<Agent[]>([]);
@@ -70,6 +79,11 @@ export default function App() {
           handleOAuthProfile(identityToProfile(result.identity), result.returnPath);
         }
       } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : consumeTwitchOAuthError() ?? "Twitch sign-in failed.";
+        setOauthError(message);
         console.error(error);
       }
     }
@@ -89,6 +103,7 @@ export default function App() {
     clearJoinCodeFromUrl();
     setLobbyProfile(null);
     setJoinCode("");
+    setMpSession(null);
     setScreen("home");
   }
 
@@ -111,30 +126,48 @@ export default function App() {
   }, [lobbyProfile]);
 
   const handleGameStarting = useCallback(
-    (lobbyPlayers: LobbyPlayer[], isHost: boolean) => {
-      if (isHost) {
-        setPlayers(lobbyPlayersToLocalIds(lobbyPlayers));
-        setScreen("pregame");
-        return;
-      }
-      setSpectatorPlayers(lobbyPlayers);
-      setScreen("spectator");
+    (payload: GameStartingPayload, isHost: boolean, yourPlayerId: string) => {
+      setPlayers(lobbyPlayersToLocalIds(payload.players));
+      setSpectatorPlayers(payload.players);
+      setMpSession({ payload, isHost, yourPlayerId });
+      setScreen("mp_turn_order");
     },
     []
   );
 
   if (screen === "home") {
     return (
-      <HomePage
-        onCreateLobby={() => setScreen("identity_create")}
-        onJoinLobby={(code) => {
-          if (code) {
-            setJoinCode(code.toUpperCase());
-          }
-          setScreen("identity_join");
-        }}
-        onLocalGame={() => setScreen("local_lobby")}
-      />
+      <>
+        {oauthError && (
+          <div className="fixed inset-x-0 top-0 z-50 border-b border-red-400/20 bg-red-950/90 px-4 py-3 text-center text-sm text-red-200">
+            {oauthError}
+            <button
+              type="button"
+              onClick={() => setOauthError(null)}
+              className="ml-3 underline hover:text-white"
+            >
+              Sluiten
+            </button>
+          </div>
+        )}
+        <HomePage
+          onCreateLobby={() => {
+            setOauthError(null);
+            setScreen("identity_create");
+          }}
+          onJoinLobby={(code) => {
+            setOauthError(null);
+            if (code) {
+              setJoinCode(code.toUpperCase());
+            }
+            setScreen("identity_join");
+          }}
+          onLocalGame={() => {
+            setOauthError(null);
+            setScreen("local_lobby");
+          }}
+        />
+      </>
     );
   }
 
@@ -176,6 +209,25 @@ export default function App() {
         joinCode={mpMode === "join" ? joinCode : undefined}
         onBack={resetToHome}
         onGameStarting={handleGameStarting}
+      />
+    );
+  }
+
+  if (screen === "mp_turn_order" && mpSession) {
+    return (
+      <MultiplayerTurnOrderPage
+        players={players}
+        agents={agents}
+        turnOrder={mpSession.payload.turnOrder}
+        yourPlayerId={mpSession.yourPlayerId}
+        isHost={mpSession.isHost}
+        onHostComplete={(_order, resolvedPlayers) => {
+          setPlayers(resolvedPlayers);
+          setScreen("pregame");
+        }}
+        onGuestComplete={() => {
+          setScreen("spectator");
+        }}
       />
     );
   }

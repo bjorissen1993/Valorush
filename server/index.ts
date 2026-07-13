@@ -12,10 +12,17 @@ import type {
   ServerMessage,
 } from "../shared/lobbyTypes.js";
 import { MAX_LOBBY_PLAYERS } from "../shared/lobbyTypes.js";
+import {
+  buildPlayerIndexById,
+  buildTurnOrderDiceSequence,
+  getRollForPlayer,
+  type TurnOrderDiceSequence,
+} from "../shared/turnOrderDiceSystem.js";
 
 const PORT = Number(process.env.PORT ?? process.env.LOBBY_PORT ?? 3001);
 const ROOT_DIR =
   process.env.VALORUSH_ROOT?.trim() ||
+  process.cwd() ||
   join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_DIR =
   process.env.VALORUSH_DIST?.trim() || join(ROOT_DIR, "dist");
@@ -198,6 +205,21 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
 
+  if (pathname === "/api/health") {
+    sendJson(res, 200, {
+      ok: true,
+      wsPath: "/ws",
+      servingApp: existsSync(join(DIST_DIR, "index.html")),
+    });
+    return;
+  }
+
+  if (pathname === "/ws") {
+    res.writeHead(426, { "Content-Type": "text/plain" });
+    res.end("Upgrade Required");
+    return;
+  }
+
   const indexPath = join(DIST_DIR, "index.html");
   if (!existsSync(indexPath)) {
     res.writeHead(200, { "Content-Type": "text/plain" });
@@ -220,11 +242,17 @@ type ConnectedClient = {
   roomCode: string;
 };
 
+type TurnOrderRoomState = {
+  sequence: TurnOrderDiceSequence;
+  rolledInStep: Map<number, Set<string>>;
+};
+
 type Room = {
   code: string;
   status: LobbyRoomState["status"];
   players: LobbyPlayer[];
   clients: Map<string, ConnectedClient>;
+  turnOrder?: TurnOrderRoomState;
 };
 
 const rooms = new Map<string, Room>();
@@ -284,7 +312,37 @@ function pushRoomState(room: Room): void {
   }
 }
 
-function removeClient(playerId: string): void {
+/** Accidental disconnect — keep player slot and host status for rejoin. */
+function disconnectClient(playerId: string): void {
+  const roomCode = playerToRoom.get(playerId);
+  if (!roomCode) return;
+
+  const room = rooms.get(roomCode);
+  if (!room) {
+    playerToRoom.delete(playerId);
+    return;
+  }
+
+  room.clients.delete(playerId);
+  playerToRoom.delete(playerId);
+}
+
+/** Earliest-joined remaining player becomes host (explicit leave only). */
+function pickNextHost(players: LobbyPlayer[], leavingPlayerId: string): LobbyPlayer | null {
+  let nextHost: LobbyPlayer | null = null;
+
+  for (const player of players) {
+    if (player.id === leavingPlayerId) continue;
+    if (!nextHost || player.joinedAt < nextHost.joinedAt) {
+      nextHost = player;
+    }
+  }
+
+  return nextHost;
+}
+
+/** Explicit "Lobby verlaten" — remove player and transfer host when the host leaves. */
+function removePlayerOnExplicitLeave(playerId: string): void {
   const roomCode = playerToRoom.get(playerId);
   if (!roomCode) return;
 
@@ -297,14 +355,9 @@ function removeClient(playerId: string): void {
   room.clients.delete(playerId);
   playerToRoom.delete(playerId);
 
-  if (room.clients.size === 0) {
-    rooms.delete(roomCode);
-    return;
-  }
-
-  const disconnected = room.players.find((player) => player.id === playerId);
-  if (disconnected?.isHost) {
-    const nextHost = room.players.find((player) => player.id !== playerId);
+  const leaving = room.players.find((player) => player.id === playerId);
+  if (leaving?.isHost) {
+    const nextHost = pickNextHost(room.players, playerId);
     if (nextHost) {
       for (const player of room.players) {
         player.isHost = player.id === nextHost.id;
@@ -313,6 +366,12 @@ function removeClient(playerId: string): void {
   }
 
   room.players = room.players.filter((player) => player.id !== playerId);
+
+  if (room.players.length === 0) {
+    rooms.delete(roomCode);
+    return;
+  }
+
   pushRoomState(room);
 }
 
@@ -336,6 +395,15 @@ function profileFromMessage(profile: PlayerProfile): PlayerProfile {
   };
 }
 
+function playerHasAgentChoice(player: LobbyPlayer): boolean {
+  return !!player.selectedAgentId || !!player.isRandomizePending;
+}
+
+function getPlayerTurnIndex(room: Room, playerId: string): number | null {
+  const map = buildPlayerIndexById(room.players);
+  return map[playerId] ?? null;
+}
+
 function findFirstEmptyLobbySlot(players: LobbyPlayer[]): number | null {
   const occupied = new Set(players.map((player) => player.slotIndex));
 
@@ -354,6 +422,7 @@ function handleCreate(ws: WebSocket, profile: PlayerProfile): void {
   const host: LobbyPlayer = {
     id: playerId,
     slotIndex: 0,
+    joinedAt: Date.now(),
     name: normalized.name,
     avatar: normalized.avatar,
     twitchLogin: normalized.twitchLogin,
@@ -415,6 +484,7 @@ function handleJoin(ws: WebSocket, rawCode: string, profile: PlayerProfile): voi
   const player: LobbyPlayer = {
     id: playerId,
     slotIndex,
+    joinedAt: Date.now(),
     name: normalized.name,
     avatar: normalized.avatar,
     twitchLogin: normalized.twitchLogin,
@@ -482,7 +552,7 @@ function handleMessage(ws: WebSocket, raw: string): void {
       return;
     case "leave": {
       const ctx = getClientContext(ws);
-      if (ctx) removeClient(ctx.playerId);
+      if (ctx) removePlayerOnExplicitLeave(ctx.playerId);
       return;
     }
     default:
@@ -531,6 +601,47 @@ function handleMessage(ws: WebSocket, raw: string): void {
         return;
       }
       player.selectedAgentId = agentId;
+      player.isRandomizePending = false;
+      player.isReady = false;
+      pushRoomState(room);
+      return;
+    }
+    case "toggle_randomize": {
+      if (room.status !== "waiting") return;
+      if (player.isRandomizePending) {
+        player.isRandomizePending = false;
+      } else {
+        player.isRandomizePending = true;
+        player.selectedAgentId = undefined;
+      }
+      player.isReady = false;
+      pushRoomState(room);
+      return;
+    }
+    case "randomize_all": {
+      if (room.status !== "waiting") return;
+      if (!player.isHost) {
+        send(ws, { type: "error", message: "Only the host can randomize all players." });
+        return;
+      }
+      for (const entry of room.players) {
+        entry.isRandomizePending = true;
+        entry.selectedAgentId = undefined;
+        entry.isReady = false;
+      }
+      pushRoomState(room);
+      return;
+    }
+    case "set_ready": {
+      if (room.status !== "waiting") return;
+      if (!playerHasAgentChoice(player)) {
+        send(ws, {
+          type: "error",
+          message: "Pick an agent or choose random before readying up.",
+        });
+        return;
+      }
+      player.isReady = message.ready;
       pushRoomState(room);
       return;
     }
@@ -546,19 +657,108 @@ function handleMessage(ws: WebSocket, raw: string): void {
         });
         return;
       }
-      if (!room.players.every((entry) => !!entry.selectedAgentId)) {
+      if (!room.players.every((entry) => playerHasAgentChoice(entry))) {
         send(ws, {
           type: "error",
-          message: "Every player must pick a starting agent first.",
+          message: "Every player must pick an agent or choose random first.",
+        });
+        return;
+      }
+      if (!room.players.every((entry) => entry.isReady)) {
+        const notReady = room.players.filter((entry) => !entry.isReady);
+        const names = notReady.map((entry) => entry.name).join(", ");
+        send(ws, {
+          type: "error",
+          message: `Waiting for ready: ${names}`,
         });
         return;
       }
       room.status = "starting";
-      const payload = { type: "game_starting" as const, players: roomState(room).players };
+      const sequence = buildTurnOrderDiceSequence(room.players.length);
+      room.turnOrder = {
+        sequence,
+        rolledInStep: new Map(),
+      };
+      const payload = {
+        type: "game_starting" as const,
+        payload: {
+          players: roomState(room).players,
+          turnOrder: {
+            sequence,
+            playerIndexById: buildPlayerIndexById(room.players),
+          },
+        },
+      };
       for (const client of room.clients.values()) {
         send(client.ws, payload);
       }
       room.status = "in_game";
+      return;
+    }
+    case "turn_order_roll": {
+      if (room.status !== "in_game" || !room.turnOrder) return;
+      const stepIndex = message.stepIndex;
+      const step = room.turnOrder.sequence.steps[stepIndex];
+      if (!step || step.kind !== "roll-round") {
+        send(ws, { type: "error", message: "Invalid turn order roll." });
+        return;
+      }
+      const playerIndex = getPlayerTurnIndex(room, playerId);
+      if (playerIndex == null) return;
+      const inRound = step.players.some((entry) => entry.playerIndex === playerIndex);
+      if (!inRound) {
+        send(ws, { type: "error", message: "You cannot roll right now." });
+        return;
+      }
+      const rolled = room.turnOrder.rolledInStep.get(stepIndex) ?? new Set<string>();
+      if (rolled.has(playerId)) return;
+      const roll = getRollForPlayer(step, playerIndex);
+      if (roll == null) return;
+      rolled.add(playerId);
+      room.turnOrder.rolledInStep.set(stepIndex, rolled);
+      const rollMessage: ServerMessage = {
+        type: "turn_order_roll",
+        stepIndex,
+        playerId,
+        playerIndex,
+        roll,
+      };
+      for (const client of room.clients.values()) {
+        send(client.ws, rollMessage);
+      }
+      return;
+    }
+    case "turn_order_done": {
+      if (!player.isHost) {
+        send(ws, { type: "error", message: "Only the host can begin the match." });
+        return;
+      }
+      for (const client of room.clients.values()) {
+        send(client.ws, { type: "turn_order_done" });
+      }
+      return;
+    }
+    case "chat_message": {
+      if (room.status !== "waiting") return;
+      const text = message.text.trim().slice(0, 500);
+      if (!text) {
+        send(ws, { type: "error", message: "Message cannot be empty." });
+        return;
+      }
+      const chatMessage = {
+        id: randomBytes(8).toString("hex"),
+        playerId,
+        playerName: player.name,
+        text,
+        sentAt: Date.now(),
+      };
+      const payload: ServerMessage = {
+        type: "chat_message",
+        message: chatMessage,
+      };
+      for (const client of room.clients.values()) {
+        send(client.ws, payload);
+      }
       return;
     }
     default:
@@ -568,7 +768,11 @@ function handleMessage(ws: WebSocket, raw: string): void {
 
 const httpServer = createServer(handleHttpRequest);
 
-const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+const wss = new WebSocketServer({
+  server: httpServer,
+  path: "/ws",
+  perMessageDeflate: false,
+});
 
 wss.on("connection", (ws) => {
   ws.on("message", (data) => {
@@ -577,7 +781,7 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     const ctx = getClientContext(ws);
-    if (ctx) removeClient(ctx.playerId);
+    if (ctx) disconnectClient(ctx.playerId);
   });
 });
 

@@ -27,6 +27,16 @@ type Props = {
   getAgentName: (player: PlayerInGame) => string;
   rollDurationMs?: number;
   resultHoldMs?: number;
+  /** When set, uses this sequence instead of generating locally. */
+  sequence?: TurnOrderDiceSequence;
+  multiplayer?: {
+    localPlayerIndex: number;
+    onRequestRoll: (stepIndex: number) => void;
+    syncedRoll: { playerIndex: number; roll: number; nonce: number } | null;
+    isHost: boolean;
+    onHostBegin: () => void;
+    hostBeginPending?: boolean;
+  };
   onComplete: (order: number[]) => void;
 };
 
@@ -109,10 +119,12 @@ export default function TurnOrderScreen({
   getAgentName: _getAgentName,
   rollDurationMs = 1400,
   resultHoldMs = 900,
+  sequence: sequenceProp,
+  multiplayer,
   onComplete,
 }: Props) {
   const [sequence, setSequence] = useState<TurnOrderDiceSequence>(() =>
-    buildTurnOrderDiceSequence(players.length)
+    sequenceProp ?? buildTurnOrderDiceSequence(players.length)
   );
   const [stepIndex, setStepIndex] = useState(0);
   const [introPhase, setIntroPhase] = useState<IntroPhase>("title");
@@ -137,7 +149,11 @@ export default function TurnOrderScreen({
   const slots = buildFixedPlayerSlots(players, MAX_LOBBY_SLOTS);
 
   useEffect(() => {
-    setSequence(buildTurnOrderDiceSequence(players.length));
+    if (sequenceProp) {
+      setSequence(sequenceProp);
+    } else {
+      setSequence(buildTurnOrderDiceSequence(players.length));
+    }
     setStepIndex(0);
     setIntroPhase("title");
     setTitlePlaying(false);
@@ -147,7 +163,7 @@ export default function TurnOrderScreen({
     setRevealedRolls({});
     setPlacements([]);
     setShowBeginButton(false);
-  }, [players.length]);
+  }, [players.length, sequenceProp]);
 
   useEffect(() => {
     if (introPhase !== "title") return;
@@ -280,14 +296,7 @@ export default function TurnOrderScreen({
     return () => window.clearTimeout(timer);
   }, [isReady]);
 
-  async function handlePlayerRoll(playerIndex: number) {
-    if (introPhase !== "gameplay" || !columnsReady) return;
-    if (!currentStep || currentStep.kind !== "roll-round") return;
-    if (playerRollPhases[playerIndex] !== "idle") return;
-
-    const roll = getRollForPlayer(currentStep, playerIndex);
-    if (roll == null) return;
-
+  async function runPlayerRollAnimation(playerIndex: number, roll: number) {
     setBouncingPlayerIndex(playerIndex);
 
     await delay(DICE_BOUNCE_MS);
@@ -316,6 +325,30 @@ export default function TurnOrderScreen({
       ...current,
       [playerIndex]: "result",
     }));
+  }
+
+  useEffect(() => {
+    if (!multiplayer?.syncedRoll) return;
+    const { playerIndex, roll } = multiplayer.syncedRoll;
+    void runPlayerRollAnimation(playerIndex, roll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- trigger on synced roll nonce only
+  }, [multiplayer?.syncedRoll?.nonce]);
+
+  async function handlePlayerRoll(playerIndex: number) {
+    if (introPhase !== "gameplay" || !columnsReady) return;
+    if (!currentStep || currentStep.kind !== "roll-round") return;
+    if (playerRollPhases[playerIndex] !== "idle") return;
+
+    const roll = getRollForPlayer(currentStep, playerIndex);
+    if (roll == null) return;
+
+    if (multiplayer) {
+      if (playerIndex !== multiplayer.localPlayerIndex) return;
+      multiplayer.onRequestRoll(stepIndex);
+      return;
+    }
+
+    await runPlayerRollAnimation(playerIndex, roll);
   }
 
   const subtitle = currentStep
@@ -410,7 +443,10 @@ export default function TurnOrderScreen({
               player != null &&
               ((isInActiveRound && rollPhase != null) || roll != null);
             const canRoll =
-              isInActiveRound && rollPhase === "idle" && rollingEnabled;
+              isInActiveRound &&
+              rollPhase === "idle" &&
+              rollingEnabled &&
+              (!multiplayer || playerIndex === multiplayer.localPlayerIndex);
             const pendingRoll =
               isInActiveRound &&
               currentStep?.kind === "roll-round" &&
@@ -516,8 +552,8 @@ export default function TurnOrderScreen({
                         }`}
                         aria-label={
                           canRoll
-                            ? `Roll dice for ${player.name}`
-                            : `${player.name} dice`
+                            ? `Gooi dobbelsteen voor ${player.name}`
+                            : `${player.name} dobbelsteen`
                         }
                       >
                         <div className="relative flex min-h-[7.5rem] flex-col items-center justify-end pt-7">
@@ -564,7 +600,7 @@ export default function TurnOrderScreen({
                       introPhase === "gameplay" &&
                       columnsReady && (
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                          Waiting
+                          Wachten
                         </p>
                       )}
                   </div>
@@ -583,16 +619,33 @@ export default function TurnOrderScreen({
             }
             aria-hidden={!isReady || !showBeginButton}
           >
-            <p className="text-sm text-zinc-400">Press to start the match</p>
-            <button
-              type="button"
-              onClick={() => onCompleteRef.current(sequence!.order)}
-              disabled={!isReady || !showBeginButton}
-              tabIndex={isReady && showBeginButton ? 0 : -1}
-              className="w-full rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-10 py-4 text-lg font-bold uppercase tracking-[0.12em] text-white shadow-[0_0_32px_rgba(255,70,85,0.35)] transition hover:brightness-110 disabled:pointer-events-none sm:w-auto sm:min-w-[280px]"
-            >
-              Begin match
-            </button>
+            {multiplayer && !multiplayer.isHost ? (
+              <p className="text-sm text-zinc-400">
+                Turn order locked — waiting for host...
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-zinc-400">Press to start the match</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (multiplayer?.isHost) {
+                      multiplayer.onHostBegin();
+                    }
+                    onCompleteRef.current(sequence!.order);
+                  }}
+                  disabled={
+                    !isReady ||
+                    !showBeginButton ||
+                    !!multiplayer?.hostBeginPending
+                  }
+                  tabIndex={isReady && showBeginButton ? 0 : -1}
+                  className="w-full rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-10 py-4 text-lg font-bold uppercase tracking-[0.12em] text-white shadow-[0_0_32px_rgba(255,70,85,0.35)] transition hover:brightness-110 disabled:pointer-events-none sm:w-auto sm:min-w-[280px]"
+                >
+                  Begin match
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

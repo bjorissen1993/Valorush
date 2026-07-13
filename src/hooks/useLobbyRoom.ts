@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Agent } from "../types/Agent";
-import type { LobbyPlayer, LobbyRoomState, PlayerProfile } from "../../shared/lobbyTypes";
-import { LobbyClient, type LobbyConnectionStatus } from "../services/lobbyClient";
+import type {
+  GameStartingPayload,
+  LobbyChatMessage,
+  LobbyRoomState,
+  PlayerProfile,
+} from "../../shared/lobbyTypes";
+import { LobbyClient, readLobbySession, type LobbyConnectionStatus } from "../services/lobbyClient";
 
 type UseLobbyRoomOptions = {
   mode: "create" | "join";
@@ -18,6 +23,7 @@ export function useLobbyRoom({
 }: UseLobbyRoomOptions) {
   const clientRef = useRef<LobbyClient | null>(null);
   const bootstrappedRef = useRef(false);
+  const rejoinAttemptedRef = useRef(false);
 
   const [roomState, setRoomState] = useState<LobbyRoomState | null>(null);
   const [yourPlayerId, setYourPlayerId] = useState<string | null>(null);
@@ -25,9 +31,10 @@ export function useLobbyRoom({
   const [connectionStatus, setConnectionStatus] =
     useState<LobbyConnectionStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
-  const [gameStartingPlayers, setGameStartingPlayers] = useState<
-    LobbyPlayer[] | null
+  const [gameStartingPayload, setGameStartingPayload] = useState<
+    GameStartingPayload | null
   >(null);
+  const [chatMessages, setChatMessages] = useState<LobbyChatMessage[]>([]);
 
   const yourPlayer = useMemo(() => {
     if (!roomState || !yourPlayerId) return null;
@@ -44,10 +51,25 @@ export function useLobbyRoom({
         setIsHost(host);
         setError(null);
       },
-      onGameStarting: (players) => {
-        setGameStartingPlayers(players);
+      onGameStarting: (payload) => {
+        setGameStartingPayload(payload);
+      },
+      onTurnOrderRoll: () => {},
+      onTurnOrderDone: () => {},
+      onChatMessage: (message) => {
+        setChatMessages((prev) => [...prev, message]);
       },
       onError: (message) => {
+        if (
+          rejoinAttemptedRef.current &&
+          mode === "join" &&
+          joinCode &&
+          message.toLowerCase().includes("slot expired")
+        ) {
+          rejoinAttemptedRef.current = false;
+          clientRef.current?.joinLobby(joinCode, profile);
+          return;
+        }
         setError(message);
       },
       onStatusChange: (status) => {
@@ -62,6 +84,7 @@ export function useLobbyRoom({
       client.disconnect();
       clientRef.current = null;
       bootstrappedRef.current = false;
+      rejoinAttemptedRef.current = false;
     };
   }, [enabled]);
 
@@ -77,6 +100,19 @@ export function useLobbyRoom({
     }
 
     if (mode === "join" && joinCode) {
+      const normalizedCode = joinCode.trim().toUpperCase();
+      const session = readLobbySession();
+
+      if (
+        session?.code === normalizedCode &&
+        session.playerId &&
+        !rejoinAttemptedRef.current
+      ) {
+        rejoinAttemptedRef.current = true;
+        clientRef.current.rejoinLobby(session.code, session.playerId);
+        return;
+      }
+
       clientRef.current.joinLobby(joinCode, profile);
     }
   }, [connectionStatus, enabled, joinCode, mode, profile]);
@@ -85,8 +121,24 @@ export function useLobbyRoom({
     clientRef.current?.selectAgent(agentId);
   }, []);
 
+  const toggleRandomize = useCallback(() => {
+    clientRef.current?.toggleRandomize();
+  }, []);
+
+  const randomizeAll = useCallback(() => {
+    clientRef.current?.randomizeAll();
+  }, []);
+
+  const setReady = useCallback((ready: boolean) => {
+    clientRef.current?.setReady(ready);
+  }, []);
+
   const startGame = useCallback(() => {
     clientRef.current?.startGame();
+  }, []);
+
+  const sendChatMessage = useCallback((text: string) => {
+    clientRef.current?.sendChatMessage(text);
   }, []);
 
   const leaveLobby = useCallback(() => {
@@ -100,9 +152,14 @@ export function useLobbyRoom({
     isHost,
     connectionStatus,
     error,
-    gameStartingPlayers,
+    gameStartingPayload,
     selectAgent,
+    toggleRandomize,
+    randomizeAll,
+    setReady,
     startGame,
+    sendChatMessage,
+    chatMessages,
     leaveLobby,
   };
 }

@@ -1,5 +1,7 @@
 import type {
   ClientMessage,
+  GameStartingPayload,
+  LobbyChatMessage,
   LobbyPlayer,
   LobbyRoomState,
   PlayerProfile,
@@ -33,7 +35,23 @@ export function getStoredLobbyWsUrl(): string | null {
 }
 
 export function setStoredLobbyWsUrl(url: string): void {
-  localStorage.setItem(LOBBY_WS_URL_KEY, url.trim());
+  localStorage.setItem(LOBBY_WS_URL_KEY, normalizeLobbyWsUrl(url));
+}
+
+export function clearStoredLobbyWsUrl(): void {
+  try {
+    localStorage.removeItem(LOBBY_WS_URL_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function isLocalhostHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]"
+  );
 }
 
 export function normalizeLobbyWsUrl(input: string): string {
@@ -56,7 +74,21 @@ export function normalizeLobbyWsUrl(input: string): string {
 
 export function getLobbyWsUrl(): string {
   const stored = getStoredLobbyWsUrl();
-  if (stored) return stored;
+  if (stored) {
+    try {
+      const normalized = normalizeLobbyWsUrl(stored);
+      const storedHost = new URL(normalized).hostname;
+      const pageHost = window.location.hostname;
+
+      if (!isLocalhostHost(pageHost) && isLocalhostHost(storedHost)) {
+        clearStoredLobbyWsUrl();
+      } else {
+        return normalized;
+      }
+    } catch {
+      clearStoredLobbyWsUrl();
+    }
+  }
 
   const configured = getBakedLobbyWsUrl();
   if (configured) return configured;
@@ -82,9 +114,19 @@ export function clearLobbySession(): void {
   sessionStorage.removeItem(SESSION_PLAYER_ID);
 }
 
+export type TurnOrderRollEvent = {
+  stepIndex: number;
+  playerId: string;
+  playerIndex: number;
+  roll: number;
+};
+
 export type LobbyClientCallbacks = {
   onRoomState: (state: LobbyRoomState, yourPlayerId: string, isHost: boolean) => void;
-  onGameStarting: (players: LobbyPlayer[]) => void;
+  onGameStarting: (payload: GameStartingPayload) => void;
+  onTurnOrderRoll: (event: TurnOrderRollEvent) => void;
+  onTurnOrderDone: () => void;
+  onChatMessage: (message: LobbyChatMessage) => void;
   onError: (message: string) => void;
   onStatusChange: (status: LobbyConnectionStatus) => void;
 };
@@ -93,6 +135,7 @@ export class LobbyClient {
   private ws: WebSocket | null = null;
   private callbacks: LobbyClientCallbacks;
   private intentionalClose = false;
+  private hadConnection = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRejoin: { code: string; playerId: string } | null = null;
 
@@ -109,10 +152,22 @@ export class LobbyClient {
 
     ws.onopen = () => {
       this.callbacks.onStatusChange("connected");
+
       if (this.pendingRejoin) {
         this.send({ type: "rejoin", ...this.pendingRejoin });
         this.pendingRejoin = null;
+      } else if (this.hadConnection) {
+        const session = readLobbySession();
+        if (session) {
+          this.send({
+            type: "rejoin",
+            code: session.code,
+            playerId: session.playerId,
+          });
+        }
       }
+
+      this.hadConnection = true;
     };
 
     ws.onmessage = (event) => {
@@ -154,7 +209,21 @@ export class LobbyClient {
         );
         return;
       case "game_starting":
-        this.callbacks.onGameStarting(message.players);
+        this.callbacks.onGameStarting(message.payload);
+        return;
+      case "turn_order_roll":
+        this.callbacks.onTurnOrderRoll({
+          stepIndex: message.stepIndex,
+          playerId: message.playerId,
+          playerIndex: message.playerIndex,
+          roll: message.roll,
+        });
+        return;
+      case "turn_order_done":
+        this.callbacks.onTurnOrderDone();
+        return;
+      case "chat_message":
+        this.callbacks.onChatMessage(message.message);
         return;
       case "error":
         this.callbacks.onError(message.message);
@@ -179,12 +248,40 @@ export class LobbyClient {
     this.send({ type: "join", code, profile });
   }
 
+  rejoinLobby(code: string, playerId: string): void {
+    this.send({ type: "rejoin", code, playerId });
+  }
+
   scheduleRejoin(code: string, playerId: string): void {
     this.pendingRejoin = { code, playerId };
   }
 
   selectAgent(agentId: string): void {
     this.send({ type: "select_agent", agentId });
+  }
+
+  toggleRandomize(): void {
+    this.send({ type: "toggle_randomize" });
+  }
+
+  randomizeAll(): void {
+    this.send({ type: "randomize_all" });
+  }
+
+  setReady(ready: boolean): void {
+    this.send({ type: "set_ready", ready });
+  }
+
+  sendChatMessage(text: string): void {
+    this.send({ type: "chat_message", text });
+  }
+
+  requestTurnOrderRoll(stepIndex: number): void {
+    this.send({ type: "turn_order_roll", stepIndex });
+  }
+
+  finishTurnOrder(): void {
+    this.send({ type: "turn_order_done" });
   }
 
   startGame(): void {
@@ -199,6 +296,7 @@ export class LobbyClient {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.hadConnection = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

@@ -3725,9 +3725,171 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 // shared/lobbyTypes.ts
 var MAX_LOBBY_PLAYERS = 4;
 
+// shared/turnOrderDiceSystem.ts
+function rollD6() {
+  return Math.floor(Math.random() * 6) + 1;
+}
+function getPlaceLabel(place) {
+  switch (place) {
+    case 1:
+      return "1st";
+    case 2:
+      return "2nd";
+    case 3:
+      return "3rd";
+    default:
+      return "4th";
+  }
+}
+function appendRevealStep(steps, order, place, playerIndex, roll) {
+  if (order[place - 1] !== void 0) return;
+  order[place - 1] = playerIndex;
+  steps.push({
+    kind: "reveal",
+    place,
+    playerIndex,
+    roll
+  });
+}
+function revealLockedPlacementsFromTie(remaining, contenders, place, playerCount, originalRolls, steps, order) {
+  const nonContenders = remaining.filter((index2) => !contenders.includes(index2));
+  const startPlace = place + contenders.length;
+  if (nonContenders.length === 0 || startPlace > playerCount) {
+    return remaining;
+  }
+  const sorted = [...nonContenders].sort(
+    (left, right) => originalRolls[right] - originalRolls[left]
+  );
+  let currentPlace = startPlace;
+  let index = 0;
+  const revealed = /* @__PURE__ */ new Set();
+  while (index < sorted.length && currentPlace <= playerCount) {
+    const roll = originalRolls[sorted[index]];
+    const group = [];
+    while (index < sorted.length && originalRolls[sorted[index]] === roll) {
+      group.push(sorted[index]);
+      index += 1;
+    }
+    if (group.length !== 1) {
+      break;
+    }
+    appendRevealStep(
+      steps,
+      order,
+      currentPlace,
+      group[0],
+      roll
+    );
+    revealed.add(group[0]);
+    currentPlace += 1;
+  }
+  return remaining.filter((playerIndex) => !revealed.has(playerIndex));
+}
+function runTiebreakForPlace(contenders, place, tiedRoll, steps) {
+  const placeLabel = getPlaceLabel(place);
+  steps.push({
+    kind: "announce",
+    message: `Tie on ${tiedRoll}! Only tied players re-roll for ${placeLabel}`
+  });
+  let activeContenders = [...contenders];
+  while (activeContenders.length > 1) {
+    const tiebreakRolls = {};
+    for (const playerIndex of activeContenders) {
+      tiebreakRolls[playerIndex] = rollD6();
+    }
+    steps.push({
+      kind: "roll-round",
+      players: activeContenders.map((playerIndex) => ({
+        playerIndex,
+        roll: tiebreakRolls[playerIndex]
+      })),
+      isTiebreak: true
+    });
+    const tieMax = Math.max(
+      ...activeContenders.map((index) => tiebreakRolls[index])
+    );
+    const top = activeContenders.filter(
+      (index) => tiebreakRolls[index] === tieMax
+    );
+    if (top.length === 1) {
+      return top[0];
+    }
+    steps.push({
+      kind: "announce",
+      message: `Still tied on ${tieMax}! Re-rolling for ${placeLabel}`
+    });
+    activeContenders = top;
+  }
+  return activeContenders[0];
+}
+function buildTurnOrderDiceSequence(playerCount) {
+  const playerIndices = Array.from({ length: playerCount }, (_, index) => index);
+  const originalRolls = {};
+  const steps = [];
+  for (const playerIndex of playerIndices) {
+    originalRolls[playerIndex] = rollD6();
+  }
+  steps.push({
+    kind: "roll-round",
+    players: playerIndices.map((playerIndex) => ({
+      playerIndex,
+      roll: originalRolls[playerIndex]
+    })),
+    isTiebreak: false
+  });
+  const order = new Array(playerCount);
+  let remaining = [...playerIndices];
+  for (let place = 1; place <= playerCount; place += 1) {
+    if (remaining.length === 0) break;
+    const maxRoll = Math.max(
+      ...remaining.map((index) => originalRolls[index])
+    );
+    const contenders = remaining.filter(
+      (index) => originalRolls[index] === maxRoll
+    );
+    if (contenders.length > 1) {
+      remaining = revealLockedPlacementsFromTie(
+        remaining,
+        contenders,
+        place,
+        playerCount,
+        originalRolls,
+        steps,
+        order
+      );
+    }
+    const winner = contenders.length === 1 ? contenders[0] : runTiebreakForPlace(contenders, place, maxRoll, steps);
+    remaining = remaining.filter((index) => index !== winner);
+    appendRevealStep(
+      steps,
+      order,
+      place,
+      winner,
+      originalRolls[winner]
+    );
+  }
+  steps.push({
+    kind: "announce",
+    message: "Turn order locked in"
+  });
+  steps.push({ kind: "ready" });
+  return { order, originalRolls, steps };
+}
+function getRollForPlayer(step, playerIndex) {
+  return step.players.find((entry) => entry.playerIndex === playerIndex)?.roll;
+}
+function buildPlayerIndexById(players) {
+  const sorted = [...players].sort((left, right) => left.slotIndex - right.slotIndex);
+  const map = {};
+  sorted.forEach((player, index) => {
+    map[player.id] = index;
+  });
+  return map;
+}
+
 // server/index.ts
 var PORT = Number(process.env.PORT ?? process.env.LOBBY_PORT ?? 3001);
-var ROOT_DIR = process.env.VALORUSH_ROOT?.trim() || (0, import_node_path.join)((0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(__import_meta_url)), "..");
+var ROOT_DIR = process.env.VALORUSH_ROOT?.trim() || process.cwd() || (0, import_node_path.join)((0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(__import_meta_url)), "..");
 var DIST_DIR = process.env.VALORUSH_DIST?.trim() || (0, import_node_path.join)(ROOT_DIR, "dist");
 function loadEnvFiles() {
   const envDirs = [ROOT_DIR];
@@ -3870,6 +4032,19 @@ function handleHttpRequest(req, res) {
     sendJson(res, 405, { error: "Method not allowed" });
     return;
   }
+  if (pathname === "/api/health") {
+    sendJson(res, 200, {
+      ok: true,
+      wsPath: "/ws",
+      servingApp: (0, import_node_fs.existsSync)((0, import_node_path.join)(DIST_DIR, "index.html"))
+    });
+    return;
+  }
+  if (pathname === "/ws") {
+    res.writeHead(426, { "Content-Type": "text/plain" });
+    res.end("Upgrade Required");
+    return;
+  }
   const indexPath = (0, import_node_path.join)(DIST_DIR, "index.html");
   if (!(0, import_node_fs.existsSync)(indexPath)) {
     res.writeHead(200, { "Content-Type": "text/plain" });
@@ -3926,7 +4101,7 @@ function pushRoomState(room) {
     });
   }
 }
-function removeClient(playerId) {
+function disconnectClient(playerId) {
   const roomCode = playerToRoom.get(playerId);
   if (!roomCode) return;
   const room = rooms.get(roomCode);
@@ -3936,13 +4111,30 @@ function removeClient(playerId) {
   }
   room.clients.delete(playerId);
   playerToRoom.delete(playerId);
-  if (room.clients.size === 0) {
-    rooms.delete(roomCode);
+}
+function pickNextHost(players, leavingPlayerId) {
+  let nextHost = null;
+  for (const player of players) {
+    if (player.id === leavingPlayerId) continue;
+    if (!nextHost || player.joinedAt < nextHost.joinedAt) {
+      nextHost = player;
+    }
+  }
+  return nextHost;
+}
+function removePlayerOnExplicitLeave(playerId) {
+  const roomCode = playerToRoom.get(playerId);
+  if (!roomCode) return;
+  const room = rooms.get(roomCode);
+  if (!room) {
+    playerToRoom.delete(playerId);
     return;
   }
-  const disconnected = room.players.find((player) => player.id === playerId);
-  if (disconnected?.isHost) {
-    const nextHost = room.players.find((player) => player.id !== playerId);
+  room.clients.delete(playerId);
+  playerToRoom.delete(playerId);
+  const leaving = room.players.find((player) => player.id === playerId);
+  if (leaving?.isHost) {
+    const nextHost = pickNextHost(room.players, playerId);
     if (nextHost) {
       for (const player of room.players) {
         player.isHost = player.id === nextHost.id;
@@ -3950,6 +4142,10 @@ function removeClient(playerId) {
     }
   }
   room.players = room.players.filter((player) => player.id !== playerId);
+  if (room.players.length === 0) {
+    rooms.delete(roomCode);
+    return;
+  }
   pushRoomState(room);
 }
 function attachClient(room, ws, playerId) {
@@ -3968,6 +4164,13 @@ function profileFromMessage(profile) {
     twitchImportedName: profile.twitchImportedName?.trim() || (twitchLogin ? name : void 0)
   };
 }
+function playerHasAgentChoice(player) {
+  return !!player.selectedAgentId || !!player.isRandomizePending;
+}
+function getPlayerTurnIndex(room, playerId) {
+  const map = buildPlayerIndexById(room.players);
+  return map[playerId] ?? null;
+}
 function findFirstEmptyLobbySlot(players) {
   const occupied = new Set(players.map((player) => player.slotIndex));
   for (let index = 0; index < MAX_LOBBY_PLAYERS; index += 1) {
@@ -3982,6 +4185,7 @@ function handleCreate(ws, profile) {
   const host = {
     id: playerId,
     slotIndex: 0,
+    joinedAt: Date.now(),
     name: normalized.name,
     avatar: normalized.avatar,
     twitchLogin: normalized.twitchLogin,
@@ -4033,6 +4237,7 @@ function handleJoin(ws, rawCode, profile) {
   const player = {
     id: playerId,
     slotIndex,
+    joinedAt: Date.now(),
     name: normalized.name,
     avatar: normalized.avatar,
     twitchLogin: normalized.twitchLogin,
@@ -4092,7 +4297,7 @@ function handleMessage(ws, raw) {
       return;
     case "leave": {
       const ctx2 = getClientContext(ws);
-      if (ctx2) removeClient(ctx2.playerId);
+      if (ctx2) removePlayerOnExplicitLeave(ctx2.playerId);
       return;
     }
     default:
@@ -4138,6 +4343,47 @@ function handleMessage(ws, raw) {
         return;
       }
       player.selectedAgentId = agentId;
+      player.isRandomizePending = false;
+      player.isReady = false;
+      pushRoomState(room);
+      return;
+    }
+    case "toggle_randomize": {
+      if (room.status !== "waiting") return;
+      if (player.isRandomizePending) {
+        player.isRandomizePending = false;
+      } else {
+        player.isRandomizePending = true;
+        player.selectedAgentId = void 0;
+      }
+      player.isReady = false;
+      pushRoomState(room);
+      return;
+    }
+    case "randomize_all": {
+      if (room.status !== "waiting") return;
+      if (!player.isHost) {
+        send(ws, { type: "error", message: "Only the host can randomize all players." });
+        return;
+      }
+      for (const entry of room.players) {
+        entry.isRandomizePending = true;
+        entry.selectedAgentId = void 0;
+        entry.isReady = false;
+      }
+      pushRoomState(room);
+      return;
+    }
+    case "set_ready": {
+      if (room.status !== "waiting") return;
+      if (!playerHasAgentChoice(player)) {
+        send(ws, {
+          type: "error",
+          message: "Pick an agent or choose random before readying up."
+        });
+        return;
+      }
+      player.isReady = message.ready;
       pushRoomState(room);
       return;
     }
@@ -4153,19 +4399,85 @@ function handleMessage(ws, raw) {
         });
         return;
       }
-      if (!room.players.every((entry) => !!entry.selectedAgentId)) {
+      if (!room.players.every((entry) => playerHasAgentChoice(entry))) {
         send(ws, {
           type: "error",
-          message: "Every player must pick a starting agent first."
+          message: "Every player must pick an agent or choose random first."
+        });
+        return;
+      }
+      if (!room.players.every((entry) => entry.isReady)) {
+        const notReady = room.players.filter((entry) => !entry.isReady);
+        const names = notReady.map((entry) => entry.name).join(", ");
+        send(ws, {
+          type: "error",
+          message: `Waiting for ready: ${names}`
         });
         return;
       }
       room.status = "starting";
-      const payload = { type: "game_starting", players: roomState(room).players };
+      const sequence = buildTurnOrderDiceSequence(room.players.length);
+      room.turnOrder = {
+        sequence,
+        rolledInStep: /* @__PURE__ */ new Map()
+      };
+      const payload = {
+        type: "game_starting",
+        payload: {
+          players: roomState(room).players,
+          turnOrder: {
+            sequence,
+            playerIndexById: buildPlayerIndexById(room.players)
+          }
+        }
+      };
       for (const client of room.clients.values()) {
         send(client.ws, payload);
       }
       room.status = "in_game";
+      return;
+    }
+    case "turn_order_roll": {
+      if (room.status !== "in_game" || !room.turnOrder) return;
+      const stepIndex = message.stepIndex;
+      const step = room.turnOrder.sequence.steps[stepIndex];
+      if (!step || step.kind !== "roll-round") {
+        send(ws, { type: "error", message: "Invalid turn order roll." });
+        return;
+      }
+      const playerIndex = getPlayerTurnIndex(room, playerId);
+      if (playerIndex == null) return;
+      const inRound = step.players.some((entry) => entry.playerIndex === playerIndex);
+      if (!inRound) {
+        send(ws, { type: "error", message: "You cannot roll right now." });
+        return;
+      }
+      const rolled = room.turnOrder.rolledInStep.get(stepIndex) ?? /* @__PURE__ */ new Set();
+      if (rolled.has(playerId)) return;
+      const roll = getRollForPlayer(step, playerIndex);
+      if (roll == null) return;
+      rolled.add(playerId);
+      room.turnOrder.rolledInStep.set(stepIndex, rolled);
+      const rollMessage = {
+        type: "turn_order_roll",
+        stepIndex,
+        playerId,
+        playerIndex,
+        roll
+      };
+      for (const client of room.clients.values()) {
+        send(client.ws, rollMessage);
+      }
+      return;
+    }
+    case "turn_order_done": {
+      if (!player.isHost) {
+        send(ws, { type: "error", message: "Only the host can begin the match." });
+        return;
+      }
+      for (const client of room.clients.values()) {
+        send(client.ws, { type: "turn_order_done" });
+      }
       return;
     }
     default:
@@ -4173,14 +4485,18 @@ function handleMessage(ws, raw) {
   }
 }
 var httpServer = (0, import_node_http.createServer)(handleHttpRequest);
-var wss = new import_websocket_server.default({ server: httpServer, path: "/ws" });
+var wss = new import_websocket_server.default({
+  server: httpServer,
+  path: "/ws",
+  perMessageDeflate: false
+});
 wss.on("connection", (ws) => {
   ws.on("message", (data) => {
     handleMessage(ws, data.toString());
   });
   ws.on("close", () => {
     const ctx = getClientContext(ws);
-    if (ctx) removeClient(ctx.playerId);
+    if (ctx) disconnectClient(ctx.playerId);
   });
 });
 httpServer.listen(PORT, "0.0.0.0", () => {

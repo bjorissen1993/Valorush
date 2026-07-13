@@ -9,6 +9,7 @@
  */
 
 import { readTwitchEnv } from "./twitchEnv";
+import { saveTwitchLink } from "./twitchLinkStorage";
 
 export type TwitchIdentity = {
   id: string;
@@ -20,13 +21,48 @@ export type TwitchIdentity = {
 const CODE_VERIFIER_KEY = "valorush_twitch_code_verifier";
 const OAUTH_STATE_KEY = "valorush_twitch_oauth_state";
 const RETURN_PATH_KEY = "valorush_twitch_oauth_return";
+const OAUTH_ERROR_KEY = "valorush_twitch_oauth_error";
 
 function getClientId(): string | undefined {
   return readTwitchEnv().clientId;
 }
 
+/** True when OAuth can start and the dev/prod token proxy has credentials. */
 export function isTwitchOAuthConfigured(): boolean {
-  return !!getClientId();
+  const env = readTwitchEnv();
+  if (!env.clientId) return false;
+  // Local dev exchanges codes via the Vite middleware in vite.config.ts.
+  if (env.isDev && !env.clientSecret) return false;
+  return true;
+}
+
+export function getTwitchOAuthSetupHint(): string | undefined {
+  const env = readTwitchEnv();
+  if (!env.clientId) {
+    return "Add VITE_TWITCH_CLIENT_ID to .env.local and restart npm run dev.";
+  }
+  if (env.isDev && !env.clientSecret) {
+    return "Add VITE_TWITCH_CLIENT_SECRET to .env.local and restart npm run dev.";
+  }
+  return undefined;
+}
+
+export function consumeTwitchOAuthError(): string | null {
+  try {
+    const message = sessionStorage.getItem(OAUTH_ERROR_KEY);
+    sessionStorage.removeItem(OAUTH_ERROR_KEY);
+    return message;
+  } catch {
+    return null;
+  }
+}
+
+function saveTwitchOAuthError(message: string): void {
+  try {
+    sessionStorage.setItem(OAUTH_ERROR_KEY, message);
+  } catch {
+    // Ignore storage access errors.
+  }
 }
 
 export function getTwitchRedirectUri(): string {
@@ -103,11 +139,36 @@ async function exchangeCodeForToken(code: string, verifier: string): Promise<str
     }),
   });
 
+  const json = (await response.json()) as {
+    access_token?: string;
+    error?: string;
+    message?: string;
+  };
+
   if (!response.ok) {
-    throw new Error("Could not complete Twitch sign-in.");
+    if (
+      response.status === 400 &&
+      typeof json.error === "string" &&
+      json.error.includes("VITE_TWITCH_CLIENT")
+    ) {
+      throw new Error(
+        "Twitch OAuth is not configured. Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local and restart npm run dev."
+      );
+    }
+    if (response.status === 404) {
+      throw new Error(
+        "Twitch OAuth proxy unreachable. Run npm run dev (not preview only) and restart after .env.local changes."
+      );
+    }
+    throw new Error(
+      json.message ??
+        (json.error === "invalid_client"
+          ? "Twitch rejected the client ID or client secret. Check .env.local and restart npm run dev."
+          : json.error) ??
+        "Twitch sign-in could not be completed."
+    );
   }
 
-  const json = (await response.json()) as { access_token?: string; error?: string };
   if (!json.access_token) {
     throw new Error(json.error ?? "Twitch did not return an access token.");
   }
@@ -176,16 +237,25 @@ export async function completeTwitchOAuthIfPending(): Promise<TwitchOAuthResult 
 
   if (!storedState || state !== storedState || !verifier) {
     clearOAuthParamsFromUrl();
-    throw new Error("Twitch sign-in expired. Please try again.");
+    const message =
+      "Twitch sign-in expired. Use the same browser tab and address (localhost vs 127.0.0.1) and try again.";
+    saveTwitchOAuthError(message);
+    throw new Error(message);
   }
 
   try {
     const accessToken = await exchangeCodeForToken(code, verifier);
     const identity = await fetchTwitchIdentity(accessToken);
+    saveTwitchLink(identity);
     clearOAuthParamsFromUrl();
     return { identity, returnPath };
   } catch (error) {
     clearOAuthParamsFromUrl();
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Twitch sign-in could not be completed.";
+    saveTwitchOAuthError(message);
     throw error;
   }
 }

@@ -1,6 +1,18 @@
 import { useState } from "react";
 import type { PlayerProfile } from "../../shared/lobbyTypes";
-import { isTwitchOAuthConfigured, startTwitchOAuth } from "../services/twitchOAuth";
+import {
+  clearTwitchLink,
+  getStoredTwitchLink,
+  storedLinkToProfile,
+  type StoredTwitchLink,
+} from "../services/twitchLinkStorage";
+import {
+  consumeTwitchOAuthError,
+  getTwitchOAuthSetupHint,
+  getTwitchRedirectUri,
+  isTwitchOAuthConfigured,
+  startTwitchOAuth,
+} from "../services/twitchOAuth";
 
 type LobbyIdentityPageProps = {
   mode: "create" | "join";
@@ -15,19 +27,25 @@ export default function LobbyIdentityPage({
   onBack,
   onReady,
 }: LobbyIdentityPageProps) {
+  const [cachedLink, setCachedLink] = useState<StoredTwitchLink | null>(() =>
+    getStoredTwitchLink()
+  );
   const [guestName, setGuestName] = useState("");
   const [showGuestForm, setShowGuestForm] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => consumeTwitchOAuthError());
 
   const twitchConfigured = isTwitchOAuthConfigured();
+  const twitchSetupHint = getTwitchOAuthSetupHint();
+
+  function getOAuthReturnPath() {
+    return mode === "join" && joinCode ? `?join=${joinCode}` : "?create=1";
+  }
 
   function handleTwitchLogin() {
     setError(null);
-    const returnPath =
-      mode === "join" && joinCode ? `?join=${joinCode}` : "?create=1";
 
     try {
-      startTwitchOAuth(returnPath);
+      startTwitchOAuth(getOAuthReturnPath());
     } catch (oauthError) {
       setError(
         oauthError instanceof Error
@@ -35,6 +53,17 @@ export default function LobbyIdentityPage({
           : "Could not start Twitch sign-in."
       );
     }
+  }
+
+  function handleUseCachedLink() {
+    if (!cachedLink) return;
+    onReady(storedLinkToProfile(cachedLink));
+  }
+
+  function handleUnlink() {
+    clearTwitchLink();
+    setCachedLink(null);
+    setError(null);
   }
 
   function handleGuestJoin(event: React.FormEvent) {
@@ -48,9 +77,9 @@ export default function LobbyIdentityPage({
   }
 
   const title =
-    mode === "join" && joinCode
-      ? `Join ${joinCode}`
-      : "Create Lobby";
+    mode === "join" && joinCode ? `Join ${joinCode}` : "Create lobby";
+
+  const actionLabel = mode === "create" ? "Create lobby" : "Join lobby";
 
   return (
     <div className="min-h-screen bg-[#070b14] text-white">
@@ -69,7 +98,7 @@ export default function LobbyIdentityPage({
             </p>
             <h1 className="mt-2 text-3xl font-bold">Choose your identity</h1>
             <p className="mt-2 text-sm text-zinc-400">
-              Link Twitch to auto-fill your name and avatar, or enter a guest name.
+              Link Twitch to auto-fill your name and avatar, or play as a guest.
             </p>
           </div>
 
@@ -82,22 +111,67 @@ export default function LobbyIdentityPage({
 
             {!showGuestForm ? (
               <>
-                <button
-                  type="button"
-                  onClick={handleTwitchLogin}
-                  disabled={!twitchConfigured}
-                  className="rounded-2xl bg-[#9146FF] px-6 py-5 text-left font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <span className="block text-lg">Link Twitch</span>
-                  <span className="mt-1 block text-sm font-normal text-white/80">
-                    Uses your Twitch display name and profile picture.
-                  </span>
-                </button>
-                {!twitchConfigured && (
-                  <p className="text-xs text-amber-200/80">
-                    Add VITE_TWITCH_CLIENT_ID to .env.local and register{" "}
-                    {window.location.origin}/ as a redirect URI in the Twitch developer console.
-                  </p>
+                {cachedLink ? (
+                  <div className="rounded-2xl border border-[#9146FF]/30 bg-[#9146FF]/10 p-6">
+                    <div className="flex items-center gap-4">
+                      <img
+                        src={cachedLink.avatar}
+                        alt=""
+                        className="h-14 w-14 rounded-full border-2 border-[#9146FF]/40 object-cover"
+                      />
+                      <div>
+                        <p className="text-lg font-semibold">
+                          Welcome back @{cachedLink.twitchLogin}
+                        </p>
+                        <p className="text-sm text-zinc-400">{cachedLink.name}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-3">
+                      <button
+                        type="button"
+                        onClick={handleUseCachedLink}
+                        className="rounded-xl bg-[#9146FF] px-4 py-3 font-semibold transition hover:brightness-110"
+                      >
+                        Continue with this account
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleTwitchLogin}
+                        disabled={!twitchConfigured}
+                        className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 font-semibold text-zinc-200 transition hover:bg-black/30 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Link a different Twitch account
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleUnlink}
+                        className="rounded-xl px-4 py-2 text-sm text-zinc-500 transition hover:text-red-300"
+                      >
+                        Unlink Twitch
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleTwitchLogin}
+                      disabled={!twitchConfigured}
+                      className="rounded-2xl bg-[#9146FF] px-6 py-5 text-left font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className="block text-lg">Link Twitch</span>
+                      <span className="mt-1 block text-sm font-normal text-white/80">
+                        Uses your Twitch display name and profile photo.
+                      </span>
+                    </button>
+                    {!twitchConfigured && (
+                      <p className="text-xs text-amber-200/80">
+                        {twitchSetupHint ??
+                          `Register ${getTwitchRedirectUri()} as a redirect URI in the Twitch developer console.`}
+                      </p>
+                    )}
+                  </>
                 )}
 
                 <button
@@ -105,9 +179,9 @@ export default function LobbyIdentityPage({
                   onClick={() => setShowGuestForm(true)}
                   className="rounded-2xl border border-white/10 bg-zinc-900/70 px-6 py-5 text-left font-semibold transition hover:bg-zinc-900"
                 >
-                  <span className="block text-lg">Continue as Guest</span>
+                  <span className="block text-lg">Continue as guest</span>
                   <span className="mt-1 block text-sm font-normal text-zinc-400">
-                    Pick any display name — no Twitch account needed.
+                    Pick any name — no Twitch account required.
                   </span>
                 </button>
               </>
@@ -118,7 +192,7 @@ export default function LobbyIdentityPage({
                     htmlFor="guest-name"
                     className="mb-2 block text-xs uppercase tracking-wider text-zinc-500"
                   >
-                    Display Name
+                    Display name
                   </label>
                   <input
                     id="guest-name"
@@ -142,7 +216,7 @@ export default function LobbyIdentityPage({
                     type="submit"
                     className="flex-1 rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-black transition hover:brightness-110"
                   >
-                    {mode === "create" ? "Create Lobby" : "Enter Lobby"}
+                    {actionLabel}
                   </button>
                 </div>
               </form>

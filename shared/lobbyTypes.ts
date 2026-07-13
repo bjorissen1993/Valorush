@@ -1,5 +1,7 @@
 /** Shared lobby protocol types — used by WebSocket server and browser client. */
 
+import type { TurnOrderDiceSequence } from "./turnOrderDiceSystem.js";
+
 export const MAX_LOBBY_PLAYERS = 4;
 
 export type LobbyStatus = "waiting" | "starting" | "in_game";
@@ -15,12 +17,16 @@ export type PlayerProfile = {
 export type LobbyPlayer = {
   id: string;
   slotIndex: number;
+  /** Milliseconds since epoch — determines join order for host succession. */
+  joinedAt: number;
   name: string;
   avatar?: string;
   twitchLogin?: string;
   twitchId?: string;
   twitchImportedName?: string;
   selectedAgentId?: string;
+  isRandomizePending?: boolean;
+  isReady?: boolean;
   isHost: boolean;
 };
 
@@ -31,6 +37,22 @@ export type LobbyRoomState = {
   maxPlayers: number;
 };
 
+export type GameStartingPayload = {
+  players: LobbyPlayer[];
+  turnOrder: {
+    sequence: TurnOrderDiceSequence;
+    playerIndexById: Record<string, number>;
+  };
+};
+
+export type LobbyChatMessage = {
+  id: string;
+  playerId: string;
+  playerName: string;
+  text: string;
+  sentAt: number;
+};
+
 /** Client → server */
 export type ClientMessage =
   | { type: "create"; profile: PlayerProfile }
@@ -38,7 +60,13 @@ export type ClientMessage =
   | { type: "rejoin"; code: string; playerId: string }
   | { type: "update_profile"; name?: string; avatar?: string }
   | { type: "select_agent"; agentId: string }
+  | { type: "toggle_randomize" }
+  | { type: "randomize_all" }
+  | { type: "set_ready"; ready: boolean }
   | { type: "start_game" }
+  | { type: "turn_order_roll"; stepIndex: number }
+  | { type: "turn_order_done" }
+  | { type: "chat_message"; text: string }
   | { type: "leave" }
   | { type: "ping" };
 
@@ -50,7 +78,16 @@ export type ServerMessage =
       yourPlayerId: string;
       isHost: boolean;
     }
-  | { type: "game_starting"; players: LobbyPlayer[] }
+  | { type: "game_starting"; payload: GameStartingPayload }
+  | {
+      type: "turn_order_roll";
+      stepIndex: number;
+      playerId: string;
+      playerIndex: number;
+      roll: number;
+    }
+  | { type: "turn_order_done" }
+  | { type: "chat_message"; message: LobbyChatMessage }
   | { type: "error"; message: string }
   | { type: "pong" };
 
@@ -65,6 +102,7 @@ export function lobbyPlayersToLocalIds(
   twitchId?: string;
   twitchImportedName?: string;
   selectedAgentId?: string;
+  isRandomizePending?: boolean;
 }[] {
   return [...players]
     .sort((a, b) => a.slotIndex - b.slotIndex)
@@ -77,5 +115,6 @@ export function lobbyPlayersToLocalIds(
       twitchId: player.twitchId,
       twitchImportedName: player.twitchImportedName,
       selectedAgentId: player.selectedAgentId,
+      isRandomizePending: player.isRandomizePending,
     }));
 }

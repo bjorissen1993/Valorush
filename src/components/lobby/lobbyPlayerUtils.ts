@@ -36,16 +36,35 @@ export function isTwitchPlayer(player: TwitchPlayerFields): boolean {
   );
 }
 
-export function buildFixedPlayerSlots<T extends { slotIndex: number }>(
+function isValidSlotIndex(slotIndex: unknown, maxSlots: number): slotIndex is number {
+  return (
+    typeof slotIndex === "number" &&
+    Number.isInteger(slotIndex) &&
+    slotIndex >= 0 &&
+    slotIndex < maxSlots
+  );
+}
+
+export function buildFixedPlayerSlots<T extends { slotIndex?: number }>(
   players: T[],
   maxSlots = MAX_LOBBY_SLOTS
 ): (T | null)[] {
   const slots: (T | null)[] = Array.from({ length: maxSlots }, () => null);
+  const unassigned: T[] = [];
 
   for (const player of players) {
-    if (player.slotIndex >= 0 && player.slotIndex < maxSlots) {
-      slots[player.slotIndex] = player;
+    const slotIndex = player.slotIndex;
+    if (isValidSlotIndex(slotIndex, maxSlots) && slots[slotIndex] == null) {
+      slots[slotIndex] = player;
+      continue;
     }
+    unassigned.push(player);
+  }
+
+  for (const player of unassigned) {
+    const emptyIndex = slots.findIndex((slot) => slot == null);
+    if (emptyIndex === -1) break;
+    slots[emptyIndex] = player;
   }
 
   return slots;
@@ -107,6 +126,53 @@ export function assignRandomUniqueAgents<
   let poolIndex = 0;
 
   return players.map((player) => {
+    if (!player.isRandomizePending || player.selectedAgentId) {
+      return player.isRandomizePending
+        ? { ...player, isRandomizePending: false }
+        : player;
+    }
+
+    const assigned = pool[poolIndex];
+    poolIndex += 1;
+
+    return {
+      ...player,
+      selectedAgentId: assigned?.uuid,
+      isRandomizePending: false,
+    };
+  });
+}
+
+function seededUnitRandom(seed: string, index: number): number {
+  let hash = 2166136261;
+  const input = `${seed}:${index}`;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967296;
+}
+
+/** Same inputs + seed → same agent picks on every client (multiplayer). */
+export function assignRandomUniqueAgentsSeeded<
+  T extends { selectedAgentId?: string; isRandomizePending?: boolean },
+>(players: T[], agents: { uuid: string }[], seed: string): T[] {
+  const takenIds = new Set(
+    players
+      .map((player) => player.selectedAgentId)
+      .filter((id): id is string => !!id)
+  );
+
+  const pool = agents.filter((agent) => !takenIds.has(agent.uuid));
+
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(seededUnitRandom(seed, index) * (index + 1));
+    [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
+  }
+
+  let poolIndex = 0;
+
+  return players.map((player, playerIndex) => {
     if (!player.isRandomizePending || player.selectedAgentId) {
       return player.isRandomizePending
         ? { ...player, isRandomizePending: false }

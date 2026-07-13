@@ -112,7 +112,7 @@ export default function Board({ state, setState }: Props) {
     <div className="p-4">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <div className="font-semibold">Huidige beurt: {current ? current.name : '—'}</div>
+          <div className="font-semibold">Current turn: {current ? current.name : '—'}</div>
           <div className="text-sm text-gray-600">RP:{current ? current.rp : 0} · BP:{current ? current.bp : 0} · SP:{current ? current.sp : 0}</div>
         </div>
         <div className="flex items-center gap-2">
