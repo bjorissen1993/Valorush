@@ -1,3 +1,6 @@
+# NOT used for Railway deploys — railway.json sets builder DOCKERFILE.
+# Kept for local Nixpacks experiments only.
+#
 # Atomic frontend build — never cache dist between deploys (stale hashed assets
 # mixed with a fresh index.html caused production 404s on /assets/*.js).
 [phases.install]
