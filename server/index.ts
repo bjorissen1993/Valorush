@@ -13,7 +13,7 @@ import type {
 } from "../shared/lobbyTypes.js";
 import { MAX_LOBBY_PLAYERS } from "../shared/lobbyTypes.js";
 
-const PORT = Number(process.env.LOBBY_PORT ?? 3001);
+const PORT = Number(process.env.PORT ?? process.env.LOBBY_PORT ?? 3001);
 const ROOT_DIR =
   process.env.VALORUSH_ROOT?.trim() ||
   join(dirname(fileURLToPath(import.meta.url)), "..");

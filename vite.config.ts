@@ -155,6 +155,7 @@ export default defineConfig(({ mode }) => {
   const lobbyPort = env.LOBBY_PORT?.trim() || "3001";
 
   return {
+    cacheDir: ".vite",
     plugins: [react(), twitchDevRoutes(env)],
     server: {
       host: true,

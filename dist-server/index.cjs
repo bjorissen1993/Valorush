@@ -3726,7 +3726,7 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 var MAX_LOBBY_PLAYERS = 4;
 
 // server/index.ts
-var PORT = Number(process.env.LOBBY_PORT ?? 3001);
+var PORT = Number(process.env.PORT ?? process.env.LOBBY_PORT ?? 3001);
 var ROOT_DIR = process.env.VALORUSH_ROOT?.trim() || (0, import_node_path.join)((0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(__import_meta_url)), "..");
 var DIST_DIR = process.env.VALORUSH_DIST?.trim() || (0, import_node_path.join)(ROOT_DIR, "dist");
 function loadEnvFiles() {
@@ -3959,12 +3959,21 @@ function attachClient(room, ws, playerId) {
 function profileFromMessage(profile) {
   const name = profile.name.trim().slice(0, 32);
   if (!name) throw new Error("Display name is required.");
+  const twitchLogin = profile.twitchLogin?.trim().toLowerCase() || void 0;
   return {
     name,
     avatar: profile.avatar?.trim() || void 0,
-    twitchLogin: profile.twitchLogin?.trim().toLowerCase() || void 0,
-    twitchId: profile.twitchId?.trim() || void 0
+    twitchLogin,
+    twitchId: profile.twitchId?.trim() || void 0,
+    twitchImportedName: profile.twitchImportedName?.trim() || (twitchLogin ? name : void 0)
   };
+}
+function findFirstEmptyLobbySlot(players) {
+  const occupied = new Set(players.map((player) => player.slotIndex));
+  for (let index = 0; index < MAX_LOBBY_PLAYERS; index += 1) {
+    if (!occupied.has(index)) return index;
+  }
+  return null;
 }
 function handleCreate(ws, profile) {
   const code = generateCode();
@@ -3972,10 +3981,12 @@ function handleCreate(ws, profile) {
   const normalized = profileFromMessage(profile);
   const host = {
     id: playerId,
+    slotIndex: 0,
     name: normalized.name,
     avatar: normalized.avatar,
     twitchLogin: normalized.twitchLogin,
     twitchId: normalized.twitchId,
+    twitchImportedName: normalized.twitchImportedName,
     isHost: true
   };
   const room = {
@@ -4014,12 +4025,19 @@ function handleJoin(ws, rawCode, profile) {
     }
   }
   const playerId = generatePlayerId();
+  const slotIndex = findFirstEmptyLobbySlot(room.players);
+  if (slotIndex == null) {
+    send(ws, { type: "error", message: "Lobby is full." });
+    return;
+  }
   const player = {
     id: playerId,
+    slotIndex,
     name: normalized.name,
     avatar: normalized.avatar,
     twitchLogin: normalized.twitchLogin,
     twitchId: normalized.twitchId,
+    twitchImportedName: normalized.twitchImportedName,
     isHost: false
   };
   room.players.push(player);
@@ -4106,7 +4124,20 @@ function handleMessage(ws, raw) {
     }
     case "select_agent": {
       if (room.status !== "waiting") return;
-      player.selectedAgentId = message.agentId.trim() || void 0;
+      const agentId = message.agentId.trim();
+      if (!agentId) {
+        player.selectedAgentId = void 0;
+        pushRoomState(room);
+        return;
+      }
+      const takenByOther = room.players.some(
+        (entry) => entry.id !== playerId && entry.selectedAgentId === agentId
+      );
+      if (takenByOther) {
+        send(ws, { type: "error", message: "That agent is already taken." });
+        return;
+      }
+      player.selectedAgentId = agentId;
       pushRoomState(room);
       return;
     }
