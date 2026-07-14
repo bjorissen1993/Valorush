@@ -5,6 +5,7 @@ import {
   getStoredLobbyWsUrl,
   normalizeLobbyWsUrl,
   setStoredLobbyWsUrl,
+  validateLobbyCode,
 } from "../services/lobbyClient";
 
 type HomePageProps = {
@@ -118,9 +119,11 @@ export default function HomePage({
     () => getStoredLobbyWsUrl()?.replace(/^wss?:\/\//, "") ?? ""
   );
   const [serverError, setServerError] = useState<string | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [validatingJoin, setValidatingJoin] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
-  function handleJoinSubmit(event: React.FormEvent) {
+  async function handleJoinSubmit(event: React.FormEvent) {
     event.preventDefault();
     const trimmed = joinCode.trim();
     if (!trimmed) return;
@@ -137,7 +140,19 @@ export default function HomePage({
       }
     }
 
-    onJoinLobby(trimmed.toUpperCase());
+    setJoinError(null);
+    setValidatingJoin(true);
+
+    try {
+      await validateLobbyCode(trimmed);
+      onJoinLobby(trimmed.toUpperCase());
+    } catch (error) {
+      setJoinError(
+        error instanceof Error ? error.message : "Lobby not found. Check the join code."
+      );
+    } finally {
+      setValidatingJoin(false);
+    }
   }
 
   const tagline = isJoinClient
@@ -270,11 +285,12 @@ export default function HomePage({
                   <input
                     id="join-code"
                     value={joinCode}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setJoinCode(
                         event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")
-                      )
-                    }
+                      );
+                      setJoinError(null);
+                    }}
                     maxLength={6}
                     placeholder="ABC123"
                     aria-label="Join code"
@@ -284,13 +300,17 @@ export default function HomePage({
                     type="submit"
                     disabled={
                       joinCode.trim().length < 4 ||
-                      (needsServerUrl && serverUrl.trim().length < 4)
+                      (needsServerUrl && serverUrl.trim().length < 4) ||
+                      validatingJoin
                     }
                     className="launcher-join-button shrink-0 px-8 py-3 font-bold uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Join
+                    {validatingJoin ? "Checking..." : "Join"}
                   </button>
                 </div>
+                {joinError && (
+                  <p className="mt-2 text-sm text-red-300">{joinError}</p>
+                )}
               </form>
             </ValorantPanel>
 

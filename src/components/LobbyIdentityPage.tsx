@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PlayerProfile } from "../../shared/lobbyTypes";
+import { validateLobbyCode } from "../services/lobbyClient";
 import {
   clearTwitchLink,
   getStoredTwitchLink,
@@ -33,9 +34,35 @@ export default function LobbyIdentityPage({
   const [guestName, setGuestName] = useState("");
   const [showGuestForm, setShowGuestForm] = useState(false);
   const [error, setError] = useState<string | null>(() => consumeTwitchOAuthError());
+  const [validatingCode, setValidatingCode] = useState(mode === "join" && !!joinCode);
 
   const twitchConfigured = isTwitchOAuthConfigured();
   const twitchSetupHint = getTwitchOAuthSetupHint();
+
+  useEffect(() => {
+    if (mode !== "join" || !joinCode) return;
+
+    let cancelled = false;
+    setValidatingCode(true);
+    setError(null);
+
+    void validateLobbyCode(joinCode)
+      .catch((validationError) => {
+        if (cancelled) return;
+        setError(
+          validationError instanceof Error
+            ? validationError.message
+            : "Lobby not found. Check the join code."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setValidatingCode(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [joinCode, mode]);
 
   function getOAuthReturnPath() {
     return mode === "join" && joinCode ? `?join=${joinCode}` : "?create=1";
@@ -56,7 +83,7 @@ export default function LobbyIdentityPage({
   }
 
   function handleUseCachedLink() {
-    if (!cachedLink) return;
+    if (!cachedLink || validatingCode || error) return;
     onReady(storedLinkToProfile(cachedLink));
   }
 
@@ -68,6 +95,7 @@ export default function LobbyIdentityPage({
 
   function handleGuestJoin(event: React.FormEvent) {
     event.preventDefault();
+    if (validatingCode || error) return;
     const name = guestName.trim();
     if (name.length < 2) {
       setError("Enter a name with at least 2 characters.");
@@ -109,6 +137,10 @@ export default function LobbyIdentityPage({
               </div>
             )}
 
+            {validatingCode && (
+              <p className="text-sm text-zinc-400">Checking lobby code...</p>
+            )}
+
             {!showGuestForm ? (
               <>
                 {cachedLink ? (
@@ -131,7 +163,8 @@ export default function LobbyIdentityPage({
                       <button
                         type="button"
                         onClick={handleUseCachedLink}
-                        className="rounded-xl bg-[#9146FF] px-4 py-3 font-semibold transition hover:brightness-110"
+                        disabled={validatingCode || !!error}
+                        className="rounded-xl bg-[#9146FF] px-4 py-3 font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Continue with this account
                       </button>
@@ -157,7 +190,7 @@ export default function LobbyIdentityPage({
                     <button
                       type="button"
                       onClick={handleTwitchLogin}
-                      disabled={!twitchConfigured}
+                      disabled={!twitchConfigured || validatingCode || !!error}
                       className="rounded-2xl bg-[#9146FF] px-6 py-5 text-left font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <span className="block text-lg">Link Twitch</span>
@@ -177,7 +210,8 @@ export default function LobbyIdentityPage({
                 <button
                   type="button"
                   onClick={() => setShowGuestForm(true)}
-                  className="rounded-2xl border border-white/10 bg-zinc-900/70 px-6 py-5 text-left font-semibold transition hover:bg-zinc-900"
+                  disabled={validatingCode || !!error}
+                  className="rounded-2xl border border-white/10 bg-zinc-900/70 px-6 py-5 text-left font-semibold transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="block text-lg">Continue as guest</span>
                   <span className="mt-1 block text-sm font-normal text-zinc-400">
@@ -214,7 +248,8 @@ export default function LobbyIdentityPage({
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-black transition hover:brightness-110"
+                    disabled={validatingCode || !!error}
+                    className="flex-1 rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {actionLabel}
                   </button>

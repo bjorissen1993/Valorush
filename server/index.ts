@@ -498,6 +498,67 @@ function pickNextHost(players: LobbyPlayer[], leavingPlayerId: string): LobbyPla
 
 /** Explicit "Lobby verlaten" — remove player and transfer host when the host leaves. */
 function removePlayerOnExplicitLeave(playerId: string): void {
+  removePlayerFromRoom(playerId, { transferHostOnLeave: true });
+}
+
+function removePlayerByKick(
+  targetPlayerId: string,
+  hostPlayerId: string
+): void {
+  const roomCode = playerToRoom.get(hostPlayerId);
+  if (!roomCode) return;
+
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
+  const host = room.players.find((player) => player.id === hostPlayerId);
+  if (!host?.isHost) return;
+
+  if (room.status !== "waiting") return;
+
+  if (targetPlayerId === hostPlayerId) return;
+
+  const targetClient = room.clients.get(targetPlayerId);
+  if (targetClient) {
+    send(targetClient.ws, {
+      type: "error",
+      message: "You were removed from the lobby.",
+    });
+    targetClient.ws.close();
+  }
+
+  removePlayerFromRoom(targetPlayerId, { transferHostOnLeave: false });
+}
+
+function transferHostRole(hostPlayerId: string, targetPlayerId: string): void {
+  const roomCode = playerToRoom.get(hostPlayerId);
+  if (!roomCode) return;
+
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
+  const host = room.players.find((player) => player.id === hostPlayerId);
+  if (!host?.isHost) return;
+
+  if (room.status !== "waiting") return;
+
+  if (targetPlayerId === hostPlayerId) return;
+
+  const target = room.players.find((player) => player.id === targetPlayerId);
+  if (!target) return;
+
+  for (const player of room.players) {
+    player.isHost = player.id === targetPlayerId;
+  }
+
+  room.hostPlayerId = targetPlayerId;
+  pushRoomState(room);
+}
+
+function removePlayerFromRoom(
+  playerId: string,
+  options: { transferHostOnLeave: boolean }
+): void {
   const roomCode = playerToRoom.get(playerId);
   if (!roomCode) return;
 
@@ -511,12 +572,13 @@ function removePlayerOnExplicitLeave(playerId: string): void {
   playerToRoom.delete(playerId);
 
   const leaving = room.players.find((player) => player.id === playerId);
-  if (leaving?.isHost) {
+  if (options.transferHostOnLeave && leaving?.isHost) {
     const nextHost = pickNextHost(room.players, playerId);
     if (nextHost) {
       for (const player of room.players) {
         player.isHost = player.id === nextHost.id;
       }
+      room.hostPlayerId = nextHost.id;
     }
   }
 
@@ -635,6 +697,28 @@ function handleCreate(ws: WebSocket, profile: PlayerProfile): void {
   attachClient(room, ws, playerId);
   room.hostPlayerId = playerId;
   pushRoomState(room);
+}
+
+function handleCheckLobby(ws: WebSocket, rawCode: string): void {
+  const code = normalizeCode(rawCode);
+  const room = rooms.get(code);
+
+  if (!room) {
+    send(ws, { type: "error", message: "Lobby not found. Check the join code." });
+    return;
+  }
+
+  if (room.status !== "waiting") {
+    send(ws, { type: "error", message: "This lobby has already started." });
+    return;
+  }
+
+  if (room.players.length >= MAX_LOBBY_PLAYERS) {
+    send(ws, { type: "error", message: "Lobby is full." });
+    return;
+  }
+
+  send(ws, { type: "lobby_check", code });
 }
 
 function handleJoin(ws: WebSocket, rawCode: string, profile: PlayerProfile): void {
@@ -805,6 +889,9 @@ function handleMessage(ws: WebSocket, raw: string): void {
       return;
     case "rejoin":
       handleRejoin(ws, message.code, message.playerId);
+      return;
+    case "check_lobby":
+      handleCheckLobby(ws, message.code);
       return;
     case "ping":
       send(ws, { type: "pong" });
@@ -1039,6 +1126,22 @@ function handleMessage(ws: WebSocket, raw: string): void {
       for (const client of room.clients.values()) {
         send(client.ws, payload);
       }
+      return;
+    }
+    case "kick_player": {
+      if (!player.isHost) {
+        send(ws, { type: "error", message: "Only the host can kick players." });
+        return;
+      }
+      removePlayerByKick(message.targetPlayerId.trim(), playerId);
+      return;
+    }
+    case "transfer_host": {
+      if (!player.isHost) {
+        send(ws, { type: "error", message: "Only the host can transfer host role." });
+        return;
+      }
+      transferHostRole(playerId, message.targetPlayerId.trim());
       return;
     }
     default:

@@ -6,13 +6,14 @@ import type {
   LobbyRoomState,
   PlayerProfile,
 } from "../../shared/lobbyTypes";
-import { LobbyClient, persistLobbySession, readLobbySession, readStoredLobbySession, type LobbyConnectionStatus } from "../services/lobbyClient";
+import { LobbyClient, persistLobbySession, readLobbySession, readStoredLobbySession, clearLobbySession, type LobbyConnectionStatus } from "../services/lobbyClient";
 
 type UseLobbyRoomOptions = {
   mode: "create" | "join";
   profile: PlayerProfile;
   joinCode?: string;
   enabled: boolean;
+  onKicked?: () => void;
 };
 
 export function useLobbyRoom({
@@ -20,11 +21,17 @@ export function useLobbyRoom({
   profile,
   joinCode,
   enabled,
+  onKicked,
 }: UseLobbyRoomOptions) {
   const clientRef = useRef<LobbyClient | null>(null);
   const bootstrappedRef = useRef(false);
   const rejoinAttemptedRef = useRef(false);
   const roomStateRef = useRef<LobbyRoomState | null>(null);
+  const onKickedRef = useRef(onKicked);
+
+  useEffect(() => {
+    onKickedRef.current = onKicked;
+  }, [onKicked]);
 
   const [roomState, setRoomState] = useState<LobbyRoomState | null>(null);
   const [yourPlayerId, setYourPlayerId] = useState<string | null>(null);
@@ -84,6 +91,14 @@ export function useLobbyRoom({
       },
       onError: (message) => {
         const lower = message.toLowerCase();
+
+        if (lower.includes("you were removed from the lobby")) {
+          clearLobbySession();
+          clientRef.current?.disconnect();
+          onKickedRef.current?.();
+          setError(message);
+          return;
+        }
 
         if (
           lower.includes("not in a lobby") &&
@@ -214,6 +229,14 @@ export function useLobbyRoom({
     clientRef.current?.sendChatMessage(text);
   }, []);
 
+  const kickPlayer = useCallback((targetPlayerId: string) => {
+    clientRef.current?.kickPlayer(targetPlayerId);
+  }, []);
+
+  const transferHost = useCallback((targetPlayerId: string) => {
+    clientRef.current?.transferHost(targetPlayerId);
+  }, []);
+
   const leaveLobby = useCallback(() => {
     clientRef.current?.leave();
   }, []);
@@ -233,6 +256,8 @@ export function useLobbyRoom({
     startGame,
     sendChatMessage,
     chatMessages,
+    kickPlayer,
+    transferHost,
     leaveLobby,
   };
 }

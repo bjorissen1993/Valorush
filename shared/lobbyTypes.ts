@@ -75,7 +75,10 @@ export type ClientMessage =
   | { type: "game_state_publish"; snapshot: OnlineGameSnapshot }
   | { type: "game_action"; action: OnlineGameAction }
   | { type: "leave" }
-  | { type: "ping" };
+  | { type: "ping" }
+  | { type: "check_lobby"; code: string }
+  | { type: "kick_player"; targetPlayerId: string }
+  | { type: "transfer_host"; targetPlayerId: string };
 
 /** Server → client */
 export type ServerMessage =
@@ -103,7 +106,8 @@ export type ServerMessage =
     }
   | { type: "chat_message"; message: LobbyChatMessage }
   | { type: "error"; message: string }
-  | { type: "pong" };
+  | { type: "pong" }
+  | { type: "lobby_check"; code: string };
 
 export function lobbyPlayersToLocalIds(
   players: LobbyPlayer[]

@@ -352,6 +352,8 @@ export class LobbyClient {
       case "error":
         this.callbacks.onError(message.message);
         return;
+      case "lobby_check":
+        return;
       case "pong":
         return;
       default:
@@ -420,6 +422,14 @@ export class LobbyClient {
     this.send({ type: "start_game" });
   }
 
+  kickPlayer(targetPlayerId: string): void {
+    this.send({ type: "kick_player", targetPlayerId });
+  }
+
+  transferHost(targetPlayerId: string): void {
+    this.send({ type: "transfer_host", targetPlayerId });
+  }
+
   leave(): void {
     this.send({ type: "leave" });
     this.inLobby = false;
@@ -459,4 +469,60 @@ export function clearJoinCodeFromUrl(): void {
   if (!url.searchParams.has("join")) return;
   url.searchParams.delete("join");
   window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+}
+
+function normalizeLobbyCode(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+const LOBBY_CHECK_TIMEOUT_MS = 10_000;
+
+export function validateLobbyCode(code: string): Promise<void> {
+  const normalized = normalizeLobbyCode(code);
+  if (normalized.length < 4) {
+    return Promise.reject(new Error("Enter a valid join code."));
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    function finish(error?: Error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      ws.close();
+      if (error) reject(error);
+      else resolve();
+    }
+
+    const ws = new WebSocket(getLobbyWsUrl());
+    const timeout = setTimeout(() => {
+      finish(new Error("Could not connect to lobby server."));
+    }, LOBBY_CHECK_TIMEOUT_MS);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "check_lobby", code: normalized }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data as string) as ServerMessage;
+        if (message.type === "lobby_check") {
+          finish();
+          return;
+        }
+        if (message.type === "error") {
+          finish(new Error(message.message));
+          return;
+        }
+        finish(new Error("Unexpected server response."));
+      } catch {
+        finish(new Error("Invalid server response."));
+      }
+    };
+
+    ws.onerror = () => {
+      finish(new Error("Could not connect to lobby server."));
+    };
+  });
 }

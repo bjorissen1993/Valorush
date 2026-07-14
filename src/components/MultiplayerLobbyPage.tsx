@@ -10,6 +10,7 @@ import LobbyArenaLayout from "./lobby/LobbyArenaLayout";
 import LobbyChatPanel from "./lobby/LobbyChatPanel";
 import LobbyHotbar from "./lobby/LobbyHotbar";
 import LobbyPlayerCard from "./lobby/LobbyPlayerCard";
+import LobbyPlayerHostMenu from "./lobby/LobbyPlayerHostMenu";
 import {
   buildFixedPlayerSlots,
   isRandomizePending,
@@ -57,12 +58,15 @@ export default function MultiplayerLobbyPage({
     setReady,
     startGame,
     sendChatMessage,
+    kickPlayer,
+    transferHost,
     leaveLobby,
   } = useLobbyRoom({
     mode,
     profile,
     joinCode,
     enabled: true,
+    onKicked: onBack,
   });
 
   const unreadChatCount = chatOpen
@@ -206,10 +210,13 @@ export default function MultiplayerLobbyPage({
             isYou={isYou}
             isRandomizePending={pendingRandom}
             selectedAgent={selectedAgent}
+            showHostMenu={isHost && !isYou}
+            onMakeHost={() => transferHost(player.id)}
+            onKick={() => kickPlayer(player.id)}
           />
         );
       }),
-    [agentById, playerSlots, activeYourPlayerId]
+    [agentById, isHost, kickPlayer, playerSlots, activeYourPlayerId, transferHost]
   );
 
   async function copyJoinLink() {
@@ -302,11 +309,32 @@ export default function MultiplayerLobbyPage({
               </div>
 
               <div className="relative h-10 w-10 shrink-0" ref={chatRef}>
+                {!chatOpen && unreadChatCount > 0 && (
+                  <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-[60] flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-zinc-950 animate-pulse">
+                    {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                  </span>
+                )}
+                {!chatOpen && latestUnreadMessage && (
+                  <div
+                    className="pointer-events-none absolute right-0 top-12 z-[55] w-[min(calc(100vw-2.5rem),18rem)] rounded-xl border border-amber-300/40 bg-zinc-950/95 px-3 py-2 shadow-2xl backdrop-blur-md"
+                    aria-live="polite"
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                      New message
+                    </p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-white">
+                      {latestUnreadMessage.playerName}
+                    </p>
+                    <p className="truncate text-sm text-zinc-200">
+                      {latestUnreadMessage.text}
+                    </p>
+                  </div>
+                )}
                 <div
                   onTransitionEnd={handleChatMorphTransitionEnd}
-                  className={`absolute right-0 top-0 z-50 origin-top-right overflow-hidden rounded-xl border transition-[width,height,background-color,border-color,box-shadow] duration-300 ease-out ${
+                  className={`absolute right-0 top-0 z-50 origin-top-right rounded-xl border transition-[width,height,background-color,border-color,box-shadow] duration-300 ease-out ${
                     chatOpen
-                      ? "h-[20rem] w-[22rem] max-w-[min(calc(100vw-2.5rem),22rem)] border-cyan-400/40 bg-zinc-950/98 shadow-2xl backdrop-blur-md"
+                      ? "h-[20rem] w-[22rem] max-w-[min(calc(100vw-2.5rem),22rem)] overflow-hidden border-cyan-400/40 bg-zinc-950/98 shadow-2xl backdrop-blur-md"
                       : "h-10 w-10 border-white/10 bg-white/5"
                   }`}
                 >
@@ -344,30 +372,9 @@ export default function MultiplayerLobbyPage({
                           clipRule="evenodd"
                         />
                       </svg>
-                      {unreadChatCount > 0 && (
-                        <span className="absolute -right-1.5 -top-1.5 flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-zinc-950 animate-pulse">
-                          {unreadChatCount > 9 ? "9+" : unreadChatCount}
-                        </span>
-                      )}
                     </button>
                   )}
                 </div>
-                {!chatOpen && latestUnreadMessage && (
-                  <div
-                    className="pointer-events-none absolute right-0 top-12 z-40 w-[min(calc(100vw-2.5rem),18rem)] rounded-xl border border-amber-300/40 bg-zinc-950/95 px-3 py-2 shadow-2xl backdrop-blur-md"
-                    aria-live="polite"
-                  >
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
-                      New message
-                    </p>
-                    <p className="mt-0.5 truncate text-sm font-semibold text-white">
-                      {latestUnreadMessage.playerName}
-                    </p>
-                    <p className="truncate text-sm text-zinc-200">
-                      {latestUnreadMessage.text}
-                    </p>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -542,6 +549,9 @@ type MultiplayerLobbyPlayerSlotProps = {
   isYou: boolean;
   isRandomizePending: boolean;
   selectedAgent?: Agent;
+  showHostMenu?: boolean;
+  onMakeHost?: () => void;
+  onKick?: () => void;
 };
 
 const MultiplayerLobbyPlayerSlot = memo(function MultiplayerLobbyPlayerSlot({
@@ -550,6 +560,9 @@ const MultiplayerLobbyPlayerSlot = memo(function MultiplayerLobbyPlayerSlot({
   isYou,
   isRandomizePending: pendingRandom,
   selectedAgent,
+  showHostMenu = false,
+  onMakeHost,
+  onKick,
 }: MultiplayerLobbyPlayerSlotProps) {
   const avatar = resolvePlayerAvatarUrl(player, selectedAgent);
 
@@ -573,6 +586,11 @@ const MultiplayerLobbyPlayerSlot = memo(function MultiplayerLobbyPlayerSlot({
       isHost={player.isHost}
       isReady={player.isReady}
       isActive={isYou}
+      headerAction={
+        showHostMenu && onMakeHost && onKick ? (
+          <LobbyPlayerHostMenu onMakeHost={onMakeHost} onKick={onKick} />
+        ) : undefined
+      }
     />
   );
 });
