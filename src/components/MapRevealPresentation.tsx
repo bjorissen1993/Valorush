@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { customMatchById } from "../../shared/customMatches";
+import { CUSTOM_MATCH_CATEGORY_LABELS, getCustomMatchDefinition } from "../../shared/customMatches";
 import type { ValorantMapId } from "../../shared/customMatches/types";
 import { mapLoadingPath, pointsIconPath } from "../game/assetPaths";
 
@@ -28,7 +28,8 @@ export default function MapRevealPresentation({
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
-  const match = customMatchById.get(matchId as Parameters<typeof customMatchById.get>[0]);
+  const match = getCustomMatchDefinition(matchId);
+  const categoryLabel = match ? CUSTOM_MATCH_CATEGORY_LABELS[match.category] : null;
 
   useEffect(() => {
     setPhase("drop");
@@ -126,9 +127,21 @@ export default function MapRevealPresentation({
                     className="map-reveal-content__map h-52 w-full object-cover md:h-64"
                   />
                   <div className="map-reveal-content__footer border-t border-cyan-400/20 bg-[#060a14]/95 px-5 py-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-400/70">
-                      {match?.name ?? "Custom Match"}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-400/70">
+                        {match?.name ?? "Custom Match"}
+                      </p>
+                      {categoryLabel && (
+                        <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-300 ring-1 ring-violet-400/25">
+                          {categoryLabel}
+                        </span>
+                      )}
+                      {match?.playerFormat && (
+                        <span className="rounded-full bg-zinc-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-300 ring-1 ring-zinc-400/20">
+                          {match.playerFormat}
+                        </span>
+                      )}
+                    </div>
                     <h2 className="mt-1.5 text-2xl font-black uppercase tracking-wide text-white md:text-3xl">
                       {mapId}
                     </h2>

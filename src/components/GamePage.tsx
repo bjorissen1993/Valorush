@@ -47,8 +47,8 @@ import {
 } from "../game/eventChoiceHandler";
 import { computeEffectiveRoll, tickMovementModifiers } from "../game/boardEventBridge";
 import {
-  customMatchById,
   customMatchRegistry,
+  getCustomMatchDefinition,
   pickRandomMapForMatch,
 } from "../../shared/customMatches";
 import { minigameById, minigameRegistry } from "../../shared/minigames";
@@ -1314,7 +1314,7 @@ export default function GamePage({
         playersInGame,
       )
     );
-    const matchName = customMatchById.get(matchId as CustomMatchId)?.name ?? matchId;
+    const matchName = getCustomMatchDefinition(matchId)?.name ?? matchId;
     setStatusTitle(`Scheduled: ${matchName}`);
     setStatusSubtitle("Plays at end of round.");
     showAnnouncement(`Scheduled ${matchName}`, "Plays when this round completes.");
@@ -1354,7 +1354,7 @@ export default function GamePage({
         playersInGame,
       );
     setCustomMatchPhase({ step: "reveal", match });
-    const matchName = customMatchById.get(match.matchId)?.name ?? "Custom Match";
+    const matchName = getCustomMatchDefinition(match.matchId)?.name ?? "Custom Match";
     setStatusTitle(`Map Reveal: ${matchName}`);
     setStatusSubtitle(`Revealing ${match.mapId}`);
     showAnnouncement(`Map Reveal: ${matchName}`, `Revealing ${match.mapId}`);
@@ -1461,8 +1461,8 @@ export default function GamePage({
     setEventEffectsApplied(true);
 
     if (result.scheduleCustomMatch) {
-      const matchDef = customMatchById.get(
-        result.scheduleCustomMatch.matchId as CustomMatchId
+      const matchDef = getCustomMatchDefinition(
+        result.scheduleCustomMatch.matchId
       );
       setScheduledCustomMatch(
         buildScheduledCustomMatch(
@@ -1496,7 +1496,7 @@ export default function GamePage({
   function beginCustomMatchFlow(match: ScheduledCustomMatch) {
     setScheduledCustomMatch(match);
     setCustomMatchPhase({ step: "reveal", match });
-    const matchDef = customMatchById.get(match.matchId);
+    const matchDef = getCustomMatchDefinition(match.matchId);
     setStatusTitle(`${matchDef?.name ?? "Custom Match"} — Map Reveal`);
     setStatusSubtitle(`Deploying to ${match.mapId}`);
     showAnnouncement(
@@ -1513,7 +1513,7 @@ export default function GamePage({
         status: "revealed",
       };
       setScheduledCustomMatch(revealedMatch);
-      const matchDef = customMatchById.get(revealedMatch.matchId);
+      const matchDef = getCustomMatchDefinition(revealedMatch.matchId);
       setStatusTitle(`${matchDef?.name ?? "Custom Match"} Lobby`);
       setStatusSubtitle("Play the match in Valorant when ready.");
       return { step: "lobby", match: revealedMatch };
@@ -1529,7 +1529,7 @@ export default function GamePage({
         status: "in_progress",
       };
       setScheduledCustomMatch(inProgressMatch);
-      const matchDef = customMatchById.get(inProgressMatch.matchId);
+      const matchDef = getCustomMatchDefinition(inProgressMatch.matchId);
       setStatusTitle(`${matchDef?.name ?? "Custom Match"} — In Progress`);
       setStatusSubtitle("Play in Valorant, then mark complete.");
       showAnnouncement("Custom Match Started", "Head to Valorant and play the scheduled mode.");
@@ -1567,7 +1567,7 @@ export default function GamePage({
     if (!activePhase || activePhase.step !== "lobby") return;
 
     const { match } = activePhase;
-    const matchDef = customMatchById.get(match.matchId);
+    const matchDef = getCustomMatchDefinition(match.matchId);
     updatePlayer(winnerIndex, (player) => ({
       ...player,
       creds: player.creds + (matchDef?.winCreds ?? 150),

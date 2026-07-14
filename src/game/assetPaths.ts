@@ -39,8 +39,11 @@ export function abilityIconPath(agentSlug: string, fileName: string): string {
   return `/abilities/${agentSlug}/${fileName}.png`;
 }
 
+import { getMapSplashPath } from "../../shared/customMatches/mapRegistry";
+import type { ValorantMapId } from "../../shared/customMatches/types";
+
 export function mapLoadingPath(mapName: string): string {
-  return `/maps/Loading_Screen_${mapName}.png`;
+  return getMapSplashPath(mapName as ValorantMapId);
 }
 
 /** Default tactical map art used as the board backdrop. */

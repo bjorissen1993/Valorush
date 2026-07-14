@@ -1,4 +1,4 @@
-import { customMatchById } from "../../shared/customMatches";
+import { CUSTOM_MATCH_CATEGORY_LABELS, getCustomMatchDefinition } from "../../shared/customMatches";
 import type {
   CustomMatchStatus,
   ScheduledCustomMatch,
@@ -46,8 +46,11 @@ export default function CustomMatchLobby({
   onSelectWinner,
   onCancelWinnerSelection,
 }: CustomMatchLobbyProps) {
-  const definition = customMatchById.get(match.matchId);
+  const definition = getCustomMatchDefinition(match.matchId);
   const status = statusLabel(match.status);
+  const categoryLabel = definition
+    ? CUSTOM_MATCH_CATEGORY_LABELS[definition.category]
+    : null;
 
   return (
     <div className="fixed inset-0 z-[86] flex items-center justify-center bg-black/92 p-4">
@@ -77,9 +80,21 @@ export default function CustomMatchLobby({
         <div className="space-y-5 p-5 md:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-400/80">
-                {definition?.name ?? "Custom Match"}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-400/80">
+                  {definition?.name ?? "Custom Match"}
+                </p>
+                {categoryLabel && (
+                  <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-300 ring-1 ring-violet-400/25">
+                    {categoryLabel}
+                  </span>
+                )}
+                {definition?.playerFormat && (
+                  <span className="rounded-full bg-zinc-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300 ring-1 ring-zinc-400/20">
+                    {definition.playerFormat}
+                  </span>
+                )}
+              </div>
               <p className="mt-1 text-sm text-zinc-300">
                 {definition?.description ?? "Valorant custom game"}
               </p>

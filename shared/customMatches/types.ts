@@ -1,33 +1,54 @@
 /** Custom Match definitions — scheduled at end of round via board events. */
 
 export type ValorantMapId =
-  | "Bind"
+  | "Abyss"
   | "Ascent"
-  | "Split"
+  | "Bind"
+  | "Breeze"
+  | "Corrode"
+  | "District"
+  | "Drift"
+  | "Fracture"
+  | "Glitch"
+  | "Haven"
+  | "Icebox"
+  | "Kasbah"
   | "Lotus"
   | "Pearl"
+  | "Piazza"
+  | "Split"
+  | "Summit"
   | "Sunset"
-  | "Icebox"
-  | "Fracture"
-  | "Abyss"
-  | "Corrode";
+  | "Skirmish A"
+  | "Skirmish B"
+  | "Skirmish C"
+  | "Skirmish D"
+  | "Skirmish E";
 
+/** Valorant custom-game modes available in ValoRush. */
 export type CustomMatchId =
-  | "spike-rush"
-  | "tdm"
+  | "swiftplay"
+  | "all-random-one-site"
+  | "standard"
+  | "deathmatch"
+  | "retake"
   | "escalation"
-  | "pistol-round"
-  | "sheriff-duel"
-  | "operator-only"
-  | "knife-fight";
+  | "team-deathmatch"
+  | "spike-rush"
+  | "skirmish";
+
+export type CustomMatchCategory = "free_for_all" | "2v2" | "1v3";
 
 export type CustomMatchDefinition = {
   id: CustomMatchId;
   name: string;
+  category: CustomMatchCategory;
+  /** Short label for lobby UI, e.g. "4 FFA", "2v2", "1v3". */
+  playerFormat: string;
   description: string;
   rulesStub: string;
-  /** Preferred maps for this mode; one is picked at schedule time. */
-  maps: ValorantMapId[];
+  /** Maps with local splash assets; one is picked at schedule time. */
+  eligibleMaps: ValorantMapId[];
   winCreds: number;
   winRadianite: number;
   durationLabel: string;

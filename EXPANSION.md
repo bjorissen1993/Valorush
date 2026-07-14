@@ -6,8 +6,8 @@ Phase 1 delivered the architecture and playable foundations below. This document
 
 | Area | Path | Status |
 |------|------|--------|
-| Event registry | `shared/events/` | 18 choice-based events across 6 categories |
-| Custom matches | `shared/customMatches/` | 7 match types + map reveal UI |
+| Event registry | `shared/events/` | 20 choice-based events across 6 categories |
+| Custom matches | `shared/customMatches/` | 9 Valorant modes + map registry + category UI |
 | Items | `shared/items/` | 8 items (4 board + 4 spike defuse) |
 | Minigames | `shared/minigames/` | Neon Race, Cypher Seek, Quick Roll (stub play) |
 | Duel tiles | — | **Removed** — replaced by events/minigames/custom matches |
@@ -32,10 +32,48 @@ Phase 1 delivered the architecture and playable foundations below. This document
 ## Phase 4 — Custom Matches (full play)
 
 - [ ] Per-mode rules: Spike Rush plants, TDM elimination bracket, Escalation weapon tiers
-- [ ] Sheriff Duel / Operator Only / Knife Fight — target pick + roll modifiers
-- [ ] Pistol Round eco bonuses applied to board state after match
+- [ ] Standard / Retake / All Random One Site — 1v3 site hold flow
+- [ ] Skirmish 2v2 bracket and map-specific arenas (A–E)
 - [ ] Host-authoritative custom match phase in `OnlineGameSnapshot`
 - [ ] Post-match standings animation
+
+## Map & mode reference
+
+Valorant ships **9 custom-game modes**. ValoRush groups them into three categories for board scheduling:
+
+| Category | Modes | Player format |
+|----------|-------|---------------|
+| **Free for All** | Deathmatch, Escalation, Team Deathmatch, Spike Rush | FFA / 5v5 |
+| **2v2** | Skirmish | 2v2 |
+| **1v3** | Standard, Retake, All Random One Site, Swiftplay | 1 attacker vs 3 defenders |
+
+Registry: `shared/customMatches/registry.ts` · Map pools: `shared/customMatches/mapRegistry.ts`
+
+### Map pools & local assets
+
+Map splashes live in `public/maps/` and are **not** auto-fetched (unlike agent portraits from the Valorant API). Add images manually from the Valorant wiki or Riot CDN.
+
+| Pool | Maps | Asset pattern |
+|------|------|---------------|
+| Competitive | Abyss, Ascent, Bind, Breeze, Corrode, Fracture, Haven, Icebox, Lotus, Pearl, Split, Summit, Sunset | `Loading_Screen_{Map}.png` |
+| All Random One Site | Abyss, Ascent, Breeze, District, Icebox, Pearl, Split, Sunset | Loading screen or `{Map}_Splash.png` |
+| Retake | Ascent, Bind, Haven, Summit, Sunset | `Loading_Screen_{Map}.png` |
+| Team Deathmatch | District, Drift, Glitch, Kasbah, Piazza | `{Map}_Splash.png` |
+| Skirmish | Skirmish A–E | `Skirmish_Splash.png` (shared until per-arena art added) |
+
+**Maps with assets today:** Abyss, Ascent, Bind, Breeze, District, Drift, Fracture, Glitch, Haven, Icebox, Kasbah, Lotus, Pearl, Piazza, Split, Sunset, Skirmish (A–E share one splash).
+
+**Missing assets (excluded from random picks):** Corrode, Summit.
+
+### Adding Summit (or Corrode)
+
+1. Obtain a loading-screen splash (e.g. from [Valorant wiki](https://valorant.fandom.com/wiki/Summit) or Riot media).
+2. Save as `public/maps/Loading_Screen_Summit.png` (match existing competitive maps like `Loading_Screen_Ascent.png`).
+3. In `shared/customMatches/mapRegistry.ts`, set Summit's `splashFile` to `"Loading_Screen_Summit.png"` (currently `null`).
+4. Redeploy — Summit enters competitive and retake random pools automatically.
+
+Gamemode icons (optional UI): `public/gamemodes/` — Deathmatch, Escalation, Skirmish, Spike_Rush, Plant_Defuse_Mode.
+
 
 ## Phase 5 — Events polish
 
@@ -61,7 +99,7 @@ Phase 1 delivered the architecture and playable foundations below. This document
 ```
 shared/
   events/          — BoardEventDefinition + applyEffect + playerChoices
-  customMatches/   — Match types, maps, rewards
+  customMatches/   — Match types, map pools, rewards
   items/           — Collectible/buyable items
   minigames/       — Register-only minigame defs
   director/        — Agent + Kingdom narration bindings

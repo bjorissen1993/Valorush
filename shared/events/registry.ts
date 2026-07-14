@@ -764,7 +764,7 @@ export const boardEventRegistry: BoardEventDefinition[] = [
     applyEffect(ctx) {
       return scheduleMatch(
         ctx,
-        "tdm",
+        "team-deathmatch",
         "TDM scheduled",
         "Team Deathmatch at end of round."
       );
@@ -795,6 +795,62 @@ export const boardEventRegistry: BoardEventDefinition[] = [
         "escalation",
         "Escalation scheduled",
         "Weapon escalation custom match at round end."
+      );
+    },
+  },
+  {
+    id: "jett-skirmish",
+    name: "Skirmish Scheduled",
+    description: "Jett calls a 2v2 Skirmish at round end.",
+    category: "custom_match",
+    sourceAgent: "Jett",
+    weight: "rare",
+    story: {
+      headline: "Skirmish on deck",
+      paragraphs: [
+        "Jett taps the tac screen twice.",
+        "\"2v2 Skirmish when this round closes. Don't be slow.\"",
+      ],
+      narrator: "Jett",
+      narratorRole: "Duelist",
+      backgroundImage: "/maps/Skirmish_Splash.png",
+      mood: "positive",
+      tag: "Custom Match",
+    },
+    applyEffect(ctx) {
+      return scheduleMatch(
+        ctx,
+        "skirmish",
+        "Skirmish scheduled",
+        "2v2 Skirmish custom match at round end."
+      );
+    },
+  },
+  {
+    id: "sage-retake",
+    name: "Retake Scheduled",
+    description: "Sage schedules a Retake drill at round end.",
+    category: "custom_match",
+    sourceAgent: "Sage",
+    weight: "rare",
+    story: {
+      headline: "Retake drill authorized",
+      paragraphs: [
+        "Sage marks a bombsite on Haven.",
+        "\"Retake scenario when the round ends. Hold the site or lose creds.\"",
+      ],
+      narrator: "Sage",
+      narratorRole: "Sentinel",
+      backgroundImage: MAP("Haven"),
+      mood: "neutral",
+      tag: "Custom Match",
+    },
+    applyEffect(ctx) {
+      return scheduleMatch(
+        ctx,
+        "retake",
+        "Retake scheduled",
+        "1v3 Retake custom match at round end."
       );
     },
   },
