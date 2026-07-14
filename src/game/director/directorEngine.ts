@@ -14,6 +14,7 @@ import {
   type DirectorPickPayload,
   type EventWeight,
 } from "../../../shared/director";
+import { boardEventById } from "../../../shared/events";
 import { isEventEligibleAgent } from "../../../shared/availableAgents";
 
 export type DirectorPickResult = DirectorPickPayload & {
@@ -154,6 +155,78 @@ function pickKingdomDirector(
     protocolCode: protocol.protocolCode,
     event: resolveDirectorEvent(baseEvent, context),
     introDurationMs: WEIGHT_PRESENTATION_MS[protocol.weight],
+  };
+}
+
+/**
+ * Build a director intro for one exact board event id — used by debug and forced triggers.
+ * Matches production director presentation without re-rolling the event pool.
+ */
+export function buildDirectorPickForEventId(
+  pool: GameEvent[],
+  eventId: string,
+  context: NarrativeContext
+): DirectorPickResult {
+  const baseEvent = buildEventById(pool).get(eventId);
+  if (!baseEvent) {
+    throw new Error(`Unknown board event: ${eventId}`);
+  }
+
+  const definition = boardEventById.get(eventId);
+
+  for (const director of agentDirectorRegistry) {
+    const binding = director.events.find((entry) => entry.eventId === eventId);
+    if (binding) {
+      return {
+        mode: "agent",
+        weight: binding.weight,
+        quote: director.quote,
+        agentName: director.agentName,
+        agentRole: director.role,
+        event: resolveDirectorEvent(baseEvent, context),
+        introDurationMs: WEIGHT_PRESENTATION_MS[binding.weight],
+      };
+    }
+  }
+
+  for (const protocol of kingdomProtocolRegistry) {
+    if (!protocol.eventIds.includes(eventId)) continue;
+    return {
+      mode: "kingdom",
+      weight: protocol.weight,
+      quote: protocol.quote,
+      protocolId: protocol.id,
+      protocolName: protocol.name,
+      protocolSubtitle: protocol.subtitle,
+      protocolCode: protocol.protocolCode,
+      event: resolveDirectorEvent(baseEvent, context),
+      introDurationMs: WEIGHT_PRESENTATION_MS[protocol.weight],
+    };
+  }
+
+  const narrator =
+    definition?.sourceAgent ??
+    (isEventEligibleAgent(definition?.story.narrator ?? "")
+      ? definition?.story.narrator
+      : undefined) ??
+    agentDirectorRegistry[0]?.agentName ??
+    "Brimstone";
+
+  const weight: EventWeight = definition?.weight ?? "common";
+
+  return {
+    mode: definition?.sourceKingdom ? "kingdom" : "agent",
+    weight,
+    quote:
+      definition?.story.paragraphs[1]?.match(/"([^"]+)"/)?.[1] ??
+      "Something's happening. Stay sharp.",
+    agentName: definition?.sourceKingdom ? undefined : narrator,
+    agentRole: definition?.story.narratorRole,
+    protocolName: definition?.sourceKingdom ? definition.sourceKingdom : undefined,
+    protocolSubtitle: definition?.sourceKingdom ? "Protocol Brief" : undefined,
+    protocolCode: definition?.sourceKingdom ? "KNG-DEBUG" : undefined,
+    event: resolveDirectorEvent(baseEvent, context),
+    introDurationMs: WEIGHT_PRESENTATION_MS[weight],
   };
 }
 

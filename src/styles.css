@@ -1959,3 +1959,89 @@ body {
     display: none;
   }
 }
+
+.match-format-stage {
+  opacity: 0;
+  transform: translateY(24px) scale(0.96);
+  transition:
+    opacity 500ms ease,
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.match-format-stage--enter,
+.match-format-stage--pulse,
+.match-format-stage--hold {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.match-format-headline {
+  text-shadow: 0 0 24px rgba(34, 211, 238, 0.25);
+}
+
+.match-format-ffa__node {
+  position: absolute;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(244, 114, 182, 0.45);
+  background: radial-gradient(circle at 30% 30%, rgba(244, 114, 182, 0.35), rgba(15, 23, 42, 0.9));
+  opacity: 0.35;
+  transform: scale(0.8);
+}
+
+.match-format-ffa__node--nw { top: 0; left: 12%; }
+.match-format-ffa__node--ne { top: 8%; right: 10%; }
+.match-format-ffa__node--sw { bottom: 8%; left: 8%; }
+.match-format-ffa__node--se { bottom: 0; right: 14%; }
+.match-format-ffa__node--c { top: 50%; left: 50%; margin: -1.25rem 0 0 -1.25rem; }
+
+.match-format-ffa__node--active {
+  animation: match-format-ffa-pulse 900ms ease-in-out infinite alternate;
+  opacity: 1;
+}
+
+.match-format-ffa__burst {
+  position: absolute;
+  inset: 20%;
+  border-radius: 9999px;
+  border: 1px dashed rgba(244, 114, 182, 0.25);
+  animation: match-format-ffa-spin 4s linear infinite;
+}
+
+.match-format-team__slot,
+.match-format-side__solo {
+  display: block;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.85);
+  opacity: 0.45;
+  transform: scale(0.85);
+}
+
+.match-format-team__slot--cyan { border-color: rgba(34, 211, 238, 0.45); }
+.match-format-team__slot--orange { border-color: rgba(251, 146, 60, 0.45); }
+.match-format-side__solo--attacker { border-color: rgba(248, 113, 113, 0.5); }
+.match-format-side__solo--defender { border-color: rgba(52, 211, 153, 0.45); }
+
+.match-format-team--active .match-format-team__slot--active,
+.match-format-side--active .match-format-side__solo--active {
+  animation: match-format-slot-pop 700ms ease forwards;
+}
+
+@keyframes match-format-ffa-pulse {
+  from { transform: scale(0.85); box-shadow: 0 0 0 rgba(244, 114, 182, 0); }
+  to { transform: scale(1.08); box-shadow: 0 0 18px rgba(244, 114, 182, 0.35); }
+}
+
+@keyframes match-format-ffa-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes match-format-slot-pop {
+  from { opacity: 0.4; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}

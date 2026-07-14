@@ -1,5 +1,9 @@
-import { CUSTOM_MATCH_CATEGORY_LABELS, getCustomMatchDefinition } from "../../shared/customMatches";
+import {
+  CUSTOM_MATCH_CATEGORY_LABELS,
+  getCustomMatchDefinition,
+} from "../../shared/customMatches";
 import type {
+  CustomMatchCategory,
   CustomMatchStatus,
   ScheduledCustomMatch,
   ValorantMapId,
@@ -19,6 +23,8 @@ type CustomMatchLobbyProps = {
   onStartMatch: () => void;
   onMarkComplete: () => void;
   onSelectWinner: (playerIndex: number) => void;
+  onSelectWinnerTeam: (team: "alpha" | "bravo") => void;
+  onSelectWinnerSide: (side: "attackers" | "defenders") => void;
   onCancelWinnerSelection: () => void;
 };
 
@@ -36,6 +42,190 @@ function statusLabel(status: CustomMatchStatus): string {
   }
 }
 
+function playerLabel(players: LobbyPlayer[], index: number | undefined): string {
+  if (index == null) return "Unknown";
+  return players[index]?.name ?? `Player ${index + 1}`;
+}
+
+function TeamRoster({
+  title,
+  tone,
+  indices,
+  players,
+}: {
+  title: string;
+  tone: "cyan" | "orange" | "red" | "emerald";
+  indices: number[];
+  players: LobbyPlayer[];
+}) {
+  const borderTone = {
+    cyan: "border-cyan-400/25 bg-cyan-500/5",
+    orange: "border-orange-400/25 bg-orange-500/5",
+    red: "border-red-400/25 bg-red-500/5",
+    emerald: "border-emerald-400/25 bg-emerald-500/5",
+  }[tone];
+  const labelTone = {
+    cyan: "text-cyan-300",
+    orange: "text-orange-300",
+    red: "text-red-300",
+    emerald: "text-emerald-300",
+  }[tone];
+
+  return (
+    <div className={`rounded-xl border p-3 ${borderTone}`}>
+      <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${labelTone}`}>
+        {title}
+      </p>
+      <ul className="mt-2 space-y-1.5">
+        {indices.map((index) => (
+          <li
+            key={`${title}-${index}`}
+            className="flex items-center gap-2 rounded-lg border border-white/8 bg-black/25 px-2.5 py-1.5"
+          >
+            {players[index]?.avatar ? (
+              <img
+                src={players[index]?.avatar}
+                alt=""
+                className="h-7 w-7 rounded-full object-cover"
+              />
+            ) : (
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-800 text-[10px] font-bold text-zinc-300">
+                {playerLabel(players, index).charAt(0).toUpperCase()}
+              </span>
+            )}
+            <span className="truncate text-sm text-white">{playerLabel(players, index)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function WinnerPicker({
+  category,
+  match,
+  players,
+  onSelectWinner,
+  onSelectWinnerTeam,
+  onSelectWinnerSide,
+  onCancelWinnerSelection,
+}: {
+  category: CustomMatchCategory;
+  match: ScheduledCustomMatch;
+  players: LobbyPlayer[];
+  onSelectWinner: (playerIndex: number) => void;
+  onSelectWinnerTeam: (team: "alpha" | "bravo") => void;
+  onSelectWinnerSide: (side: "attackers" | "defenders") => void;
+  onCancelWinnerSelection: () => void;
+}) {
+  if (category === "2v2") {
+    const alpha = match.teamAlpha ?? [];
+    const bravo = match.teamBravo ?? [];
+    return (
+      <>
+        <p className="mt-1 text-xs text-zinc-400">
+          Select the winning team to award creds and resume the board game.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => onSelectWinnerTeam("alpha")}
+            className="rounded-lg border border-cyan-400/25 bg-cyan-500/5 px-3 py-3 text-left transition hover:border-cyan-400/50 hover:bg-cyan-500/10"
+          >
+            <p className="text-xs font-bold uppercase tracking-wider text-cyan-300">Team Alpha</p>
+            <p className="mt-1 text-sm text-white">
+              {alpha.map((index) => playerLabel(players, index)).join(" · ") || "—"}
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelectWinnerTeam("bravo")}
+            className="rounded-lg border border-orange-400/25 bg-orange-500/5 px-3 py-3 text-left transition hover:border-orange-400/50 hover:bg-orange-500/10"
+          >
+            <p className="text-xs font-bold uppercase tracking-wider text-orange-300">Team Bravo</p>
+            <p className="mt-1 text-sm text-white">
+              {bravo.map((index) => playerLabel(players, index)).join(" · ") || "—"}
+            </p>
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onCancelWinnerSelection}
+          className="mt-3 text-xs text-zinc-500 transition hover:text-zinc-300"
+        >
+          Cancel
+        </button>
+      </>
+    );
+  }
+
+  if (category === "1v3") {
+    const attacker = match.attackerIndex;
+    const defenders = match.defenderIndices ?? [];
+    return (
+      <>
+        <p className="mt-1 text-xs text-zinc-400">
+          Select the winning side to award creds and resume the board game.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => onSelectWinnerSide("attackers")}
+            className="rounded-lg border border-red-400/25 bg-red-500/5 px-3 py-3 text-left transition hover:border-red-400/50 hover:bg-red-500/10"
+          >
+            <p className="text-xs font-bold uppercase tracking-wider text-red-300">Attackers</p>
+            <p className="mt-1 text-sm text-white">{playerLabel(players, attacker)}</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelectWinnerSide("defenders")}
+            className="rounded-lg border border-emerald-400/25 bg-emerald-500/5 px-3 py-3 text-left transition hover:border-emerald-400/50 hover:bg-emerald-500/10"
+          >
+            <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">Defenders</p>
+            <p className="mt-1 text-sm text-white">
+              {defenders.map((index) => playerLabel(players, index)).join(" · ") || "—"}
+            </p>
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onCancelWinnerSelection}
+          className="mt-3 text-xs text-zinc-500 transition hover:text-zinc-300"
+        >
+          Cancel
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p className="mt-1 text-xs text-zinc-400">
+        Select the winning player to award creds and resume the board game.
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {players.map((player, index) => (
+          <button
+            key={`winner-${player.name}-${index}`}
+            type="button"
+            onClick={() => onSelectWinner(index)}
+            className="rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-left text-sm font-medium text-white transition hover:border-cyan-400/40 hover:bg-zinc-800"
+          >
+            {player.name}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={onCancelWinnerSelection}
+        className="mt-3 text-xs text-zinc-500 transition hover:text-zinc-300"
+      >
+        Cancel
+      </button>
+    </>
+  );
+}
+
 export default function CustomMatchLobby({
   match,
   players,
@@ -44,13 +234,14 @@ export default function CustomMatchLobby({
   onStartMatch,
   onMarkComplete,
   onSelectWinner,
+  onSelectWinnerTeam,
+  onSelectWinnerSide,
   onCancelWinnerSelection,
 }: CustomMatchLobbyProps) {
   const definition = getCustomMatchDefinition(match.matchId);
   const status = statusLabel(match.status);
-  const categoryLabel = definition
-    ? CUSTOM_MATCH_CATEGORY_LABELS[definition.category]
-    : null;
+  const category = definition?.category ?? "free_for_all";
+  const categoryLabel = CUSTOM_MATCH_CATEGORY_LABELS[category];
 
   return (
     <div className="fixed inset-0 z-[86] flex items-center justify-center bg-black/92 p-4">
@@ -125,61 +316,85 @@ export default function CustomMatchLobby({
             )}
           </div>
 
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-              Players ({players.length})
-            </p>
-            <ul className="mt-2 grid gap-2 sm:grid-cols-2">
-              {players.map((player, index) => (
-                <li
-                  key={`${player.name}-${index}`}
-                  className="flex items-center gap-2 rounded-lg border border-white/8 bg-zinc-900/60 px-3 py-2"
-                >
-                  {player.avatar ? (
-                    <img
-                      src={player.avatar}
-                      alt=""
-                      className="h-8 w-8 rounded-full object-cover"
-                    />
-                  ) : (
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 text-xs font-bold text-zinc-300">
-                      {player.name.charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <span className="truncate text-sm font-medium text-white">{player.name}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {category === "2v2" && (match.teamAlpha?.length || match.teamBravo?.length) ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TeamRoster
+                title="Team Alpha"
+                tone="cyan"
+                indices={match.teamAlpha ?? []}
+                players={players}
+              />
+              <TeamRoster
+                title="Team Bravo"
+                tone="orange"
+                indices={match.teamBravo ?? []}
+                players={players}
+              />
+            </div>
+          ) : category === "1v3" &&
+            (match.attackerIndex != null || match.defenderIndices?.length) ? (
+            <div className="grid gap-3 sm:grid-cols-[1fr_1.4fr]">
+              <TeamRoster
+                title="Attacker"
+                tone="red"
+                indices={match.attackerIndex != null ? [match.attackerIndex] : []}
+                players={players}
+              />
+              <TeamRoster
+                title="Defenders"
+                tone="emerald"
+                indices={match.defenderIndices ?? []}
+                players={players}
+              />
+            </div>
+          ) : (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                Players ({players.length})
+              </p>
+              <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                {players.map((player, index) => (
+                  <li
+                    key={`${player.name}-${index}`}
+                    className="flex items-center gap-2 rounded-lg border border-white/8 bg-zinc-900/60 px-3 py-2"
+                  >
+                    {player.avatar ? (
+                      <img
+                        src={player.avatar}
+                        alt=""
+                        className="h-8 w-8 rounded-full object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 text-xs font-bold text-zinc-300">
+                        {player.name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="truncate text-sm font-medium text-white">{player.name}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {selectingWinner ? (
             <div className="rounded-xl border border-amber-400/25 bg-amber-500/5 p-4">
-              <p className="text-sm font-semibold text-amber-200">Who won the custom match?</p>
+              <p className="text-sm font-semibold text-amber-200">
+                {category === "2v2"
+                  ? "Which team won the custom match?"
+                  : category === "1v3"
+                    ? "Which side won the custom match?"
+                    : "Who won the custom match?"}
+              </p>
               {isHost ? (
-                <>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Select the winning player to award creds and resume the board game.
-                  </p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {players.map((player, index) => (
-                      <button
-                        key={`winner-${player.name}-${index}`}
-                        type="button"
-                        onClick={() => onSelectWinner(index)}
-                        className="rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-left text-sm font-medium text-white transition hover:border-cyan-400/40 hover:bg-zinc-800"
-                      >
-                        {player.name}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onCancelWinnerSelection}
-                    className="mt-3 text-xs text-zinc-500 transition hover:text-zinc-300"
-                  >
-                    Cancel
-                  </button>
-                </>
+                <WinnerPicker
+                  category={category}
+                  match={match}
+                  players={players}
+                  onSelectWinner={onSelectWinner}
+                  onSelectWinnerTeam={onSelectWinnerTeam}
+                  onSelectWinnerSide={onSelectWinnerSide}
+                  onCancelWinnerSelection={onCancelWinnerSelection}
+                />
               ) : (
                 <p className="mt-1 text-xs text-zinc-400">
                   Waiting for host to confirm the winner.

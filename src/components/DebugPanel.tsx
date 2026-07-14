@@ -46,6 +46,7 @@ type DebugPanelProps = {
   onSkipToPlayer: (playerIndex: number) => void;
   onEndRound: () => void;
   onTriggerEvent: (eventId: string) => void;
+  eventPipelineBusy?: boolean;
   onTriggerDirector: (agentName?: string) => void;
   onTriggerKingdomProtocol: () => void;
   onOpenDefusePrompt: () => void;
@@ -82,21 +83,24 @@ function DebugButton({
   children,
   active,
   className = "",
+  disabled = false,
 }: {
   onClick: () => void;
   children: ReactNode;
   active?: boolean;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`rounded-lg border px-3 py-2 text-left text-sm transition hover:border-zinc-500 hover:bg-zinc-800 ${
         active
           ? "border-cyan-500 bg-cyan-950 text-cyan-100"
           : "border-zinc-700 bg-zinc-900 text-zinc-100"
-      } ${className}`}
+      } ${disabled ? "cursor-not-allowed opacity-45 hover:border-zinc-700 hover:bg-zinc-900" : ""} ${className}`}
     >
       {children}
     </button>
@@ -122,6 +126,7 @@ export default function DebugPanel({
   onSkipToPlayer,
   onEndRound,
   onTriggerEvent,
+  eventPipelineBusy = false,
   onTriggerDirector,
   onTriggerKingdomProtocol,
   onOpenDefusePrompt,
@@ -226,9 +231,15 @@ export default function DebugPanel({
                     key={event.id}
                     onClick={() => onTriggerEvent(event.id)}
                     className="w-full"
+                    disabled={eventPipelineBusy}
                   >
                     <span className="font-medium">{event.name}</span>
                     <span className="ml-2 text-xs text-zinc-500">{event.id}</span>
+                    {eventPipelineBusy && (
+                      <span className="mt-1 block text-[10px] text-amber-400/80">
+                        Event pipeline busy
+                      </span>
+                    )}
                   </DebugButton>
                 ))}
               </div>

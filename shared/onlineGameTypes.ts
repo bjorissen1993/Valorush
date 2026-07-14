@@ -47,10 +47,17 @@ export type SyncedScheduledCustomMatch = {
   scheduledAtRound: number;
   status: SyncedCustomMatchStatus;
   participants: string[];
+  teamAlpha?: number[];
+  teamBravo?: number[];
+  attackerIndex?: number;
+  defenderIndices?: number[];
   winnerPlayerIndex?: number;
+  winnerTeam?: "alpha" | "bravo";
+  winnerSide?: "attackers" | "defenders";
 };
 
 export type SyncedCustomMatchPhase =
+  | { step: "format" }
   | { step: "reveal" }
   | { step: "lobby"; selectingWinner?: boolean }
   | null;

@@ -753,7 +753,7 @@ export const boardEventRegistry: BoardEventDefinition[] = [
       headline: "Brimstone calls TDM",
       paragraphs: [
         "Brimstone marks the sector on Ascent.",
-        "\"Team Deathmatch when the round closes. Highest roll wins.\"",
+        "\"Team Deathmatch when the round closes. Host picks the winning team.\"",
       ],
       narrator: "Brimstone",
       narratorRole: "Protocol Commander",

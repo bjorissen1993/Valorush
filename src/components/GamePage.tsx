@@ -17,6 +17,7 @@ import TurnOrderScreen from "./TurnOrderScreen";
 import EventStoryModal from "./EventStoryModal";
 import EventChoiceModal from "./EventChoiceModal";
 import MapRevealPresentation from "./MapRevealPresentation";
+import MatchFormatPresentation from "./MatchFormatPresentation";
 import CustomMatchLobby from "./CustomMatchLobby";
 import SpikeDefuseModal from "./SpikeDefuseModal";
 import DirectorPresentation from "./DirectorPresentation";
@@ -50,6 +51,7 @@ import {
   customMatchRegistry,
   getCustomMatchDefinition,
   pickRandomMapForMatch,
+  assignTeamsForCategory,
 } from "../../shared/customMatches";
 import { minigameById, minigameRegistry } from "../../shared/minigames";
 import { boardEventRegistry } from "../../shared/events";
@@ -62,7 +64,7 @@ import type {
   CustomMatchId,
 } from "../../shared/customMatches/types";
 import type { ValorantMapId } from "../../shared/customMatches/types";
-import { pickDirectorEvent } from "../game/director";
+import { pickDirectorEvent, buildDirectorPickForEventId } from "../game/director";
 import type {
   ActiveSpike,
   SpikePlantReveal,
@@ -178,6 +180,7 @@ type MinigamePhase =
     };
 
 type CustomMatchPhase =
+  | { step: "format"; match: ScheduledCustomMatch }
   | { step: "reveal"; match: ScheduledCustomMatch }
   | { step: "lobby"; match: ScheduledCustomMatch; selectingWinner?: boolean };
 
@@ -187,12 +190,18 @@ function buildScheduledCustomMatch(
   scheduledAtRound: number,
   players: Pick<PlayerInGame, "name">[],
 ): ScheduledCustomMatch {
+  const definition = getCustomMatchDefinition(matchId);
+  const teamLayout = definition
+    ? assignTeamsForCategory(definition.category, players.length)
+    : {};
+
   return {
     matchId,
     mapId,
     scheduledAtRound,
     status: "scheduled",
     participants: players.map((player) => player.name),
+    ...teamLayout,
   };
 }
 
@@ -206,7 +215,13 @@ function toSyncedScheduledCustomMatch(
     scheduledAtRound: match.scheduledAtRound,
     status: match.status,
     participants: match.participants,
+    teamAlpha: match.teamAlpha,
+    teamBravo: match.teamBravo,
+    attackerIndex: match.attackerIndex,
+    defenderIndices: match.defenderIndices,
     winnerPlayerIndex: match.winnerPlayerIndex,
+    winnerTeam: match.winnerTeam,
+    winnerSide: match.winnerSide,
   };
 }
 
@@ -219,7 +234,13 @@ function fromSyncedScheduledCustomMatch(
     scheduledAtRound: synced.scheduledAtRound,
     status: synced.status,
     participants: synced.participants,
+    teamAlpha: synced.teamAlpha,
+    teamBravo: synced.teamBravo,
+    attackerIndex: synced.attackerIndex,
+    defenderIndices: synced.defenderIndices,
     winnerPlayerIndex: synced.winnerPlayerIndex,
+    winnerTeam: synced.winnerTeam,
+    winnerSide: synced.winnerSide,
   };
 }
 
@@ -227,6 +248,7 @@ function toSyncedCustomMatchPhase(
   phase: CustomMatchPhase | null,
 ): SyncedCustomMatchPhase {
   if (!phase) return null;
+  if (phase.step === "format") return { step: "format" };
   if (phase.step === "reveal") return { step: "reveal" };
   return { step: "lobby", selectingWinner: phase.selectingWinner };
 }
@@ -236,6 +258,9 @@ function mergeCustomMatchPhase(
   match: ScheduledCustomMatch | null,
 ): CustomMatchPhase | null {
   if (!syncedPhase || !match) return null;
+  if (syncedPhase.step === "format") {
+    return { step: "format", match };
+  }
   if (syncedPhase.step === "reveal") {
     return { step: "reveal", match };
   }
@@ -1091,9 +1116,28 @@ export default function GamePage({
     );
   }
 
-  function debugTriggerStoryEvent(event: GameEvent) {
-    const player = playersInGame[debugSelectedPlayerIndex];
-    if (!player) return;
+  function isEventPipelineBusy() {
+    return (
+      phase === "resolving-event" ||
+      !!activeStoryEvent ||
+      !!pendingEventChoice
+    );
+  }
+
+  function beginBoardEventFlow(playerIndex: number, eventId: string): boolean {
+    if (isEventPipelineBusy()) {
+      showAnnouncement("Event in progress", "Finish the current event before triggering another.");
+      return false;
+    }
+
+    const definition = boardEventById.get(eventId);
+    if (!definition) return false;
+
+    const player = playersInGame[playerIndex];
+    if (!player) return false;
+
+    setPendingEventChoice(null);
+    setEventEffectsApplied(false);
 
     const context = {
       triggerPlayer: player,
@@ -1101,14 +1145,12 @@ export default function GamePage({
       playersInGame,
       agents,
     };
-    const directorResult = pickDirectorEvent(eventPool, context, {
-      forceAgent: event.story.narrator,
-    });
+    const directorResult = buildDirectorPickForEventId(eventPool, eventId, context);
 
     setPhase("resolving-event");
     setActiveStoryEvent({
       event: directorResult.event,
-      playerIndex: debugSelectedPlayerIndex,
+      playerIndex,
       directorPick: directorResult,
       introDurationMs: directorResult.introDurationMs,
       showDirectorIntro: true,
@@ -1122,6 +1164,56 @@ export default function GamePage({
       `${player.name} triggered ${directorResult.event.title}`,
       directorResult.event.outcome?.headline ?? directorResult.event.story.headline
     );
+    return true;
+  }
+
+  function beginDirectorEventFlow(
+    playerIndex: number,
+    options?: { forceKingdom?: boolean; forceAgent?: string }
+  ): boolean {
+    if (isEventPipelineBusy()) {
+      showAnnouncement("Event in progress", "Finish the current event before triggering another.");
+      return false;
+    }
+
+    const player = playersInGame[playerIndex];
+    if (!player) return false;
+
+    setPendingEventChoice(null);
+    setEventEffectsApplied(false);
+
+    const context = {
+      triggerPlayer: player,
+      triggerAgentName: getAgentName(player),
+      playersInGame,
+      agents,
+    };
+    const directorResult = pickDirectorEvent(eventPool, context, options);
+
+    setPhase("resolving-event");
+    setActiveStoryEvent({
+      event: directorResult.event,
+      playerIndex,
+      directorPick: directorResult,
+      introDurationMs: directorResult.introDurationMs,
+      showDirectorIntro: true,
+    });
+    setLastEventTitle(directorResult.event.title);
+    setStatusTitle(`${player.name} — ${directorResult.event.title}`);
+    setStatusSubtitle(
+      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
+    );
+    showAnnouncement(
+      options?.forceKingdom
+        ? "Kingdom Protocol"
+        : `Director: ${directorResult.event.title}`,
+      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
+    );
+    return true;
+  }
+
+  function debugTriggerStoryEvent(event: GameEvent) {
+    beginBoardEventFlow(debugSelectedPlayerIndex, event.id);
   }
 
   function debugTriggerShop() {
@@ -1231,77 +1323,15 @@ export default function GamePage({
   }
 
   function debugTriggerBoardEventById(eventId: string) {
-    const gameEvent = eventPool.find((event) => event.id === eventId);
-    if (!gameEvent) return;
-    debugTriggerStoryEvent(gameEvent);
+    beginBoardEventFlow(debugSelectedPlayerIndex, eventId);
   }
 
   function debugTriggerDirector(agentName?: string) {
-    const player = playersInGame[debugSelectedPlayerIndex];
-    if (!player) return;
-
-    const context = {
-      triggerPlayer: player,
-      triggerAgentName: getAgentName(player),
-      playersInGame,
-      agents,
-    };
-    const directorResult = pickDirectorEvent(
-      eventPool,
-      context,
-      agentName ? { forceAgent: agentName } : undefined
-    );
-
-    setPhase("resolving-event");
-    setActiveStoryEvent({
-      event: directorResult.event,
-      playerIndex: debugSelectedPlayerIndex,
-      directorPick: directorResult,
-      introDurationMs: directorResult.introDurationMs,
-      showDirectorIntro: true,
-    });
-    setLastEventTitle(directorResult.event.title);
-    setStatusTitle(`${player.name} — ${directorResult.event.title}`);
-    setStatusSubtitle(
-      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
-    );
-    showAnnouncement(
-      `Director: ${directorResult.event.title}`,
-      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
-    );
+    beginDirectorEventFlow(debugSelectedPlayerIndex, agentName ? { forceAgent: agentName } : undefined);
   }
 
   function debugTriggerKingdomProtocol() {
-    const player = playersInGame[debugSelectedPlayerIndex];
-    if (!player) return;
-
-    const context = {
-      triggerPlayer: player,
-      triggerAgentName: getAgentName(player),
-      playersInGame,
-      agents,
-    };
-    const directorResult = pickDirectorEvent(eventPool, context, {
-      forceKingdom: true,
-    });
-
-    setPhase("resolving-event");
-    setActiveStoryEvent({
-      event: directorResult.event,
-      playerIndex: debugSelectedPlayerIndex,
-      directorPick: directorResult,
-      introDurationMs: directorResult.introDurationMs,
-      showDirectorIntro: true,
-    });
-    setLastEventTitle(directorResult.event.title);
-    setStatusTitle(`Kingdom Protocol — ${directorResult.event.title}`);
-    setStatusSubtitle(
-      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
-    );
-    showAnnouncement(
-      "Kingdom Protocol",
-      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
-    );
+    beginDirectorEventFlow(debugSelectedPlayerIndex, { forceKingdom: true });
   }
 
   function debugScheduleCustomMatch(matchId: string) {
@@ -1353,7 +1383,7 @@ export default function GamePage({
         round,
         playersInGame,
       );
-    setCustomMatchPhase({ step: "reveal", match });
+    setCustomMatchPhase({ step: "format", match });
     const matchName = getCustomMatchDefinition(match.matchId)?.name ?? "Custom Match";
     setStatusTitle(`Map Reveal: ${matchName}`);
     setStatusSubtitle(`Revealing ${match.mapId}`);
@@ -1392,6 +1422,11 @@ export default function GamePage({
   }
 
   function debugLandOnTile(tileType: TileType) {
+    if (isEventPipelineBusy()) {
+      showAnnouncement("Event in progress", "Finish the current event before landing on a tile.");
+      return;
+    }
+
     const node = boardLayout.find((entry) => entry.type === tileType);
     if (!node) return;
 
@@ -1494,15 +1529,27 @@ export default function GamePage({
   }
 
   function beginCustomMatchFlow(match: ScheduledCustomMatch) {
-    setScheduledCustomMatch(match);
-    setCustomMatchPhase({ step: "reveal", match });
-    const matchDef = getCustomMatchDefinition(match.matchId);
-    setStatusTitle(`${matchDef?.name ?? "Custom Match"} — Map Reveal`);
-    setStatusSubtitle(`Deploying to ${match.mapId}`);
+    const definition = getCustomMatchDefinition(match.matchId);
+    const withTeams: ScheduledCustomMatch = {
+      ...match,
+      ...assignTeamsForCategory(definition?.category ?? "free_for_all", playersInGame.length),
+    };
+    setScheduledCustomMatch(withTeams);
+    setCustomMatchPhase({ step: "format", match: withTeams });
+    const matchDef = getCustomMatchDefinition(withTeams.matchId);
+    setStatusTitle(`${matchDef?.name ?? "Custom Match"} — Format Reveal`);
+    setStatusSubtitle("Deploying engagement parameters");
     showAnnouncement(
       "Custom Match",
-      `${matchDef?.name ?? "Custom Match"} on ${match.mapId}`
+      `${matchDef?.name ?? "Custom Match"} on ${withTeams.mapId}`
     );
+  }
+
+  function handleFormatRevealComplete() {
+    setCustomMatchPhase((current) => {
+      if (!current || current.step !== "format") return current;
+      return { step: "reveal", match: current.match };
+    });
   }
 
   function handleMapRevealComplete() {
@@ -1561,26 +1608,31 @@ export default function GamePage({
     });
   }
 
-  async function handleSelectCustomMatchWinner(winnerIndex: number) {
-    if (multiplayer && !multiplayer.isHost) return;
+  async function finishCustomMatchAndResume(
+    headline: string,
+    subtitle: string,
+    rewardIndices: number[]
+  ) {
     const activePhase = customMatchPhase;
     if (!activePhase || activePhase.step !== "lobby") return;
 
     const { match } = activePhase;
     const matchDef = getCustomMatchDefinition(match.matchId);
-    updatePlayer(winnerIndex, (player) => ({
-      ...player,
-      creds: player.creds + (matchDef?.winCreds ?? 150),
-      radianitePoints: player.radianitePoints + (matchDef?.winRadianite ?? 1),
-    }));
-
-    const winnerName = playersInGame[winnerIndex]?.name ?? "Player";
-    setStatusTitle(`${winnerName} wins ${matchDef?.name ?? "Custom Match"}!`);
-    setStatusSubtitle(`+${matchDef?.winCreds ?? 150} Creds on ${match.mapId}`);
-    showAnnouncement(
-      `${matchDef?.name ?? "Custom Match"} Complete`,
-      `${winnerName} wins on ${match.mapId}!`
+    const uniqueIndices = [...new Set(rewardIndices)].filter(
+      (index) => index >= 0 && index < playersInGame.length
     );
+
+    for (const winnerIndex of uniqueIndices) {
+      updatePlayer(winnerIndex, (player) => ({
+        ...player,
+        creds: player.creds + (matchDef?.winCreds ?? 150),
+        radianitePoints: player.radianitePoints + (matchDef?.winRadianite ?? 1),
+      }));
+    }
+
+    setStatusTitle(headline);
+    setStatusSubtitle(subtitle);
+    showAnnouncement(`${matchDef?.name ?? "Custom Match"} Complete`, subtitle);
 
     setCustomMatchPhase(null);
     setScheduledCustomMatch(null);
@@ -1615,6 +1667,54 @@ export default function GamePage({
         wrap.subtitle ?? `${nextName} is now up`
       );
     }
+  }
+
+  async function handleSelectCustomMatchWinner(winnerIndex: number) {
+    if (multiplayer && !multiplayer.isHost) return;
+    const winnerName = playersInGame[winnerIndex]?.name ?? "Player";
+    const matchDef = getCustomMatchDefinition(customMatchPhase?.match.matchId ?? "");
+    await finishCustomMatchAndResume(
+      `${winnerName} wins ${matchDef?.name ?? "Custom Match"}!`,
+      `+${matchDef?.winCreds ?? 150} Creds on ${customMatchPhase?.match.mapId ?? "map"}`,
+      [winnerIndex]
+    );
+  }
+
+  async function handleSelectCustomMatchWinnerTeam(team: "alpha" | "bravo") {
+    if (multiplayer && !multiplayer.isHost) return;
+    const activePhase = customMatchPhase;
+    if (!activePhase || activePhase.step !== "lobby") return;
+
+    const { match } = activePhase;
+    const indices = team === "alpha" ? match.teamAlpha ?? [] : match.teamBravo ?? [];
+    const teamLabel = team === "alpha" ? "Team Alpha" : "Team Bravo";
+    const matchDef = getCustomMatchDefinition(match.matchId);
+    await finishCustomMatchAndResume(
+      `${teamLabel} wins ${matchDef?.name ?? "Custom Match"}!`,
+      `${teamLabel} takes the bonus on ${match.mapId}`,
+      indices
+    );
+  }
+
+  async function handleSelectCustomMatchWinnerSide(side: "attackers" | "defenders") {
+    if (multiplayer && !multiplayer.isHost) return;
+    const activePhase = customMatchPhase;
+    if (!activePhase || activePhase.step !== "lobby") return;
+
+    const { match } = activePhase;
+    const indices =
+      side === "attackers"
+        ? match.attackerIndex != null
+          ? [match.attackerIndex]
+          : []
+        : match.defenderIndices ?? [];
+    const sideLabel = side === "attackers" ? "Attackers" : "Defenders";
+    const matchDef = getCustomMatchDefinition(match.matchId);
+    await finishCustomMatchAndResume(
+      `${sideLabel} win ${matchDef?.name ?? "Custom Match"}!`,
+      `${sideLabel} take the bonus on ${match.mapId}`,
+      indices
+    );
   }
 
   async function playMinigameRolls() {
@@ -2103,6 +2203,14 @@ export default function GamePage({
     });
 
     if (resolution.kind === "event") {
+      if (isEventPipelineBusy()) {
+        await advanceToNextPlayer(
+          `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
+          `${getResolvedNextPlayerName(playerIndex)} is now up`
+        );
+        return;
+      }
+
       const directorResult = pickDirectorEvent(eventPool, {
         triggerPlayer: player,
         triggerAgentName: getAgentName(player),
@@ -2111,6 +2219,8 @@ export default function GamePage({
       });
       const gameEvent = directorResult.event;
 
+      setPendingEventChoice(null);
+      setEventEffectsApplied(false);
       setPhase("resolving-event");
       setLastEventTitle(gameEvent.title);
       setStatusTitle(`${player.name} triggered ${gameEvent.title}`);
@@ -2871,6 +2981,13 @@ export default function GamePage({
           />
         )}
 
+      {customMatchPhase?.step === "format" && (
+        <MatchFormatPresentation
+          matchId={customMatchPhase.match.matchId}
+          onComplete={handleFormatRevealComplete}
+        />
+      )}
+
       {customMatchPhase?.step === "reveal" && (
         <MapRevealPresentation
           matchId={customMatchPhase.match.matchId}
@@ -2891,6 +3008,8 @@ export default function GamePage({
           onStartMatch={handleStartCustomMatch}
           onMarkComplete={handleMarkCustomMatchComplete}
           onSelectWinner={(index) => void handleSelectCustomMatchWinner(index)}
+          onSelectWinnerTeam={(team) => void handleSelectCustomMatchWinnerTeam(team)}
+          onSelectWinnerSide={(side) => void handleSelectCustomMatchWinnerSide(side)}
           onCancelWinnerSelection={handleCancelWinnerSelection}
         />
       )}
@@ -3352,6 +3471,7 @@ export default function GamePage({
           onSkipToPlayer={debugSkipToPlayer}
           onEndRound={debugEndRound}
           onTriggerEvent={debugTriggerBoardEventById}
+          eventPipelineBusy={isEventPipelineBusy()}
           onTriggerDirector={debugTriggerDirector}
           onTriggerKingdomProtocol={debugTriggerKingdomProtocol}
           onOpenDefusePrompt={debugOpenDefusePromptForSelectedPlayer}

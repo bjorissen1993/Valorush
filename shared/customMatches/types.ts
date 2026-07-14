@@ -60,6 +60,18 @@ export type CustomMatchStatus =
   | "in_progress"
   | "completed";
 
+/** Team layout for 2v2 modes — player indices into the live roster. */
+export type CustomMatchTeamLayout = {
+  teamAlpha: number[];
+  teamBravo: number[];
+};
+
+/** Side layout for 1v3 modes — one attacker vs up to three defenders. */
+export type CustomMatchSideLayout = {
+  attackerIndex: number;
+  defenderIndices: number[];
+};
+
 /** Persisted custom match state — ready for future Riot API fields. */
 export type ScheduledCustomMatch = {
   matchId: CustomMatchId;
@@ -67,7 +79,15 @@ export type ScheduledCustomMatch = {
   scheduledAtRound: number;
   status: CustomMatchStatus;
   participants: string[];
+  /** 2v2 — balanced random split at schedule time. */
+  teamAlpha?: number[];
+  teamBravo?: number[];
+  /** 1v3 — one attacker vs defenders. */
+  attackerIndex?: number;
+  defenderIndices?: number[];
   winnerPlayerIndex?: number;
+  winnerTeam?: "alpha" | "bravo";
+  winnerSide?: "attackers" | "defenders";
   /** Future: riotLobbyId, riotMatchId, etc. */
 };
 

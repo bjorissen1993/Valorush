@@ -1,1 +1,5 @@
-export { pickDirectorEvent, type DirectorPickResult } from "./directorEngine";
+export {
+  pickDirectorEvent,
+  buildDirectorPickForEventId,
+  type DirectorPickResult,
+} from "./directorEngine";
