@@ -246,6 +246,7 @@ export class LobbyClient {
   private callbacks: LobbyClientCallbacks;
   private intentionalClose = false;
   private hadConnection = false;
+  private inLobby = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRejoin: { code: string; playerId: string } | null = null;
 
@@ -263,18 +264,16 @@ export class LobbyClient {
     ws.onopen = () => {
       this.callbacks.onStatusChange("connected");
 
+      const session = readLobbySession();
       if (this.pendingRejoin) {
         this.send({ type: "rejoin", ...this.pendingRejoin });
         this.pendingRejoin = null;
-      } else if (this.hadConnection) {
-        const session = readLobbySession();
-        if (session) {
-          this.send({
-            type: "rejoin",
-            code: session.code,
-            playerId: session.playerId,
-          });
-        }
+      } else if (session && (this.hadConnection || this.inLobby)) {
+        this.send({
+          type: "rejoin",
+          code: session.code,
+          playerId: session.playerId,
+        });
       }
 
       this.hadConnection = true;
@@ -311,6 +310,7 @@ export class LobbyClient {
 
     switch (message.type) {
       case "room_state":
+        this.inLobby = true;
         persistLobbySession(message.state.code, message.yourPlayerId, {
           phase:
             message.state.status === "waiting"
@@ -422,6 +422,7 @@ export class LobbyClient {
 
   leave(): void {
     this.send({ type: "leave" });
+    this.inLobby = false;
     this.disconnect();
     clearLobbySession();
   }
@@ -429,6 +430,7 @@ export class LobbyClient {
   disconnect(): void {
     this.intentionalClose = true;
     this.hadConnection = false;
+    this.inLobby = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

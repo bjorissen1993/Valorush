@@ -358,6 +358,8 @@ function handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
 }
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CODE_LENGTH = 6;
+/** Keep disconnected rooms alive so hosts/guests can rejoin after refresh. */
+const REJOIN_GRACE_MS = 10 * 60 * 1000;
 
 type ConnectedClient = {
   ws: WebSocket;
@@ -379,6 +381,7 @@ type Room = {
   gameSnapshot?: OnlineGameSnapshot;
   gameBegun?: boolean;
   hostPlayerId?: string;
+  cleanupTimer?: ReturnType<typeof setTimeout>;
 };
 
 const rooms = new Map<string, Room>();
@@ -438,8 +441,30 @@ function pushRoomState(room: Room): void {
   }
 }
 
+function clearRoomCleanupTimer(room: Room): void {
+  if (!room.cleanupTimer) return;
+  clearTimeout(room.cleanupTimer);
+  room.cleanupTimer = undefined;
+}
+
+function scheduleRoomCleanup(room: Room): void {
+  if (room.clients.size > 0) {
+    clearRoomCleanupTimer(room);
+    return;
+  }
+
+  if (room.cleanupTimer) return;
+
+  room.cleanupTimer = setTimeout(() => {
+    room.cleanupTimer = undefined;
+    if (room.clients.size === 0) {
+      rooms.delete(room.code);
+    }
+  }, REJOIN_GRACE_MS);
+}
+
 /** Accidental disconnect — keep player slot and host status for rejoin. */
-function disconnectClient(playerId: string): void {
+function disconnectClient(ws: WebSocket, playerId: string): void {
   const roomCode = playerToRoom.get(playerId);
   if (!roomCode) return;
 
@@ -449,8 +474,12 @@ function disconnectClient(playerId: string): void {
     return;
   }
 
+  const client = room.clients.get(playerId);
+  if (!client || client.ws !== ws) return;
+
   room.clients.delete(playerId);
   playerToRoom.delete(playerId);
+  scheduleRoomCleanup(room);
 }
 
 /** Earliest-joined remaining player becomes host (explicit leave only). */
@@ -541,6 +570,7 @@ function forwardGameActionToHost(
 function attachClient(room: Room, ws: WebSocket, playerId: string): void {
   room.clients.set(playerId, { ws, playerId, roomCode: room.code });
   playerToRoom.set(playerId, room.code);
+  clearRoomCleanupTimer(room);
 }
 
 function profileFromMessage(profile: PlayerProfile): PlayerProfile {
@@ -723,8 +753,9 @@ function findReconnectablePlayer(
   });
 }
 
-function handleRejoin(ws: WebSocket, rawCode: string, playerId: string): void {
+function handleRejoin(ws: WebSocket, rawCode: string, rawPlayerId: string): void {
   const code = normalizeCode(rawCode);
+  const playerId = rawPlayerId.trim();
   const room = rooms.get(code);
 
   if (!room) {
@@ -739,6 +770,9 @@ function handleRejoin(ws: WebSocket, rawCode: string, playerId: string): void {
   }
 
   attachClient(room, ws, playerId);
+  if (player.isHost) {
+    room.hostPlayerId = playerId;
+  }
   sendRejoinState(ws, room, playerId);
 }
 
@@ -1027,7 +1061,7 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     const ctx = getClientContext(ws);
-    if (ctx) disconnectClient(ctx.playerId);
+    if (ctx) disconnectClient(ws, ctx.playerId);
   });
 });
 

@@ -24,6 +24,7 @@ export function useLobbyRoom({
   const clientRef = useRef<LobbyClient | null>(null);
   const bootstrappedRef = useRef(false);
   const rejoinAttemptedRef = useRef(false);
+  const roomStateRef = useRef<LobbyRoomState | null>(null);
 
   const [roomState, setRoomState] = useState<LobbyRoomState | null>(null);
   const [yourPlayerId, setYourPlayerId] = useState<string | null>(null);
@@ -40,6 +41,10 @@ export function useLobbyRoom({
     if (!roomState || !yourPlayerId) return null;
     return roomState.players.find((player) => player.id === yourPlayerId) ?? null;
   }, [roomState, yourPlayerId]);
+
+  useEffect(() => {
+    roomStateRef.current = roomState;
+  }, [roomState]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -78,20 +83,57 @@ export function useLobbyRoom({
         setChatMessages((prev) => [...prev, message]);
       },
       onError: (message) => {
+        const lower = message.toLowerCase();
+
+        if (
+          lower.includes("not in a lobby") &&
+          roomStateRef.current
+        ) {
+          const session = readLobbySession();
+          if (session) {
+            clientRef.current?.rejoinLobby(session.code, session.playerId);
+          }
+          return;
+        }
+
+        if (rejoinAttemptedRef.current && mode === "create") {
+          if (lower.includes("lobby not found") || lower.includes("slot expired")) {
+            rejoinAttemptedRef.current = false;
+            bootstrappedRef.current = false;
+            clientRef.current?.createLobby(profile);
+            return;
+          }
+        }
+
         if (
           rejoinAttemptedRef.current &&
           mode === "join" &&
           joinCode &&
-          message.toLowerCase().includes("slot expired")
+          lower.includes("slot expired")
         ) {
           rejoinAttemptedRef.current = false;
           clientRef.current?.joinLobby(joinCode, profile);
           return;
         }
+
+        if (
+          rejoinAttemptedRef.current &&
+          mode === "join" &&
+          joinCode &&
+          lower.includes("lobby not found")
+        ) {
+          rejoinAttemptedRef.current = false;
+          clientRef.current?.joinLobby(joinCode, profile);
+          return;
+        }
+
         setError(message);
       },
       onStatusChange: (status) => {
         setConnectionStatus(status);
+        if (status === "connecting") {
+          setError(null);
+        }
       },
     });
 
@@ -120,6 +162,7 @@ export function useLobbyRoom({
         !rejoinAttemptedRef.current
       ) {
         rejoinAttemptedRef.current = true;
+        clientRef.current.scheduleRejoin(session.code, session.playerId);
         clientRef.current.rejoinLobby(session.code, session.playerId);
         return;
       }
@@ -138,6 +181,7 @@ export function useLobbyRoom({
         !rejoinAttemptedRef.current
       ) {
         rejoinAttemptedRef.current = true;
+        clientRef.current.scheduleRejoin(session.code, session.playerId);
         clientRef.current.rejoinLobby(session.code, session.playerId);
         return;
       }

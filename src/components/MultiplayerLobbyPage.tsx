@@ -96,7 +96,7 @@ export default function MultiplayerLobbyPage({
   }, [gameStartingPayload, isHost, onGameStarting, yourPlayerId]);
 
   useEffect(() => {
-    if (error) setStartError(error);
+    setStartError(error);
   }, [error]);
 
   useEffect(() => {
