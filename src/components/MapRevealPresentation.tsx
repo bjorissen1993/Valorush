@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { customMatchById } from "../../shared/customMatches";
 import type { ValorantMapId } from "../../shared/customMatches/types";
 import { mapLoadingPath, pointsIconPath } from "../game/assetPaths";
@@ -7,40 +7,56 @@ type MapRevealPresentationProps = {
   matchId: string;
   mapId: ValorantMapId;
   onComplete: () => void;
-  introDurationMs?: number;
 };
 
 type RevealPhase = "drop" | "landing" | "open" | "reveal";
 
-const DROP_MS = 900;
-const LANDING_MS = 400;
-const OPEN_MS = 800;
+export const MAP_REVEAL_DROP_MS = 900;
+export const MAP_REVEAL_LANDING_MS = 400;
+export const MAP_REVEAL_OPEN_MS = 800;
+export const MAP_REVEAL_HOLD_MS = 1800;
+
+export const MAP_REVEAL_TOTAL_MS =
+  MAP_REVEAL_DROP_MS + MAP_REVEAL_LANDING_MS + MAP_REVEAL_OPEN_MS + MAP_REVEAL_HOLD_MS;
 
 export default function MapRevealPresentation({
   matchId,
   mapId,
   onComplete,
-  introDurationMs = 4200,
 }: MapRevealPresentationProps) {
   const [phase, setPhase] = useState<RevealPhase>("drop");
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
   const match = customMatchById.get(matchId as Parameters<typeof customMatchById.get>[0]);
 
   useEffect(() => {
     setPhase("drop");
-    const landingTimer = window.setTimeout(() => setPhase("landing"), DROP_MS);
-    const openTimer = window.setTimeout(() => setPhase("open"), DROP_MS + LANDING_MS);
+
+    const landingTimer = window.setTimeout(
+      () => setPhase("landing"),
+      MAP_REVEAL_DROP_MS,
+    );
+    const openTimer = window.setTimeout(
+      () => setPhase("open"),
+      MAP_REVEAL_DROP_MS + MAP_REVEAL_LANDING_MS,
+    );
     const revealTimer = window.setTimeout(
       () => setPhase("reveal"),
-      DROP_MS + LANDING_MS + OPEN_MS,
+      MAP_REVEAL_DROP_MS + MAP_REVEAL_LANDING_MS + MAP_REVEAL_OPEN_MS,
     );
-    const completeTimer = window.setTimeout(onComplete, introDurationMs);
+    const completeTimer = window.setTimeout(
+      () => onCompleteRef.current(),
+      MAP_REVEAL_TOTAL_MS,
+    );
+
     return () => {
       window.clearTimeout(landingTimer);
       window.clearTimeout(openTimer);
       window.clearTimeout(revealTimer);
       window.clearTimeout(completeTimer);
     };
-  }, [matchId, mapId, introDurationMs, onComplete]);
+  }, [matchId, mapId]);
 
   const isOpen = phase === "open" || phase === "reveal";
 

@@ -35,12 +35,25 @@ export type SyncedPlayerInGame = {
   maxStepsTurns?: number;
 };
 
+export type SyncedCustomMatchStatus =
+  | "scheduled"
+  | "revealed"
+  | "in_progress"
+  | "completed";
+
 export type SyncedScheduledCustomMatch = {
   matchId: string;
   mapId: string;
-  scheduledRound: number;
-  announced: boolean;
+  scheduledAtRound: number;
+  status: SyncedCustomMatchStatus;
+  participants: string[];
+  winnerPlayerIndex?: number;
 };
+
+export type SyncedCustomMatchPhase =
+  | { step: "reveal" }
+  | { step: "lobby"; selectingWinner?: boolean }
+  | null;
 
 export type SyncedPendingEventChoice = {
   eventId: string;
@@ -91,6 +104,7 @@ export type OnlineGameSnapshot = {
   pendingPathChoice: OnlinePendingPathChoice | null;
   activeStoryEvent?: SyncedActiveStoryEvent | null;
   scheduledCustomMatch?: SyncedScheduledCustomMatch | null;
+  customMatchPhase?: SyncedCustomMatchPhase;
   pendingEventChoice?: SyncedPendingEventChoice;
 };
 

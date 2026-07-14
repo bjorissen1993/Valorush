@@ -6,6 +6,8 @@ import type {
   OnlineGameAction,
   OnlineGameSnapshot,
   SyncedActiveStoryEvent,
+  SyncedCustomMatchPhase,
+  SyncedScheduledCustomMatch,
 } from "../../shared/onlineGameTypes";
 import type { DirectorPickPayload } from "../../shared/director";
 import { useOnlineGameSync } from "../hooks/useOnlineGameSync";
@@ -15,6 +17,7 @@ import TurnOrderScreen from "./TurnOrderScreen";
 import EventStoryModal from "./EventStoryModal";
 import EventChoiceModal from "./EventChoiceModal";
 import MapRevealPresentation from "./MapRevealPresentation";
+import CustomMatchLobby from "./CustomMatchLobby";
 import SpikeDefuseModal from "./SpikeDefuseModal";
 import DirectorPresentation from "./DirectorPresentation";
 import DebugPanel from "./DebugPanel";
@@ -54,7 +57,10 @@ import { agentDirectorRegistry } from "../../shared/director";
 import { itemRegistry } from "../../shared/items";
 import { boardLayout, type TileType } from "../game/boardLayout";
 import type { MinigameId } from "../../shared/minigames/types";
-import type { ActiveCustomMatch } from "../../shared/customMatches/types";
+import type {
+  ScheduledCustomMatch,
+  CustomMatchId,
+} from "../../shared/customMatches/types";
 import type { ValorantMapId } from "../../shared/customMatches/types";
 import { pickDirectorEvent } from "../game/director";
 import type {
@@ -172,9 +178,73 @@ type MinigamePhase =
     };
 
 type CustomMatchPhase =
-  | { step: "announce"; match: ActiveCustomMatch }
-  | { step: "reveal"; match: ActiveCustomMatch }
-  | { step: "result"; match: ActiveCustomMatch; winnerIndex: number };
+  | { step: "reveal"; match: ScheduledCustomMatch }
+  | { step: "lobby"; match: ScheduledCustomMatch; selectingWinner?: boolean };
+
+function buildScheduledCustomMatch(
+  matchId: CustomMatchId,
+  mapId: ValorantMapId,
+  scheduledAtRound: number,
+  players: Pick<PlayerInGame, "name">[],
+): ScheduledCustomMatch {
+  return {
+    matchId,
+    mapId,
+    scheduledAtRound,
+    status: "scheduled",
+    participants: players.map((player) => player.name),
+  };
+}
+
+function toSyncedScheduledCustomMatch(
+  match: ScheduledCustomMatch | null,
+): SyncedScheduledCustomMatch | null {
+  if (!match) return null;
+  return {
+    matchId: match.matchId,
+    mapId: match.mapId,
+    scheduledAtRound: match.scheduledAtRound,
+    status: match.status,
+    participants: match.participants,
+    winnerPlayerIndex: match.winnerPlayerIndex,
+  };
+}
+
+function fromSyncedScheduledCustomMatch(
+  synced: SyncedScheduledCustomMatch,
+): ScheduledCustomMatch {
+  return {
+    matchId: synced.matchId as CustomMatchId,
+    mapId: synced.mapId as ValorantMapId,
+    scheduledAtRound: synced.scheduledAtRound,
+    status: synced.status,
+    participants: synced.participants,
+    winnerPlayerIndex: synced.winnerPlayerIndex,
+  };
+}
+
+function toSyncedCustomMatchPhase(
+  phase: CustomMatchPhase | null,
+): SyncedCustomMatchPhase {
+  if (!phase) return null;
+  if (phase.step === "reveal") return { step: "reveal" };
+  return { step: "lobby", selectingWinner: phase.selectingWinner };
+}
+
+function mergeCustomMatchPhase(
+  syncedPhase: SyncedCustomMatchPhase | undefined,
+  match: ScheduledCustomMatch | null,
+): CustomMatchPhase | null {
+  if (!syncedPhase || !match) return null;
+  if (syncedPhase.step === "reveal") {
+    return { step: "reveal", match };
+  }
+  return {
+    step: "lobby",
+    match,
+    selectingWinner: syncedPhase.selectingWinner,
+  };
+}
 
 function randomDiceRoll() {
   return Math.floor(Math.random() * 6) + 1;
@@ -375,6 +445,21 @@ export default function GamePage({
           : null
       );
     }
+    if (snapshot.scheduledCustomMatch !== undefined) {
+      setScheduledCustomMatch(
+        snapshot.scheduledCustomMatch
+          ? fromSyncedScheduledCustomMatch(snapshot.scheduledCustomMatch)
+          : null
+      );
+    }
+    if (snapshot.customMatchPhase !== undefined) {
+      const syncedMatch = snapshot.scheduledCustomMatch
+        ? fromSyncedScheduledCustomMatch(snapshot.scheduledCustomMatch)
+        : null;
+      setCustomMatchPhase(
+        mergeCustomMatchPhase(snapshot.customMatchPhase, syncedMatch)
+      );
+    }
   }, []);
 
   const { publishSnapshot, sendAction, leaveMatch } = useOnlineGameSync({
@@ -496,7 +581,7 @@ export default function GamePage({
     useState<PendingEventChoiceState | null>(null);
   const [eventEffectsApplied, setEventEffectsApplied] = useState(false);
   const [scheduledCustomMatch, setScheduledCustomMatch] =
-    useState<ActiveCustomMatch | null>(null);
+    useState<ScheduledCustomMatch | null>(null);
   const [customMatchPhase, setCustomMatchPhase] = useState<CustomMatchPhase | null>(null);
   const [pendingRoundWrap, setPendingRoundWrap] = useState<{
     title?: string;
@@ -987,11 +1072,14 @@ export default function GamePage({
       setPlayersInGame(result.players);
       setEventEffectsApplied(true);
       if (result.scheduleCustomMatch) {
-        setScheduledCustomMatch({
-          matchId: result.scheduleCustomMatch.matchId as ActiveCustomMatch["matchId"],
-          mapId: result.scheduleCustomMatch.mapId as ValorantMapId,
-          scheduledRound: round,
-        });
+        setScheduledCustomMatch(
+          buildScheduledCustomMatch(
+            result.scheduleCustomMatch.matchId as CustomMatchId,
+            result.scheduleCustomMatch.mapId as ValorantMapId,
+            round,
+            playersInGame,
+          )
+        );
       }
       setActiveStoryEvent((current) =>
         current ? { ...current, event: result.gameEvent, showDirectorIntro: false } : null
@@ -1218,12 +1306,15 @@ export default function GamePage({
 
   function debugScheduleCustomMatch(matchId: string) {
     const mapId = pickRandomMapForMatch(matchId) as ValorantMapId;
-    setScheduledCustomMatch({
-      matchId: matchId as ActiveCustomMatch["matchId"],
-      mapId,
-      scheduledRound: round,
-    });
-    const matchName = customMatchById.get(matchId)?.name ?? matchId;
+    setScheduledCustomMatch(
+      buildScheduledCustomMatch(
+        matchId as CustomMatchId,
+        mapId,
+        round,
+        playersInGame,
+      )
+    );
+    const matchName = customMatchById.get(matchId as CustomMatchId)?.name ?? matchId;
     setStatusTitle(`Scheduled: ${matchName}`);
     setStatusSubtitle("Plays at end of round.");
     showAnnouncement(`Scheduled ${matchName}`, "Plays when this round completes.");
@@ -1231,35 +1322,37 @@ export default function GamePage({
 
   function debugPlayCustomMatch(matchId: string) {
     const mapId = pickRandomMapForMatch(matchId) as ValorantMapId;
-    void playCustomMatchStub({
-      matchId: matchId as ActiveCustomMatch["matchId"],
-      mapId,
-      scheduledRound: round,
-    });
+    beginCustomMatchFlow(
+      buildScheduledCustomMatch(
+        matchId as CustomMatchId,
+        mapId,
+        round,
+        playersInGame,
+      )
+    );
   }
 
   function debugTriggerScheduledMatch() {
     if (scheduledCustomMatch) {
-      void playCustomMatchStub(scheduledCustomMatch);
+      beginCustomMatchFlow(scheduledCustomMatch);
       return;
     }
     debugScheduleCustomMatch("spike-rush");
     const mapId = pickRandomMapForMatch("spike-rush") as ValorantMapId;
-    void playCustomMatchStub({
-      matchId: "spike-rush",
-      mapId,
-      scheduledRound: round,
-    });
+    beginCustomMatchFlow(
+      buildScheduledCustomMatch("spike-rush", mapId, round, playersInGame)
+    );
   }
 
   function debugTriggerMapReveal() {
     const match =
       scheduledCustomMatch ??
-      ({
-        matchId: "spike-rush" as ActiveCustomMatch["matchId"],
-        mapId: pickRandomMapForMatch("spike-rush") as ValorantMapId,
-        scheduledRound: round,
-      } satisfies ActiveCustomMatch);
+      buildScheduledCustomMatch(
+        "spike-rush",
+        pickRandomMapForMatch("spike-rush") as ValorantMapId,
+        round,
+        playersInGame,
+      );
     setCustomMatchPhase({ step: "reveal", match });
     const matchName = customMatchById.get(match.matchId)?.name ?? "Custom Match";
     setStatusTitle(`Map Reveal: ${matchName}`);
@@ -1369,13 +1462,16 @@ export default function GamePage({
 
     if (result.scheduleCustomMatch) {
       const matchDef = customMatchById.get(
-        result.scheduleCustomMatch.matchId as ActiveCustomMatch["matchId"]
+        result.scheduleCustomMatch.matchId as CustomMatchId
       );
-      setScheduledCustomMatch({
-        matchId: result.scheduleCustomMatch.matchId as ActiveCustomMatch["matchId"],
-        mapId: result.scheduleCustomMatch.mapId as ValorantMapId,
-        scheduledRound: round,
-      });
+      setScheduledCustomMatch(
+        buildScheduledCustomMatch(
+          result.scheduleCustomMatch.matchId as CustomMatchId,
+          result.scheduleCustomMatch.mapId as ValorantMapId,
+          round,
+          playersInGame,
+        )
+      );
       showAnnouncement(
         "Custom Match Scheduled",
         `${matchDef?.name ?? "Custom Match"} at end of round on ${result.scheduleCustomMatch.mapId}.`
@@ -1397,42 +1493,128 @@ export default function GamePage({
     setStatusSubtitle(result.gameEvent.outcome?.description ?? result.gameEvent.description);
   }
 
-  async function finishCustomMatchAndAdvance(triggeredByIndex: number) {
-    if (!customMatchPhase || customMatchPhase.step !== "result") return;
-    const { winnerIndex, match } = customMatchPhase;
+  function beginCustomMatchFlow(match: ScheduledCustomMatch) {
+    setScheduledCustomMatch(match);
+    setCustomMatchPhase({ step: "reveal", match });
     const matchDef = customMatchById.get(match.matchId);
-    updatePlayer(winnerIndex, (p) => ({
-      ...p,
-      creds: p.creds + (matchDef?.winCreds ?? 150),
-      radianitePoints: p.radianitePoints + (matchDef?.winRadianite ?? 1),
-    }));
-    setCustomMatchPhase(null);
-    setScheduledCustomMatch(null);
-    await sleep(AUTO_ADVANCE_DELAY);
-    await advanceToNextPlayer(
-      `Next player: ${getResolvedNextPlayerName(triggeredByIndex)}`,
-      `${getResolvedNextPlayerName(triggeredByIndex)} is now up`
+    setStatusTitle(`${matchDef?.name ?? "Custom Match"} — Map Reveal`);
+    setStatusSubtitle(`Deploying to ${match.mapId}`);
+    showAnnouncement(
+      "Custom Match",
+      `${matchDef?.name ?? "Custom Match"} on ${match.mapId}`
     );
   }
 
-  async function playCustomMatchStub(match: ActiveCustomMatch) {
-    setCustomMatchPhase({ step: "reveal", match });
-    await sleep(4500);
-    const rolls = rollForAllPlayers(playersInGame.length);
-    const winner = findMinigameWinner(rolls);
-    setCustomMatchPhase({
-      step: "result",
-      match,
-      winnerIndex: winner.playerIndex,
+  function handleMapRevealComplete() {
+    setCustomMatchPhase((current) => {
+      if (!current || current.step !== "reveal") return current;
+      const revealedMatch: ScheduledCustomMatch = {
+        ...current.match,
+        status: "revealed",
+      };
+      setScheduledCustomMatch(revealedMatch);
+      const matchDef = customMatchById.get(revealedMatch.matchId);
+      setStatusTitle(`${matchDef?.name ?? "Custom Match"} Lobby`);
+      setStatusSubtitle("Play the match in Valorant when ready.");
+      return { step: "lobby", match: revealedMatch };
     });
-    const winnerName = playersInGame[winner.playerIndex]?.name ?? "Player";
+  }
+
+  function handleStartCustomMatch() {
+    if (multiplayer && !multiplayer.isHost) return;
+    setCustomMatchPhase((current) => {
+      if (!current || current.step !== "lobby") return current;
+      const inProgressMatch: ScheduledCustomMatch = {
+        ...current.match,
+        status: "in_progress",
+      };
+      setScheduledCustomMatch(inProgressMatch);
+      const matchDef = customMatchById.get(inProgressMatch.matchId);
+      setStatusTitle(`${matchDef?.name ?? "Custom Match"} — In Progress`);
+      setStatusSubtitle("Play in Valorant, then mark complete.");
+      showAnnouncement("Custom Match Started", "Head to Valorant and play the scheduled mode.");
+      return { step: "lobby", match: inProgressMatch };
+    });
+  }
+
+  function handleMarkCustomMatchComplete() {
+    if (multiplayer && !multiplayer.isHost) return;
+    setCustomMatchPhase((current) => {
+      if (!current || current.step !== "lobby") return current;
+      return {
+        step: "lobby",
+        match: current.match,
+        selectingWinner: true,
+      };
+    });
+  }
+
+  function handleCancelWinnerSelection() {
+    if (multiplayer && !multiplayer.isHost) return;
+    setCustomMatchPhase((current) => {
+      if (!current || current.step !== "lobby") return current;
+      return {
+        step: "lobby",
+        match: current.match,
+        selectingWinner: false,
+      };
+    });
+  }
+
+  async function handleSelectCustomMatchWinner(winnerIndex: number) {
+    if (multiplayer && !multiplayer.isHost) return;
+    const activePhase = customMatchPhase;
+    if (!activePhase || activePhase.step !== "lobby") return;
+
+    const { match } = activePhase;
     const matchDef = customMatchById.get(match.matchId);
+    updatePlayer(winnerIndex, (player) => ({
+      ...player,
+      creds: player.creds + (matchDef?.winCreds ?? 150),
+      radianitePoints: player.radianitePoints + (matchDef?.winRadianite ?? 1),
+    }));
+
+    const winnerName = playersInGame[winnerIndex]?.name ?? "Player";
     setStatusTitle(`${winnerName} wins ${matchDef?.name ?? "Custom Match"}!`);
     setStatusSubtitle(`+${matchDef?.winCreds ?? 150} Creds on ${match.mapId}`);
     showAnnouncement(
       `${matchDef?.name ?? "Custom Match"} Complete`,
       `${winnerName} wins on ${match.mapId}!`
     );
+
+    setCustomMatchPhase(null);
+    setScheduledCustomMatch(null);
+
+    const nextPlayerIndex = turnOrder[currentTurnOrderIndex] ?? 0;
+    setPlayersInGame((current) =>
+      current.map((player, index) =>
+        index === nextPlayerIndex ? tickMovementModifiers(player) : player
+      )
+    );
+
+    const wrap = pendingRoundWrap;
+    setPendingRoundWrap(null);
+    await sleep(AUTO_ADVANCE_DELAY);
+
+    if (round > MAX_ROUNDS) {
+      setPhase("game-over");
+      setTurnBannerPlayerIndex(null);
+      setStatusTitle("Game Over");
+      setStatusSubtitle("The match has ended after 10 rounds.");
+      showAnnouncement("Game Over", "Check the final standings.");
+      return;
+    }
+
+    if (wrap) {
+      showTurnBannerFor(nextPlayerIndex);
+      const nextName = playersInGame[nextPlayerIndex]?.name ?? "Player";
+      setStatusTitle(wrap.title ?? `Next player: ${nextName}`);
+      setStatusSubtitle(wrap.subtitle ?? `${nextName} is now up`);
+      showAnnouncement(
+        wrap.title ?? `Next player: ${nextName}`,
+        wrap.subtitle ?? `${nextName} is now up`
+      );
+    }
   }
 
   async function playMinigameRolls() {
@@ -1601,7 +1783,7 @@ export default function GamePage({
 
     if (meta.wrapsRound && scheduledCustomMatch && !customMatchPhase) {
       setPendingRoundWrap({ title, subtitle });
-      void playCustomMatchStub(scheduledCustomMatch);
+      beginCustomMatchFlow(scheduledCustomMatch);
       setIsMoving(false);
       setMovingPlayerIndex(null);
       setAnimatedToken(null);
@@ -2355,10 +2537,13 @@ export default function GamePage({
       activeStoryEvent: activeStoryEvent
         ? toSyncedActiveStoryEvent(activeStoryEvent)
         : null,
+      scheduledCustomMatch: toSyncedScheduledCustomMatch(scheduledCustomMatch),
+      customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
     });
   }, [
     activeStoryEvent,
     animatedToken,
+    customMatchPhase,
     currentTurnOrderIndex,
     diceDisplayValue,
     diceFlowPhase,
@@ -2372,6 +2557,7 @@ export default function GamePage({
     playersInGame,
     publishSnapshot,
     round,
+    scheduledCustomMatch,
     statusSubtitle,
     statusTitle,
     turnBannerPlayerIndex,
@@ -2689,31 +2875,24 @@ export default function GamePage({
         <MapRevealPresentation
           matchId={customMatchPhase.match.matchId}
           mapId={customMatchPhase.match.mapId}
-          onComplete={() => {}}
+          onComplete={handleMapRevealComplete}
         />
       )}
 
-      {customMatchPhase?.step === "result" && (
-        <div className="fixed inset-0 z-[67] flex items-center justify-center bg-black/55">
-          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b1020]/95 p-8 text-center shadow-2xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.35em] text-red-300">
-              {customMatchById.get(customMatchPhase.match.matchId)?.name ?? "Custom Match"}
-            </p>
-            <h2 className="mt-4 text-2xl font-bold text-white">
-              {playersInGame[customMatchPhase.winnerIndex]?.name} wins on{" "}
-              {customMatchPhase.match.mapId}!
-            </h2>
-            <button
-              type="button"
-              onClick={() =>
-                void finishCustomMatchAndAdvance(currentPlayerIndex)
-              }
-              className="mt-6 rounded-xl bg-cyan-400 px-5 py-3 font-bold text-black transition hover:brightness-110"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
+      {customMatchPhase?.step === "lobby" && (
+        <CustomMatchLobby
+          match={customMatchPhase.match}
+          players={playersInGame.map((player) => ({
+            name: player.name,
+            avatar: player.avatar,
+          }))}
+          isHost={!multiplayer || !!multiplayer.isHost}
+          selectingWinner={!!customMatchPhase.selectingWinner}
+          onStartMatch={handleStartCustomMatch}
+          onMarkComplete={handleMarkCustomMatchComplete}
+          onSelectWinner={(index) => void handleSelectCustomMatchWinner(index)}
+          onCancelWinnerSelection={handleCancelWinnerSelection}
+        />
       )}
 
       {pendingEventChoice &&

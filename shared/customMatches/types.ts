@@ -33,6 +33,24 @@ export type CustomMatchDefinition = {
   durationLabel: string;
 };
 
+export type CustomMatchStatus =
+  | "scheduled"
+  | "revealed"
+  | "in_progress"
+  | "completed";
+
+/** Persisted custom match state — ready for future Riot API fields. */
+export type ScheduledCustomMatch = {
+  matchId: CustomMatchId;
+  mapId: ValorantMapId;
+  scheduledAtRound: number;
+  status: CustomMatchStatus;
+  participants: string[];
+  winnerPlayerIndex?: number;
+  /** Future: riotLobbyId, riotMatchId, etc. */
+};
+
+/** @deprecated Use ScheduledCustomMatch */
 export type ActiveCustomMatch = {
   matchId: CustomMatchId;
   mapId: ValorantMapId;
