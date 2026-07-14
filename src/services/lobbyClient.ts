@@ -28,6 +28,7 @@ const SESSION_PROFILE = "valorush_lobby_profile";
 const SESSION_IS_HOST = "valorush_lobby_is_host";
 const SESSION_GAME_STARTING = "valorush_lobby_game_starting";
 const SESSION_TURN_ORDER = "valorush_lobby_turn_order";
+const SESSION_KICKED = "valorush_kicked_reason";
 const LOBBY_WS_URL_KEY = "valorush_lobby_ws_url";
 
 export type StoredLobbySession = {
@@ -219,6 +220,27 @@ export function clearLobbySession(): void {
   sessionStorage.removeItem(SESSION_IS_HOST);
   sessionStorage.removeItem(SESSION_GAME_STARTING);
   sessionStorage.removeItem(SESSION_TURN_ORDER);
+}
+
+export function setLobbyKickedFlag(reason = "host"): void {
+  try {
+    sessionStorage.setItem(SESSION_KICKED, reason);
+  } catch {
+    // ignore
+  }
+}
+
+export function consumeLobbyKickedFlag(): string | null {
+  try {
+    const value = sessionStorage.getItem(SESSION_KICKED);
+    if (value) {
+      sessionStorage.removeItem(SESSION_KICKED);
+      return value;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 export type TurnOrderRollEvent = {

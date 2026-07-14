@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ValorantPanel from "./valorant/ValorantPanel";
 import {
+  consumeLobbyKickedFlag,
   getBakedLobbyWsUrl,
   getStoredLobbyWsUrl,
   normalizeLobbyWsUrl,
@@ -21,6 +22,47 @@ const isJoinClient = clientMode === "join";
 const isHostClient = clientMode === "host";
 const bakedLobbyUrl = getBakedLobbyWsUrl();
 const needsServerUrl = isJoinClient && !bakedLobbyUrl;
+
+function KickedModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="launcher-help-backdrop animate-fadeIn"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="launcher-help-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="kicked-modal-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <ValorantPanel accent="neutral" className="border-red-500/30 shadow-[0_0_24px_rgba(239,68,68,0.12)]">
+          <div className="p-6 sm:p-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-red-400">
+              Lobby
+            </p>
+            <h2 id="kicked-modal-title" className="mt-2 text-xl font-bold text-white">
+              Removed from lobby
+            </h2>
+            <p className="mt-4 text-sm leading-relaxed text-zinc-300">
+              You were kicked by the host.
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="launcher-join-button mt-6 w-full px-8 py-3 font-bold uppercase tracking-wider"
+            >
+              OK
+            </button>
+          </div>
+        </ValorantPanel>
+      </div>
+    </div>
+  );
+}
 
 function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
@@ -128,6 +170,7 @@ export default function HomePage({
   const joinError = localJoinError ?? externalJoinError;
   const validatingJoin = validatingLocalJoin || externalValidatingJoin;
   const [helpOpen, setHelpOpen] = useState(false);
+  const [kickedOpen, setKickedOpen] = useState(() => consumeLobbyKickedFlag() !== null);
 
   async function handleJoinSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -373,6 +416,7 @@ export default function HomePage({
       </div>
 
       <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <KickedModal open={kickedOpen} onClose={() => setKickedOpen(false)} />
     </div>
   );
 }

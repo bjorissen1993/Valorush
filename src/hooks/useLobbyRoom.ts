@@ -13,6 +13,7 @@ import {
   persistLobbySession,
   readLobbySession,
   readStoredLobbySession,
+  setLobbyKickedFlag,
   type LobbyConnectionStatus,
 } from "../services/lobbyClient";
 
@@ -125,6 +126,7 @@ export function useLobbyRoom({
         if (lower.includes("you were removed from the lobby")) {
           clearLobbySession();
           clientRef.current?.disconnect();
+          setLobbyKickedFlag();
           onKickedRef.current?.();
           setError(message);
           return;
