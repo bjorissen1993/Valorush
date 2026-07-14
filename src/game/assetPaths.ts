@@ -1,3 +1,15 @@
+import {
+  agentHasNpcModel,
+  agentHasPortrait,
+  isEventEligibleAgent,
+} from "../../shared/availableAgents";
+
+export {
+  agentHasNpcModel,
+  agentHasPortrait,
+  isEventEligibleAgent,
+};
+
 /** Normalize display names to asset filename prefixes (e.g. KAY/O → KAYO). */
 export function agentAssetName(displayName: string): string {
   return displayName.replace(/\//g, "").replace(/\s+/g, "");
@@ -71,33 +83,7 @@ export function roleSymbolPath(
   return `/roles/${map[role]}.png`;
 }
 
-const AGENTS_WITH_NPC = new Set([
-  "Astra",
-  "Breach",
-  "Brimstone",
-  "Chamber",
-  "Cypher",
-  "Fade",
-  "Jett",
-  "KAY/O",
-  "Killjoy",
-  "Neon",
-  "Omen",
-  "Phoenix",
-  "Raze",
-  "Reyna",
-  "Sage",
-  "Skye",
-  "Sova",
-  "Viper",
-  "Yoru",
-]);
-
 export type StoryArtVariant = "npc" | "portrait";
-
-export function agentHasNpcModel(agentName: string): boolean {
-  return AGENTS_WITH_NPC.has(agentName);
-}
 
 /** Prefer full-body NPC art; fall back to portrait for agents without NPC files. */
 export function resolveAgentStoryArt(agentName: string): {
@@ -107,5 +93,16 @@ export function resolveAgentStoryArt(agentName: string): {
   if (agentHasNpcModel(agentName)) {
     return { src: agentNpcPath(agentName), variant: "npc" };
   }
-  return { src: agentPortraitPath(agentName), variant: "portrait" };
+  if (agentHasPortrait(agentName)) {
+    return { src: agentPortraitPath(agentName), variant: "portrait" };
+  }
+  return { src: randomPortraitPath(), variant: "portrait" };
+}
+
+/** Portrait ring image for director UI — never 404s on missing assets. */
+export function resolveAgentPortraitImage(agentName: string): string {
+  if (agentHasPortrait(agentName)) {
+    return agentPortraitPath(agentName);
+  }
+  return resolveAgentStoryArt(agentName).src;
 }

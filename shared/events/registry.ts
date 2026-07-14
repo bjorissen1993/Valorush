@@ -5,6 +5,7 @@ import type {
   PlayerBoardState,
 } from "./types";
 import { pickRandomMapForMatch } from "../customMatches/registry";
+import { assertEventEligibleAgent, isEventEligibleAgent } from "../availableAgents";
 
 const MAP = (name: string) => `/maps/Loading_Screen_${name}.png`;
 
@@ -253,18 +254,18 @@ export const boardEventRegistry: BoardEventDefinition[] = [
   },
   {
     id: "deadlock-lockdown",
-    name: "Deadlock Lockdown",
-    description: "Deadlock's barrier limits movement — max 2 steps for 2 turns.",
+    name: "Killjoy Lockdown",
+    description: "Killjoy's nanoswarm limits movement — max 2 steps for 2 turns.",
     category: "movement",
-    sourceAgent: "Deadlock",
+    sourceAgent: "Killjoy",
     weight: "common",
     story: {
       headline: "Barrier deployed",
       paragraphs: [
-        "Deadlock's sonic net snaps shut on the board.",
+        "Killjoy's nanoswarm snaps shut on the board.",
         "\"Two steps max. Two turns. Consider it… motivation.\"",
       ],
-      narrator: "Deadlock",
+      narrator: "Killjoy",
       narratorRole: "Sentinel",
       backgroundImage: MAP("Lotus"),
       mood: "negative",
@@ -303,15 +304,15 @@ export const boardEventRegistry: BoardEventDefinition[] = [
   },
   {
     id: "deadlock-lockdown-target",
-    name: "Deadlock Lockdown",
-    description: "Trap a rival with Deadlock's barrier.",
+    name: "Killjoy Lockdown",
+    description: "Trap a rival with Killjoy's barrier.",
     category: "movement",
-    sourceAgent: "Deadlock",
+    sourceAgent: "Killjoy",
     weight: "common",
     story: {
       headline: "Barrier deployed",
-      paragraphs: ["Deadlock points at your rival.", "\"They walk slower now.\""],
-      narrator: "Deadlock",
+      paragraphs: ["Killjoy points at your rival.", "\"They walk slower now.\""],
+      narrator: "Killjoy",
       narratorRole: "Sentinel",
       backgroundImage: MAP("Lotus"),
       mood: "negative",
@@ -521,18 +522,18 @@ export const boardEventRegistry: BoardEventDefinition[] = [
   // ── Player interaction ────────────────────────────────────────────────
   {
     id: "iso-challenge",
-    name: "Iso Challenge",
-    description: "Iso marks a target — steal creds if you pick wisely.",
+    name: "Reyna Challenge",
+    description: "Reyna marks a target — steal creds if you pick wisely.",
     category: "player_interaction",
-    sourceAgent: "Iso",
+    sourceAgent: "Reyna",
     weight: "common",
     story: {
-      headline: "Iso wants a duel of wallets",
+      headline: "Reyna wants a duel of wallets",
       paragraphs: [
-        "Iso's mask gleams under neon.",
+        "Reyna's eyes flash violet under neon.",
         "\"Pick someone. If they've got less creds than you, you steal 150. Otherwise, they steal from you.\"",
       ],
-      narrator: "Iso",
+      narrator: "Reyna",
       narratorRole: "Duelist",
       backgroundImage: MAP("Sunset"),
       mood: "neutral",
@@ -558,7 +559,7 @@ export const boardEventRegistry: BoardEventDefinition[] = [
         players[a] = { ...players[a], creds: players[a].creds + taken };
         return {
           players,
-          outcomeHeadline: "Iso Challenge won",
+          outcomeHeadline: "Reyna Challenge won",
           outcomeDescription: `Stole ${taken} creds from ${players[b].name}.`,
           outcomeMood: "positive",
         };
@@ -568,7 +569,7 @@ export const boardEventRegistry: BoardEventDefinition[] = [
       players[b] = { ...players[b], creds: players[b].creds + taken };
       return {
         players,
-        outcomeHeadline: "Iso Challenge lost",
+        outcomeHeadline: "Reyna Challenge lost",
         outcomeDescription: `${players[b].name} stole ${taken} creds from you.`,
         outcomeMood: "negative",
       };
@@ -612,19 +613,19 @@ export const boardEventRegistry: BoardEventDefinition[] = [
   },
   {
     id: "fade-paranoia",
-    name: "Fade's Paranoia",
-    description: "Fade whispers a name — swap 100 creds with your pick.",
+    name: "Omen's Paranoia",
+    description: "Omen whispers from the smoke — swap 100 creds with your pick.",
     category: "player_interaction",
-    sourceAgent: "Fade",
+    sourceAgent: "Omen",
     weight: "rare",
     story: {
       headline: "Something in the dark has a name",
       paragraphs: [
-        "Fade's eyes go white.",
+        "Omen's hooded silhouette flickers at the edge of vision.",
         "\"Pick someone. You each give 100 creds to the pot — highest roll takes it. Or skip and lose 50.\"",
       ],
-      narrator: "Fade",
-      narratorRole: "Initiator",
+      narrator: "Omen",
+      narratorRole: "Shadow Agent",
       backgroundImage: MAP("Pearl"),
       mood: "mysterious",
       tag: "Nightmare",
@@ -644,7 +645,7 @@ export const boardEventRegistry: BoardEventDefinition[] = [
         return {
           players,
           outcomeHeadline: "Paranoia skipped",
-          outcomeDescription: "Fade takes 50 creds for cowardice.",
+          outcomeDescription: "Omen takes 50 creds for cowardice.",
           outcomeMood: "negative",
           flatEffect: { type: "creds", amount: -50 },
         };
@@ -659,16 +660,16 @@ export const boardEventRegistry: BoardEventDefinition[] = [
   },
   {
     id: "fade-paranoia-target",
-    name: "Fade's Paranoia",
+    name: "Omen's Paranoia",
     description: "Complete the paranoia swap with your pick.",
     category: "player_interaction",
-    sourceAgent: "Fade",
+    sourceAgent: "Omen",
     weight: "rare",
     story: {
       headline: "Nightmare resolves",
-      paragraphs: ["Fade laughs in the dark.", "\"Let's see who flinches.\""],
-      narrator: "Fade",
-      narratorRole: "Initiator",
+      paragraphs: ["Omen laughs in the dark.", "\"Let's see who flinches.\""],
+      narrator: "Omen",
+      narratorRole: "Shadow Agent",
       backgroundImage: MAP("Pearl"),
       mood: "mysterious",
       tag: "Nightmare",
@@ -907,11 +908,11 @@ export const boardEventRegistry: BoardEventDefinition[] = [
     story: {
       headline: "Doors rotate on Lotus",
       paragraphs: [
-        "Lotus A/B doors spin unpredictably.",
+        "Lotus A/B doors spin unpredictably — Astra's stars flicker between them.",
         "\"Red door: radianite gamble. Blue door: cred stipend.\"",
       ],
-      narrator: "Harbor",
-      narratorRole: "Controller",
+      narrator: "Astra",
+      narratorRole: "Astral Guardian",
       backgroundImage: MAP("Lotus"),
       mood: "neutral",
       tag: "Lotus",
@@ -964,6 +965,29 @@ export const boardEventRegistry: BoardEventDefinition[] = [
     },
   },
 ];
+
+function validateBoardEventAgents(events: BoardEventDefinition[]): void {
+  for (const event of events) {
+    if (event.sourceAgent) {
+      assertEventEligibleAgent(
+        event.sourceAgent,
+        `board event "${event.id}" sourceAgent`
+      );
+    }
+    if (
+      event.story.presentation !== "briefing" &&
+      event.story.narrator !== "Kingdom Intel" &&
+      !isEventEligibleAgent(event.story.narrator)
+    ) {
+      assertEventEligibleAgent(
+        event.story.narrator,
+        `board event "${event.id}" narrator`
+      );
+    }
+  }
+}
+
+validateBoardEventAgents(boardEventRegistry);
 
 export const boardEventById = new Map(
   boardEventRegistry.map((event) => [event.id, event])

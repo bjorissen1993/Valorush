@@ -1,10 +1,11 @@
 import type { AgentDirectorDefinition } from "./types";
+import { isEventEligibleAgent } from "../availableAgents";
 
 /**
  * Agent Director registry — each agent ONLY directs events matching their kit & lore.
- * Add agents here; map `eventId` to entries in `src/game/eventPool.ts`.
+ * Only agents with portrait assets may appear here (see `shared/availableAgents.ts`).
  */
-export const agentDirectorRegistry: AgentDirectorDefinition[] = [
+const agentDirectorRegistryRaw: AgentDirectorDefinition[] = [
   {
     agentId: "Brimstone",
     agentName: "Brimstone",
@@ -25,6 +26,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     events: [
       { eventId: "killjoy-cache", weight: "common", theme: "Gadget Cache" },
       { eventId: "bind-teleporter", weight: "rare", theme: "Supply Drop" },
+      { eventId: "deadlock-lockdown", weight: "common", theme: "Barrier Trap" },
     ],
   },
   {
@@ -59,17 +61,6 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     ],
   },
   {
-    agentId: "Fade",
-    agentName: "Fade",
-    role: "Initiator",
-    quote: "The dark sees what Kingdom won't tell you.",
-    personality: "Nightmares, fear, dark map modifiers, intel",
-    events: [
-      { eventId: "fade-paranoia", weight: "common", theme: "Dark Intel" },
-      { eventId: "omen-shadows", weight: "epic", theme: "Shadow Briefing" },
-    ],
-  },
-  {
     agentId: "Neon",
     agentName: "Neon",
     role: "Duelist",
@@ -87,6 +78,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     personality: "Mobility, duels, wind-style aggression",
     events: [
       { eventId: "neon-rush", weight: "common", theme: "Speed Duel" },
+      { eventId: "ascent-zipline", weight: "common", theme: "Zipline Rush" },
     ],
   },
   {
@@ -108,6 +100,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     personality: "Smokes, shadow economy, new paths",
     events: [
       { eventId: "omen-shadows", weight: "common", theme: "Shadow Swap" },
+      { eventId: "fade-paranoia", weight: "rare", theme: "Shadow Paranoia" },
       { eventId: "viper-escalation", weight: "epic", theme: "Escalation Match" },
     ],
   },
@@ -129,16 +122,6 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     personality: "Disruption, pushes, stuns, force",
     events: [
       { eventId: "breach-shockwave", weight: "common", theme: "Push Event" },
-    ],
-  },
-  {
-    agentId: "Harbor",
-    agentName: "Harbor",
-    role: "Controller",
-    quote: "The tide turns. Swim with it.",
-    personality: "Water, tidal control, map flooding",
-    events: [
-      { eventId: "ascent-zipline", weight: "common", theme: "Water Supply" },
     ],
   },
   {
@@ -222,6 +205,10 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     ],
   },
 ];
+
+export const agentDirectorRegistry = agentDirectorRegistryRaw.filter((entry) =>
+  isEventEligibleAgent(entry.agentName)
+);
 
 export const agentDirectorById = new Map(
   agentDirectorRegistry.map((entry) => [entry.agentId, entry])

@@ -14,6 +14,7 @@ import {
   type DirectorPickPayload,
   type EventWeight,
 } from "../../../shared/director";
+import { isEventEligibleAgent } from "../../../shared/availableAgents";
 
 export type DirectorPickResult = DirectorPickPayload & {
   event: GameEvent;
@@ -209,11 +210,14 @@ export function pickDirectorEvent(
   if (kingdomFallback) return kingdomFallback;
 
   const fallback = pool[Math.floor(Math.random() * pool.length)];
+  const fallbackNarrator = isEventEligibleAgent(fallback.story.narrator)
+    ? fallback.story.narrator
+    : agentDirectorRegistry[0]?.agentName ?? "Brimstone";
   return {
     mode: "agent",
     weight: "common",
     quote: "Something's happening. Stay sharp.",
-    agentName: fallback.story.narrator,
+    agentName: fallbackNarrator,
     agentRole: fallback.story.narratorRole,
     event: resolveDirectorEvent(fallback, context),
     introDurationMs: WEIGHT_PRESENTATION_MS.common,

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import type { DirectorPickPayload, EventWeight } from "../../shared/director";
 import {
-  agentPortraitPath,
   pointsIconPath,
+  resolveAgentPortraitImage,
   resolveAgentStoryArt,
 } from "../game/assetPaths";
 
@@ -82,7 +82,7 @@ function AgentDirectorPanel({
 }) {
   const agentName = pick.agentName ?? "Agent";
   const art = resolveAgentStoryArt(agentName);
-  const portrait = agentPortraitPath(agentName);
+  const portrait = resolveAgentPortraitImage(agentName);
 
   return (
     <>
