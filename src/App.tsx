@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import LobbyPage from "./components/LobbyPage";
 import LoadingScreen from "./components/LoadingScreen";
 import GamePage from "./components/GamePage";
@@ -8,7 +8,7 @@ import MultiplayerLobbyPage from "./components/MultiplayerLobbyPage";
 import MultiplayerTurnOrderPage from "./components/MultiplayerTurnOrderPage";
 import { usePerformanceSettings } from "./hooks/usePerformanceSettings";
 import { useAgents } from "./hooks/useLobbyRoom";
-import { clearJoinCodeFromUrl, clearLobbySession, readJoinCodeFromUrl, readStoredLobbySession } from "./services/lobbyClient";
+import { clearJoinCodeFromUrl, clearLobbySession, readJoinCodeFromUrl, readStoredLobbySession, validateLobbyCode } from "./services/lobbyClient";
 import {
   completeTwitchOAuthIfPending,
   consumeTwitchOAuthError,
@@ -79,13 +79,20 @@ function restoreMultiplayerFromSession(): RestoredMultiplayerState | null {
 
 export default function App() {
   const restored = useMemo(() => restoreMultiplayerFromSession(), []);
+  const needsJoinSessionValidation =
+    restored?.screen === "mp_lobby" && restored.mpMode === "join";
   const performanceSettings = usePerformanceSettings();
-  const [screen, setScreen] = useState<Screen>(restored?.screen ?? "home");
+  const [screen, setScreen] = useState<Screen>(
+    needsJoinSessionValidation ? "home" : restored?.screen ?? "home"
+  );
   const [mpMode, setMpMode] = useState<"create" | "join">(restored?.mpMode ?? "create");
   const [joinCode, setJoinCode] = useState(restored?.joinCode ?? "");
   const [lobbyProfile, setLobbyProfile] = useState<PlayerProfile | null>(
     restored?.lobbyProfile ?? null
   );
+  const [homeJoinError, setHomeJoinError] = useState<string | null>(null);
+  const [validatingUrlJoin, setValidatingUrlJoin] = useState(false);
+  const urlJoinValidatedRef = useRef(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [mpSession, setMpSession] = useState<{
     payload: GameStartingPayload;
@@ -107,13 +114,13 @@ export default function App() {
       const code = match?.[1]?.toUpperCase() ?? readJoinCodeFromUrl() ?? "";
       setJoinCode(code);
       setMpMode("join");
-      setScreen("mp_lobby");
+      setScreen("identity_join");
       return;
     }
 
     if (returnPath.includes("create=1")) {
       setMpMode("create");
-      setScreen("mp_lobby");
+      setScreen("identity_create");
       return;
     }
 
@@ -141,12 +148,64 @@ export default function App() {
   }, [handleOAuthProfile]);
 
   useEffect(() => {
+    if (!needsJoinSessionValidation || !restored) return;
+
+    let cancelled = false;
+
+    void validateLobbyCode(restored.joinCode)
+      .then(() => {
+        if (cancelled) return;
+        setScreen("mp_lobby");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        clearLobbySession();
+        setJoinCode("");
+        setLobbyProfile(null);
+        setHomeJoinError(
+          error instanceof Error
+            ? error.message
+            : "Lobby not found. Check the join code."
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [needsJoinSessionValidation, restored]);
+
+  useEffect(() => {
     if (restored) return;
     const codeFromUrl = readJoinCodeFromUrl();
-    if (codeFromUrl && screen === "home") {
-      setJoinCode(codeFromUrl);
-      setScreen("identity_join");
-    }
+    if (!codeFromUrl || screen !== "home" || urlJoinValidatedRef.current) return;
+
+    let cancelled = false;
+    urlJoinValidatedRef.current = true;
+    setValidatingUrlJoin(true);
+    setHomeJoinError(null);
+
+    void validateLobbyCode(codeFromUrl)
+      .then(() => {
+        if (cancelled) return;
+        setJoinCode(codeFromUrl);
+        setScreen("identity_join");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        clearJoinCodeFromUrl();
+        setHomeJoinError(
+          error instanceof Error
+            ? error.message
+            : "Lobby not found. Check the join code."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setValidatingUrlJoin(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [restored, screen]);
 
   function resetToHome() {
@@ -155,6 +214,7 @@ export default function App() {
     setJoinCode("");
     setMpSession(null);
     setMpTurnOrder([]);
+    setHomeJoinError(null);
     setScreen("home");
   }
 
@@ -234,12 +294,16 @@ export default function App() {
           </div>
         )}
         <HomePage
+          joinError={homeJoinError}
+          validatingJoin={validatingUrlJoin}
           onCreateLobby={() => {
             setOauthError(null);
+            setHomeJoinError(null);
             setScreen("identity_create");
           }}
           onJoinLobby={(code) => {
             setOauthError(null);
+            setHomeJoinError(null);
             if (code) {
               setJoinCode(code.toUpperCase());
             }
@@ -247,6 +311,7 @@ export default function App() {
           }}
           onLocalGame={() => {
             setOauthError(null);
+            setHomeJoinError(null);
             setScreen("local_lobby");
           }}
         />
@@ -274,7 +339,20 @@ export default function App() {
         mode="join"
         joinCode={joinCode || undefined}
         onBack={resetToHome}
-        onReady={(profile) => {
+        onReady={async (profile) => {
+          if (joinCode) {
+            try {
+              await validateLobbyCode(joinCode);
+            } catch (error) {
+              setHomeJoinError(
+                error instanceof Error
+                  ? error.message
+                  : "Lobby not found. Check the join code."
+              );
+              resetToHome();
+              return;
+            }
+          }
           setLobbyProfile(profile);
           setMpMode("join");
           clearJoinCodeFromUrl();
@@ -291,6 +369,10 @@ export default function App() {
         profile={stableLobbyProfile}
         joinCode={mpMode === "join" ? joinCode : undefined}
         onBack={resetToHome}
+        onJoinFailed={(message) => {
+          setHomeJoinError(message);
+          resetToHome();
+        }}
         onGameStarting={handleGameStarting}
       />
     );

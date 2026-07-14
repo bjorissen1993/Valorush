@@ -148,7 +148,11 @@ function LobbyPlayerCard({
         />
       )}
 
-      {headerAction}
+      {headerAction && (
+        <div className="pointer-events-none absolute inset-0 z-30">
+          {headerAction}
+        </div>
+      )}
 
       {isReady && (
         <div

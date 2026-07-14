@@ -22,6 +22,7 @@ type MultiplayerLobbyPageProps = {
   profile: PlayerProfile;
   joinCode?: string;
   onBack: () => void;
+  onJoinFailed?: (message: string) => void;
   onGameStarting: (payload: GameStartingPayload, isHost: boolean, yourPlayerId: string) => void;
 };
 
@@ -30,6 +31,7 @@ export default function MultiplayerLobbyPage({
   profile,
   joinCode,
   onBack,
+  onJoinFailed,
   onGameStarting,
 }: MultiplayerLobbyPageProps) {
   const { agents, loading: agentsLoading, error: agentsError } = useAgents();
@@ -48,6 +50,7 @@ export default function MultiplayerLobbyPage({
     yourPlayer,
     yourPlayerId,
     isHost,
+    inLobby,
     connectionStatus,
     error,
     gameStartingPayload,
@@ -67,7 +70,10 @@ export default function MultiplayerLobbyPage({
     joinCode,
     enabled: true,
     onKicked: onBack,
+    onJoinFailed,
   });
+
+  const effectiveIsHost = isHost || !!yourPlayer?.isHost;
 
   const unreadChatCount = chatOpen
     ? 0
@@ -95,9 +101,9 @@ export default function MultiplayerLobbyPage({
 
   useEffect(() => {
     if (gameStartingPayload && yourPlayerId) {
-      onGameStarting(gameStartingPayload, isHost, yourPlayerId);
+      onGameStarting(gameStartingPayload, effectiveIsHost, yourPlayerId);
     }
-  }, [gameStartingPayload, isHost, onGameStarting, yourPlayerId]);
+  }, [effectiveIsHost, gameStartingPayload, onGameStarting, yourPlayerId]);
 
   useEffect(() => {
     setStartError(error);
@@ -159,7 +165,7 @@ export default function MultiplayerLobbyPage({
   const notReadyNames = players.filter((player) => !player.isReady).map((p) => p.name);
 
   const canStart =
-    isHost &&
+    effectiveIsHost &&
     players.length === MAX_LOBBY_PLAYERS &&
     allHaveAgentChoice &&
     allReady;
@@ -210,13 +216,13 @@ export default function MultiplayerLobbyPage({
             isYou={isYou}
             isRandomizePending={pendingRandom}
             selectedAgent={selectedAgent}
-            showHostMenu={isHost && !isYou}
+            showHostMenu={effectiveIsHost && !isYou}
             onMakeHost={() => transferHost(player.id)}
             onKick={() => kickPlayer(player.id)}
           />
         );
       }),
-    [agentById, isHost, kickPlayer, playerSlots, activeYourPlayerId, transferHost]
+    [agentById, effectiveIsHost, kickPlayer, playerSlots, activeYourPlayerId, transferHost]
   );
 
   async function copyJoinLink() {
@@ -278,6 +284,37 @@ export default function MultiplayerLobbyPage({
         : !allReady
           ? `Not ready yet: ${notReadyNames.join(", ")}`
           : "Cannot start yet";
+
+  if (!inLobby) {
+    return (
+      <div className="flex h-dvh flex-col items-center justify-center bg-[#070b14] px-6 text-white">
+        <div className="max-w-md text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-400">
+            ValoRush Lobby
+          </p>
+          <h1 className="mt-3 text-2xl font-bold">
+            {connectionStatus === "connected"
+              ? mode === "create"
+                ? "Creating lobby..."
+                : "Joining lobby..."
+              : connectionStatus === "connecting"
+                ? "Connecting to lobby server..."
+                : "Reconnecting..."}
+          </h1>
+          <button
+            type="button"
+            onClick={() => {
+              leaveLobby();
+              onBack();
+            }}
+            className="mt-6 text-sm text-zinc-400 transition hover:text-white"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-[#070b14] text-white">
@@ -491,7 +528,7 @@ export default function MultiplayerLobbyPage({
             </div>
 
             <div className="ml-auto flex items-center gap-2">
-              {isHost ? (
+              {effectiveIsHost ? (
                 <button
                   type="button"
                   onClick={handleStartGame}
@@ -527,7 +564,7 @@ export default function MultiplayerLobbyPage({
                   loading={agentsLoading}
                   disabled={!yourPlayer}
                   onToggleRandomize={toggleRandomize}
-                  onRandomizeAll={isHost ? randomizeAll : undefined}
+                  onRandomizeAll={effectiveIsHost ? randomizeAll : undefined}
                   onToggleReady={yourPlayer ? handleToggleReady : undefined}
                   isReady={yourPlayer?.isReady ?? false}
                   canReady={canReady}
@@ -588,7 +625,11 @@ const MultiplayerLobbyPlayerSlot = memo(function MultiplayerLobbyPlayerSlot({
       isActive={isYou}
       headerAction={
         showHostMenu && onMakeHost && onKick ? (
-          <LobbyPlayerHostMenu onMakeHost={onMakeHost} onKick={onKick} />
+          <LobbyPlayerHostMenu
+            mirrored={mirrored}
+            onMakeHost={onMakeHost}
+            onKick={onKick}
+          />
         ) : undefined
       }
     />

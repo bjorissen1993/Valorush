@@ -12,6 +12,8 @@ type HomePageProps = {
   onCreateLobby: () => void;
   onJoinLobby: (code?: string) => void;
   onLocalGame: () => void;
+  joinError?: string | null;
+  validatingJoin?: boolean;
 };
 
 const clientMode = import.meta.env.VITE_VALORUSH_CLIENT ?? "full";
@@ -113,14 +115,18 @@ export default function HomePage({
   onCreateLobby,
   onJoinLobby,
   onLocalGame,
+  joinError: externalJoinError = null,
+  validatingJoin: externalValidatingJoin = false,
 }: HomePageProps) {
   const [joinCode, setJoinCode] = useState("");
   const [serverUrl, setServerUrl] = useState(
     () => getStoredLobbyWsUrl()?.replace(/^wss?:\/\//, "") ?? ""
   );
   const [serverError, setServerError] = useState<string | null>(null);
-  const [joinError, setJoinError] = useState<string | null>(null);
-  const [validatingJoin, setValidatingJoin] = useState(false);
+  const [localJoinError, setLocalJoinError] = useState<string | null>(null);
+  const [validatingLocalJoin, setValidatingLocalJoin] = useState(false);
+  const joinError = localJoinError ?? externalJoinError;
+  const validatingJoin = validatingLocalJoin || externalValidatingJoin;
   const [helpOpen, setHelpOpen] = useState(false);
 
   async function handleJoinSubmit(event: React.FormEvent) {
@@ -140,18 +146,18 @@ export default function HomePage({
       }
     }
 
-    setJoinError(null);
-    setValidatingJoin(true);
+    setLocalJoinError(null);
+    setValidatingLocalJoin(true);
 
     try {
       await validateLobbyCode(trimmed);
       onJoinLobby(trimmed.toUpperCase());
     } catch (error) {
-      setJoinError(
+      setLocalJoinError(
         error instanceof Error ? error.message : "Lobby not found. Check the join code."
       );
     } finally {
-      setValidatingJoin(false);
+      setValidatingLocalJoin(false);
     }
   }
 
@@ -289,7 +295,7 @@ export default function HomePage({
                       setJoinCode(
                         event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")
                       );
-                      setJoinError(null);
+                      setLocalJoinError(null);
                     }}
                     maxLength={6}
                     placeholder="ABC123"

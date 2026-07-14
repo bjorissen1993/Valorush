@@ -477,6 +477,16 @@ function normalizeLobbyCode(raw: string): string {
 
 const LOBBY_CHECK_TIMEOUT_MS = 10_000;
 
+export function isFatalLobbyJoinError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("lobby not found") ||
+    lower.includes("lobby is full") ||
+    lower.includes("already started") ||
+    lower.includes("slot expired")
+  );
+}
+
 export function validateLobbyCode(code: string): Promise<void> {
   const normalized = normalizeLobbyCode(code);
   if (normalized.length < 4) {

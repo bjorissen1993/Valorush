@@ -6,7 +6,15 @@ import type {
   LobbyRoomState,
   PlayerProfile,
 } from "../../shared/lobbyTypes";
-import { LobbyClient, persistLobbySession, readLobbySession, readStoredLobbySession, clearLobbySession, type LobbyConnectionStatus } from "../services/lobbyClient";
+import {
+  LobbyClient,
+  clearLobbySession,
+  isFatalLobbyJoinError,
+  persistLobbySession,
+  readLobbySession,
+  readStoredLobbySession,
+  type LobbyConnectionStatus,
+} from "../services/lobbyClient";
 
 type UseLobbyRoomOptions = {
   mode: "create" | "join";
@@ -14,6 +22,7 @@ type UseLobbyRoomOptions = {
   joinCode?: string;
   enabled: boolean;
   onKicked?: () => void;
+  onJoinFailed?: (message: string) => void;
 };
 
 export function useLobbyRoom({
@@ -22,20 +31,28 @@ export function useLobbyRoom({
   joinCode,
   enabled,
   onKicked,
+  onJoinFailed,
 }: UseLobbyRoomOptions) {
   const clientRef = useRef<LobbyClient | null>(null);
   const bootstrappedRef = useRef(false);
   const rejoinAttemptedRef = useRef(false);
+  const freshJoinAfterRejoinRef = useRef(false);
   const roomStateRef = useRef<LobbyRoomState | null>(null);
   const onKickedRef = useRef(onKicked);
+  const onJoinFailedRef = useRef(onJoinFailed);
 
   useEffect(() => {
     onKickedRef.current = onKicked;
   }, [onKicked]);
 
+  useEffect(() => {
+    onJoinFailedRef.current = onJoinFailed;
+  }, [onJoinFailed]);
+
   const [roomState, setRoomState] = useState<LobbyRoomState | null>(null);
   const [yourPlayerId, setYourPlayerId] = useState<string | null>(null);
   const [isHost, setIsHost] = useState(false);
+  const [inLobby, setInLobby] = useState(false);
   const [connectionStatus, setConnectionStatus] =
     useState<LobbyConnectionStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +66,17 @@ export function useLobbyRoom({
     return roomState.players.find((player) => player.id === yourPlayerId) ?? null;
   }, [roomState, yourPlayerId]);
 
+  const failJoin = useCallback((message: string) => {
+    clearLobbySession();
+    clientRef.current?.disconnect();
+    setInLobby(false);
+    setRoomState(null);
+    setYourPlayerId(null);
+    setIsHost(false);
+    setError(message);
+    onJoinFailedRef.current?.(message);
+  }, []);
+
   useEffect(() => {
     roomStateRef.current = roomState;
   }, [roomState]);
@@ -58,9 +86,11 @@ export function useLobbyRoom({
 
     const client = new LobbyClient({
       onRoomState: (state, playerId, host) => {
+        freshJoinAfterRejoinRef.current = false;
         setRoomState(state);
         setYourPlayerId(playerId);
         setIsHost(host);
+        setInLobby(true);
         setError(null);
         persistLobbySession(state.code, playerId, {
           phase: state.status === "waiting" ? "lobby" : undefined,
@@ -100,10 +130,7 @@ export function useLobbyRoom({
           return;
         }
 
-        if (
-          lower.includes("not in a lobby") &&
-          roomStateRef.current
-        ) {
+        if (lower.includes("not in a lobby") && roomStateRef.current) {
           const session = readLobbySession();
           if (session) {
             clientRef.current?.rejoinLobby(session.code, session.playerId);
@@ -124,21 +151,17 @@ export function useLobbyRoom({
           rejoinAttemptedRef.current &&
           mode === "join" &&
           joinCode &&
-          lower.includes("slot expired")
+          lower.includes("slot expired") &&
+          !freshJoinAfterRejoinRef.current
         ) {
           rejoinAttemptedRef.current = false;
+          freshJoinAfterRejoinRef.current = true;
           clientRef.current?.joinLobby(joinCode, profile);
           return;
         }
 
-        if (
-          rejoinAttemptedRef.current &&
-          mode === "join" &&
-          joinCode &&
-          lower.includes("lobby not found")
-        ) {
-          rejoinAttemptedRef.current = false;
-          clientRef.current?.joinLobby(joinCode, profile);
+        if (!roomStateRef.current && isFatalLobbyJoinError(message)) {
+          failJoin(message);
           return;
         }
 
@@ -160,8 +183,9 @@ export function useLobbyRoom({
       clientRef.current = null;
       bootstrappedRef.current = false;
       rejoinAttemptedRef.current = false;
+      freshJoinAfterRejoinRef.current = false;
     };
-  }, [enabled]);
+  }, [enabled, failJoin, joinCode, mode, profile]);
 
   useEffect(() => {
     if (!enabled || !clientRef.current || bootstrappedRef.current) return;
@@ -246,6 +270,7 @@ export function useLobbyRoom({
     yourPlayer,
     yourPlayerId,
     isHost,
+    inLobby,
     connectionStatus,
     error,
     gameStartingPayload,

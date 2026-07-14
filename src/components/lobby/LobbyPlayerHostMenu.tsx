@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
 type LobbyPlayerHostMenuProps = {
+  mirrored?: boolean;
   onMakeHost: () => void;
   onKick: () => void;
 };
 
 export default function LobbyPlayerHostMenu({
+  mirrored = false,
   onMakeHost,
   onKick,
 }: LobbyPlayerHostMenuProps) {
@@ -28,13 +30,15 @@ export default function LobbyPlayerHostMenu({
   return (
     <div
       ref={menuRef}
-      className="absolute right-2 top-2 z-30 sm:right-3 sm:top-3"
+      className={`pointer-events-auto absolute top-2 z-40 sm:top-3 ${
+        mirrored ? "left-2 sm:left-3" : "right-2 sm:right-3"
+      }`}
       onClick={(event) => event.stopPropagation()}
     >
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-opacity duration-75 ease-out hover:bg-white/10 hover:text-zinc-300 group-hover:opacity-100 data-[open=true]:opacity-100"
+        className="rounded-lg border border-white/10 bg-zinc-950/80 p-1.5 text-zinc-300 shadow-lg backdrop-blur-sm transition hover:border-white/20 hover:bg-zinc-900 hover:text-white data-[open=true]:border-white/20 data-[open=true]:text-white"
         data-open={open}
         title="Player options"
         aria-label="Player options"
@@ -55,7 +59,9 @@ export default function LobbyPlayerHostMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-1 min-w-[10.5rem] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/98 py-1 shadow-2xl backdrop-blur-md"
+          className={`absolute top-full z-50 mt-1 min-w-[10.5rem] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/98 py-1 shadow-2xl backdrop-blur-md ${
+            mirrored ? "left-0" : "right-0"
+          }`}
         >
           <button
             type="button"

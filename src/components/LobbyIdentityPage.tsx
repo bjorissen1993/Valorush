@@ -19,7 +19,7 @@ type LobbyIdentityPageProps = {
   mode: "create" | "join";
   joinCode?: string;
   onBack: () => void;
-  onReady: (profile: PlayerProfile) => void;
+  onReady: (profile: PlayerProfile) => void | Promise<void>;
 };
 
 export default function LobbyIdentityPage({
@@ -35,18 +35,28 @@ export default function LobbyIdentityPage({
   const [showGuestForm, setShowGuestForm] = useState(false);
   const [error, setError] = useState<string | null>(() => consumeTwitchOAuthError());
   const [validatingCode, setValidatingCode] = useState(mode === "join" && !!joinCode);
+  const [codeValid, setCodeValid] = useState(mode !== "join" || !joinCode);
+  const [submitting, setSubmitting] = useState(false);
 
   const twitchConfigured = isTwitchOAuthConfigured();
   const twitchSetupHint = getTwitchOAuthSetupHint();
 
   useEffect(() => {
-    if (mode !== "join" || !joinCode) return;
+    if (mode !== "join" || !joinCode) {
+      setCodeValid(true);
+      setValidatingCode(false);
+      return;
+    }
 
     let cancelled = false;
     setValidatingCode(true);
+    setCodeValid(false);
     setError(null);
 
     void validateLobbyCode(joinCode)
+      .then(() => {
+        if (!cancelled) setCodeValid(true);
+      })
       .catch((validationError) => {
         if (cancelled) return;
         setError(
@@ -82,9 +92,34 @@ export default function LobbyIdentityPage({
     }
   }
 
+  async function confirmReady(profile: PlayerProfile) {
+    if (validatingCode || submitting || !!error || !codeValid) return;
+
+    if (mode === "join" && joinCode) {
+      setSubmitting(true);
+      try {
+        await validateLobbyCode(joinCode);
+      } catch (validationError) {
+        setError(
+          validationError instanceof Error
+            ? validationError.message
+            : "Lobby not found. Check the join code."
+        );
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    try {
+      await onReady(profile);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   function handleUseCachedLink() {
-    if (!cachedLink || validatingCode || error) return;
-    onReady(storedLinkToProfile(cachedLink));
+    if (!cachedLink) return;
+    void confirmReady(storedLinkToProfile(cachedLink));
   }
 
   function handleUnlink() {
@@ -95,19 +130,19 @@ export default function LobbyIdentityPage({
 
   function handleGuestJoin(event: React.FormEvent) {
     event.preventDefault();
-    if (validatingCode || error) return;
     const name = guestName.trim();
     if (name.length < 2) {
       setError("Enter a name with at least 2 characters.");
       return;
     }
-    onReady({ name });
+    void confirmReady({ name });
   }
 
   const title =
     mode === "join" && joinCode ? `Join ${joinCode}` : "Create lobby";
 
   const actionLabel = mode === "create" ? "Create lobby" : "Join lobby";
+  const identityLocked = validatingCode || submitting || !!error || !codeValid;
 
   return (
     <div className="min-h-screen bg-[#070b14] text-white">
@@ -141,7 +176,11 @@ export default function LobbyIdentityPage({
               <p className="text-sm text-zinc-400">Checking lobby code...</p>
             )}
 
-            {!showGuestForm ? (
+            {!validatingCode && !codeValid && !error && (
+              <p className="text-sm text-zinc-400">Could not verify lobby code.</p>
+            )}
+
+            {codeValid && !showGuestForm ? (
               <>
                 {cachedLink ? (
                   <div className="rounded-2xl border border-[#9146FF]/30 bg-[#9146FF]/10 p-6">
@@ -163,7 +202,7 @@ export default function LobbyIdentityPage({
                       <button
                         type="button"
                         onClick={handleUseCachedLink}
-                        disabled={validatingCode || !!error}
+                        disabled={identityLocked}
                         className="rounded-xl bg-[#9146FF] px-4 py-3 font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Continue with this account
@@ -171,7 +210,7 @@ export default function LobbyIdentityPage({
                       <button
                         type="button"
                         onClick={handleTwitchLogin}
-                        disabled={!twitchConfigured}
+                        disabled={!twitchConfigured || identityLocked}
                         className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 font-semibold text-zinc-200 transition hover:bg-black/30 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Link a different Twitch account
@@ -190,7 +229,7 @@ export default function LobbyIdentityPage({
                     <button
                       type="button"
                       onClick={handleTwitchLogin}
-                      disabled={!twitchConfigured || validatingCode || !!error}
+                      disabled={!twitchConfigured || identityLocked}
                       className="rounded-2xl bg-[#9146FF] px-6 py-5 text-left font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <span className="block text-lg">Link Twitch</span>
@@ -210,7 +249,7 @@ export default function LobbyIdentityPage({
                 <button
                   type="button"
                   onClick={() => setShowGuestForm(true)}
-                  disabled={validatingCode || !!error}
+                  disabled={identityLocked}
                   className="rounded-2xl border border-white/10 bg-zinc-900/70 px-6 py-5 text-left font-semibold transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="block text-lg">Continue as guest</span>
@@ -219,7 +258,7 @@ export default function LobbyIdentityPage({
                   </span>
                 </button>
               </>
-            ) : (
+            ) : codeValid ? (
               <form onSubmit={handleGuestJoin} className="grid gap-4">
                 <div>
                   <label
@@ -248,14 +287,14 @@ export default function LobbyIdentityPage({
                   </button>
                   <button
                     type="submit"
-                    disabled={validatingCode || !!error}
+                    disabled={identityLocked}
                     className="flex-1 rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {actionLabel}
+                    {submitting ? "Joining..." : actionLabel}
                   </button>
                 </div>
               </form>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
