@@ -5,11 +5,11 @@ export function createBoard(): Tile[] {
 
   const types = [
     "empty",
-    "duel",
+    "event",
     "spike",
     "shop",
     "empty",
-    "duel",
+    "minigame",
     "event",
     "minigame"
   ];

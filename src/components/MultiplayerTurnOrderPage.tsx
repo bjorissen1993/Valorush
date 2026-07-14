@@ -41,6 +41,11 @@ function toPlayersInGame(players: Player[], agents: Agent[]): PlayerInGame[] {
       weapon: null,
       shield: null,
       nextWeaponDiscount: 0,
+      items: [],
+      movementBonus: 0,
+      movementBonusTurns: 0,
+      maxStepsPerTurn: null,
+      maxStepsTurns: 0,
     };
   });
 }

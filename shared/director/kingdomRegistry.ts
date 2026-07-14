@@ -2,7 +2,7 @@ import type { KingdomProtocolDefinition } from "./types";
 
 /**
  * Kingdom Director — rare world-level emergency protocols.
- * Each protocol maps to existing event pool mechanics (or stubs via shared events).
+ * Each protocol maps to board event registry entries in `shared/events/`.
  */
 export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
   {
@@ -12,7 +12,7 @@ export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
     quote: "Priority alert. Possible mirror crossing on active sector. Confirm or disregard.",
     weight: "rare",
     protocolCode: "KNG-7741",
-    eventIds: ["mirror-briefing"],
+    eventIds: ["bind-teleporter", "lotus-rotating-doors"],
   },
   {
     id: "black-market-deployment",
@@ -21,7 +21,7 @@ export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
     quote: "Black market deployment authorized. Discounts and debts may apply to all operatives.",
     weight: "epic",
     protocolCode: "KNG-3310",
-    eventIds: ["cypher-market-gamble", "chamber-invoice-gamble"],
+    eventIds: ["chamber-tax", "clove-gamble"],
   },
   {
     id: "combat-simulation",
@@ -30,7 +30,7 @@ export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
     quote: "Combat simulation active. Treat every engagement as ranked. No respawns on your wallet.",
     weight: "common",
     protocolCode: "KNG-1192",
-    eventIds: ["brimstone-smoke-gamble"],
+    eventIds: ["brimstone-tdm", "kingdom-spike-rush"],
   },
   {
     id: "protocol-reset",
@@ -39,7 +39,7 @@ export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
     quote: "Protocol reset initiated. Dimensional static may drain operative accounts. Hold position.",
     weight: "legendary",
     protocolCode: "KNG-0001",
-    eventIds: ["mirror-glitch"],
+    eventIds: ["fade-paranoia", "chamber-tax"],
   },
   {
     id: "spike-protocol",
@@ -48,7 +48,7 @@ export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
     quote: "Spike protocol engaged. Logistics crate inbound for active operatives.",
     weight: "rare",
     protocolCode: "KNG-8844",
-    eventIds: ["supply-ascent", "killjoy-cache"],
+    eventIds: ["killjoy-cache", "kingdom-spike-rush"],
   },
   {
     id: "hazard-containment",
@@ -57,7 +57,7 @@ export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
     quote: "Hazard containment in effect. Non-compliance will be billed to operative cred accounts.",
     weight: "epic",
     protocolCode: "KNG-5520",
-    eventIds: ["breach-standoff", "mirror-glitch"],
+    eventIds: ["breach-shockwave", "deadlock-lockdown"],
   },
   {
     id: "experimental-weapons-test",
@@ -66,7 +66,7 @@ export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
     quote: "Experimental weapons test live. Next-buy discounts available to compliant operatives.",
     weight: "rare",
     protocolCode: "KNG-6677",
-    eventIds: ["chamber-invoice-gamble", "omen-smoke-deal"],
+    eventIds: ["chamber-tax", "viper-escalation"],
   },
   {
     id: "radiant-storm",
@@ -75,7 +75,7 @@ export const kingdomProtocolRegistry: KingdomProtocolDefinition[] = [
     quote: "Radiant storm detected. Radianite fragments may manifest near active operatives.",
     weight: "legendary",
     protocolCode: "KNG-9900",
-    eventIds: ["sova-intel", "kayo-memory", "skye-trail"],
+    eventIds: ["skye-trail-boost", "astra-cosmic-divide", "killjoy-cache"],
   },
 ];
 

@@ -12,8 +12,8 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Listen up. This site is about to get loud.",
     personality: "Tactical leadership, smokes, orbital strikes, team coordination",
     events: [
-      { eventId: "brimstone-smoke-gamble", weight: "common", theme: "Team Deathmatch" },
-      { eventId: "supply-ascent", weight: "rare", theme: "Logistics Drop" },
+      { eventId: "brimstone-tdm", weight: "common", theme: "Team Deathmatch" },
+      { eventId: "kingdom-spike-rush", weight: "rare", theme: "Logistics Drop" },
     ],
   },
   {
@@ -24,7 +24,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     personality: "Gadgets, locks, map control, engineering",
     events: [
       { eventId: "killjoy-cache", weight: "common", theme: "Gadget Cache" },
-      { eventId: "supply-ascent", weight: "rare", theme: "Supply Drop" },
+      { eventId: "bind-teleporter", weight: "rare", theme: "Supply Drop" },
     ],
   },
   {
@@ -34,8 +34,8 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Everything is recorded. Including your creds.",
     personality: "Intel, surveillance, hidden information revealed",
     events: [
-      { eventId: "cypher-market-gamble", weight: "common", theme: "Black Market Intel" },
-      { eventId: "sova-intel", weight: "rare", theme: "Shared Intel" },
+      { eventId: "chamber-tax", weight: "common", theme: "Black Market Intel" },
+      { eventId: "skye-trail-boost", weight: "rare", theme: "Shared Intel" },
     ],
   },
   {
@@ -45,7 +45,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Premium inventory. Premium prices. Take it or leave it.",
     personality: "Economy, black market weapons, concierge deals",
     events: [
-      { eventId: "chamber-invoice-gamble", weight: "common", theme: "Black Market" },
+      { eventId: "chamber-tax", weight: "common", theme: "Black Market" },
     ],
   },
   {
@@ -55,7 +55,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Stay close. I won't let your economy flatline.",
     personality: "Healing, protection, team support",
     events: [
-      { eventId: "sage-resilience", weight: "common", theme: "Protection" },
+      { eventId: "killjoy-cache", weight: "common", theme: "Protection" },
     ],
   },
   {
@@ -65,8 +65,8 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "The dark sees what Kingdom won't tell you.",
     personality: "Nightmares, fear, dark map modifiers, intel",
     events: [
-      { eventId: "fade-whispers-gamble", weight: "common", theme: "Dark Intel" },
-      { eventId: "viper-omen-shadow", weight: "epic", theme: "Shadow Briefing" },
+      { eventId: "fade-paranoia", weight: "common", theme: "Dark Intel" },
+      { eventId: "omen-shadows", weight: "epic", theme: "Shadow Briefing" },
     ],
   },
   {
@@ -76,7 +76,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Keep up — sparks don't wait for slow buys.",
     personality: "Speed, movement, high-tempo plays",
     events: [
-      { eventId: "jett-neon-gamble", weight: "common", theme: "Speed Event" },
+      { eventId: "neon-rush", weight: "common", theme: "Speed Event" },
     ],
   },
   {
@@ -86,7 +86,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Too slow. Watch how it's done.",
     personality: "Mobility, duels, wind-style aggression",
     events: [
-      { eventId: "jett-neon-gamble", weight: "common", theme: "Speed Duel" },
+      { eventId: "neon-rush", weight: "common", theme: "Speed Duel" },
     ],
   },
   {
@@ -96,7 +96,8 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Wrong dimension. Try again.",
     personality: "Teleports, rifts, dimensional bluffs",
     events: [
-      { eventId: "yoru-fakeout-gamble", weight: "common", theme: "Teleport Bluff" },
+      { eventId: "yoru-rift", weight: "common", theme: "Rift Teleport" },
+      { eventId: "bind-teleporter", weight: "rare", theme: "Dimensional Bluff" },
     ],
   },
   {
@@ -106,8 +107,8 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "New routes open in the smoke. Choose wisely.",
     personality: "Smokes, shadow economy, new paths",
     events: [
-      { eventId: "omen-smoke-deal", weight: "common", theme: "Shadow Routes" },
-      { eventId: "viper-omen-shadow", weight: "rare", theme: "Smoke Cabinet" },
+      { eventId: "omen-shadows", weight: "common", theme: "Shadow Swap" },
+      { eventId: "viper-escalation", weight: "epic", theme: "Escalation Match" },
     ],
   },
   {
@@ -117,7 +118,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Your creds look hungry. Feed me.",
     personality: "Life steal, tribute, empress dominance",
     events: [
-      { eventId: "reyna-empress-tax", weight: "common", theme: "Steal Mechanic" },
+      { eventId: "iso-challenge", weight: "common", theme: "Steal Mechanic" },
     ],
   },
   {
@@ -127,7 +128,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Move — or I'll move you through the wall.",
     personality: "Disruption, pushes, stuns, force",
     events: [
-      { eventId: "breach-standoff", weight: "common", theme: "Push Event" },
+      { eventId: "breach-shockwave", weight: "common", theme: "Push Event" },
     ],
   },
   {
@@ -137,7 +138,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "The tide turns. Swim with it.",
     personality: "Water, tidal control, map flooding",
     events: [
-      { eventId: "supply-ascent", weight: "common", theme: "Water Supply" },
+      { eventId: "ascent-zipline", weight: "common", theme: "Water Supply" },
     ],
   },
   {
@@ -147,8 +148,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Live a little. Everyone bets creds — winner takes the pot.",
     personality: "Resurrection vibes, chaos, credit gambling",
     events: [
-      { eventId: "brimstone-smoke-gamble", weight: "common", theme: "Credit Bet" },
-      { eventId: "fade-whispers-gamble", weight: "rare", theme: "All-In Gamble" },
+      { eventId: "clove-gamble", weight: "common", theme: "Credit Bet" },
     ],
   },
   {
@@ -158,7 +158,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Recon bolt inbound. Intel is power.",
     personality: "Recon, intel, owl drone",
     events: [
-      { eventId: "sova-intel", weight: "common", theme: "Hidden Info" },
+      { eventId: "skye-trail-boost", weight: "common", theme: "Hidden Info" },
     ],
   },
   {
@@ -168,7 +168,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "My seeker found something worth chasing.",
     personality: "Guiding light, recovery, tracking",
     events: [
-      { eventId: "skye-trail", weight: "common", theme: "Trail Intel" },
+      { eventId: "skye-trail-boost", weight: "common", theme: "Trail Intel" },
     ],
   },
   {
@@ -178,7 +178,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Demo time. Stand back.",
     personality: "Explosives, chaos, demolition",
     events: [
-      { eventId: "raze-demo-gamble", weight: "common", theme: "Demo Event" },
+      { eventId: "breach-shockwave", weight: "common", theme: "Demo Event" },
     ],
   },
   {
@@ -188,7 +188,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Watch this flash — then collect your creds.",
     personality: "Fire, self-res, aggressive duels",
     events: [
-      { eventId: "raze-demo-gamble", weight: "common", theme: "Flash Chaos" },
+      { eventId: "neon-rush", weight: "common", theme: "Flash Chaos" },
     ],
   },
   {
@@ -198,7 +198,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Threat detected. Memory core online.",
     personality: "Suppression, war machine, radianite fragments",
     events: [
-      { eventId: "kayo-memory", weight: "common", theme: "Memory Core" },
+      { eventId: "astra-cosmic-divide", weight: "common", theme: "Memory Core" },
     ],
   },
   {
@@ -208,7 +208,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Breathe the toxin. Obey the protocol.",
     personality: "Toxic control, economy manipulation, shadows",
     events: [
-      { eventId: "viper-omen-shadow", weight: "common", theme: "Toxic Deal" },
+      { eventId: "viper-escalation", weight: "common", theme: "Toxic Deal" },
     ],
   },
   {
@@ -218,7 +218,7 @@ export const agentDirectorRegistry: AgentDirectorDefinition[] = [
     quote: "Reality's thin here. Hold on.",
     personality: "Cosmic, dimensional glitches, map anomalies",
     events: [
-      { eventId: "mirror-glitch", weight: "epic", theme: "Dimensional Glitch" },
+      { eventId: "lotus-rotating-doors", weight: "epic", theme: "Dimensional Glitch" },
     ],
   },
 ];

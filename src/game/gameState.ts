@@ -2,7 +2,6 @@ import { Player } from "../types/Player";
 
 export type TileType =
   | "empty"
-  | "duel"
   | "spike"
   | "shop"
   | "event"

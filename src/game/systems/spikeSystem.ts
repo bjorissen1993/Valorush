@@ -33,6 +33,7 @@ export type ActiveSpike = {
   status: SpikeStatus;
   defuseProgress: 0 | 1;
   rewarded: boolean;
+  defuseDifficulty: number;
 
   // only the first player after planting may try while passing over
   firstPassOpportunityPlayerIndex: number | null;
@@ -53,7 +54,121 @@ export type SpikePlantReveal = {
   isSoloPlant: boolean;
 };
 
+export type SpikeDefuseDiceChoice =
+  | "roll-both-keep-high"
+  | "roll-both-keep-low"
+  | "use-item"
+  | "use-ultimate";
+
+export type SpikeDefuseItemId =
+  | "wire-cutter"
+  | "stim-beacon"
+  | "owl-drone"
+  | "ultimate-charge";
+
 export type SpikeDefuseRollOutcome =
+  | {
+      kind: "fail";
+      dice1: number;
+      dice2: number;
+      chosenTotal: number;
+      difficulty: number;
+      canStay: true;
+    }
+  | {
+      kind: "half";
+      dice1: number;
+      dice2: number;
+      chosenTotal: number;
+      difficulty: number;
+      defuseProgress: 1;
+    }
+  | {
+      kind: "defused";
+      dice1: number;
+      dice2: number;
+      chosenTotal: number;
+      difficulty: number;
+    };
+
+export function rollSpikeDifficulty(): number {
+  return Math.floor(Math.random() * 5) + 4;
+}
+
+export function rollDefuseDice(): [number, number] {
+  return [randomDice(), randomDice()];
+}
+
+function randomDice() {
+  return Math.floor(Math.random() * 6) + 1;
+}
+
+export function resolveSpikeDefuseDice(args: {
+  dice1: number;
+  dice2: number;
+  choice: SpikeDefuseDiceChoice;
+  difficulty: number;
+  currentProgress: 0 | 1;
+  itemBonus?: number;
+}): SpikeDefuseRollOutcome {
+  const { dice1, dice2, choice, difficulty, currentProgress, itemBonus = 0 } = args;
+
+  let chosenTotal: number;
+  switch (choice) {
+    case "roll-both-keep-low":
+      chosenTotal = Math.min(dice1, dice2) + itemBonus;
+      break;
+    case "use-ultimate":
+      chosenTotal = Math.max(dice1, dice2) + 2 + itemBonus;
+      break;
+    default:
+      chosenTotal = Math.max(dice1, dice2) + itemBonus;
+      break;
+  }
+
+  if (currentProgress === 0) {
+    if (chosenTotal >= difficulty) {
+      return {
+        kind: "half",
+        dice1,
+        dice2,
+        chosenTotal,
+        difficulty,
+        defuseProgress: 1,
+      };
+    }
+    return {
+      kind: "fail",
+      dice1,
+      dice2,
+      chosenTotal,
+      difficulty,
+      canStay: true,
+    };
+  }
+
+  if (chosenTotal >= difficulty) {
+    return {
+      kind: "defused",
+      dice1,
+      dice2,
+      chosenTotal,
+      difficulty,
+    };
+  }
+
+  return {
+    kind: "fail",
+    dice1,
+    dice2,
+    chosenTotal,
+    difficulty,
+    canStay: true,
+  };
+}
+
+/** @deprecated Legacy single-dice defuse — use resolveSpikeDefuseDice. */
+export type LegacySpikeDefuseRollOutcome =
   | {
       kind: "fail";
       roll: number;
@@ -204,6 +319,7 @@ export function createActiveSpike({
     status: "planted",
     defuseProgress: 0,
     rewarded: false,
+    defuseDifficulty: rollSpikeDifficulty(),
     firstPassOpportunityPlayerIndex,
     firstPassOpportunityUsed: false,
   };
@@ -284,7 +400,7 @@ export function markFirstPassOpportunityUsed(spike: ActiveSpike): ActiveSpike {
 export function resolveSpikeDefuseRoll(
   roll: number,
   currentProgress: 0 | 1
-): SpikeDefuseRollOutcome {
+): LegacySpikeDefuseRollOutcome {
   if (currentProgress === 0) {
     if (roll >= 1 && roll <= 3) {
       return {
@@ -318,8 +434,26 @@ export function resolveSpikeDefuseRoll(
 
 export function applySpikeDefuseOutcome(
   spike: ActiveSpike,
-  outcome: SpikeDefuseRollOutcome
+  outcome: SpikeDefuseRollOutcome | LegacySpikeDefuseRollOutcome
 ): ActiveSpike {
+  if ("dice1" in outcome) {
+    if (outcome.kind === "half") {
+      return {
+        ...spike,
+        status: "half-defused",
+        defuseProgress: 1,
+      };
+    }
+    if (outcome.kind === "defused") {
+      return {
+        ...spike,
+        status: "defused",
+        defuseProgress: 1,
+      };
+    }
+    return spike;
+  }
+
   if (outcome.kind === "half") {
     return {
       ...spike,

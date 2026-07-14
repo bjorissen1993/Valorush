@@ -17,9 +17,6 @@ export type LandingResolution =
       kind: "spike";
     }
   | {
-      kind: "duel";
-    }
-  | {
       kind: "minigame";
     }
   | {
@@ -67,12 +64,6 @@ export function resolveLandingTile({
   if (landedNode.type === "minigame") {
     return {
       kind: "minigame",
-    };
-  }
-
-  if (landedNode.type === "duel") {
-    return {
-      kind: "duel",
     };
   }
 

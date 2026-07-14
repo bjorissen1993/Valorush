@@ -63,8 +63,6 @@ function getTileLabel(type: TileType) {
   switch (type) {
     case "start":
       return "Start";
-    case "duel":
-      return "Duel";
     case "spike":
       return "Spike";
     case "shop":
@@ -120,8 +118,6 @@ function getTileClasses(type: TileType) {
       return "bg-zinc-900/85 border-violet-500/35";
     case "shop":
       return "bg-zinc-900/85 border-cyan-500/35";
-    case "duel":
-      return "bg-zinc-900/85 border-red-500/35";
     case "spike":
       return "bg-zinc-900/85 border-orange-500/35";
     case "minigame":

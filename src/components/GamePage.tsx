@@ -13,6 +13,9 @@ import BoardMap from "./BoardMap";
 import TurnBanner from "./TurnBanner";
 import TurnOrderScreen from "./TurnOrderScreen";
 import EventStoryModal from "./EventStoryModal";
+import EventChoiceModal from "./EventChoiceModal";
+import MapRevealPresentation from "./MapRevealPresentation";
+import SpikeDefuseModal from "./SpikeDefuseModal";
 import DirectorPresentation from "./DirectorPresentation";
 import ShopModal, { type ShopOffer } from "./ShopModal";
 import DiceRollOverlay, { type DiceOverlayPhase } from "./DiceRollOverlay";
@@ -33,7 +36,17 @@ import {
   applyEventEffect,
   getNormalTileMessage,
 } from "../game/systems/landingSystem";
-import { eventPool } from "../game/eventPool";
+import { eventPool, getRandomBoardEvent, boardEventById } from "../game/eventPool";
+import {
+  applyEventChoice,
+  type PendingEventChoiceState,
+} from "../game/eventChoiceHandler";
+import { computeEffectiveRoll, tickMovementModifiers } from "../game/boardEventBridge";
+import { customMatchById } from "../../shared/customMatches";
+import { minigameById, defaultBoardMinigameId } from "../../shared/minigames";
+import type { MinigameId } from "../../shared/minigames/types";
+import type { ActiveCustomMatch } from "../../shared/customMatches/types";
+import type { ValorantMapId } from "../../shared/customMatches/types";
 import { pickDirectorEvent } from "../game/director";
 import type {
   ActiveSpike,
@@ -47,7 +60,10 @@ import {
   shouldRewardPlanter,
   markSpikeRewarded,
   getDefuseEligibility,
-  resolveSpikeDefuseRoll,
+  resolveSpikeDefuseDice,
+  rollDefuseDice,
+  rollSpikeDifficulty,
+  type SpikeDefuseDiceChoice,
   applySpikeDefuseOutcome,
   shouldRewardDefuser,
   markFirstPassOpportunityUsed,
@@ -62,13 +78,6 @@ import {
   getNextPlayerMeta,
   getNextPlayerName,
 } from "../game/systems/turnSystem";
-import {
-  compareDuelRolls,
-  applyDuelWinReward,
-  DUEL_WIN_CREDS,
-  DUEL_WIN_RADIANITE,
-  type DuelOutcome,
-} from "../game/systems/duelSystem";
 import {
   rollForAllPlayers,
   findMinigameWinner,
@@ -142,25 +151,20 @@ export type AnimatedTokenState = {
 
 const defaultColors = ["#22c55e", "#38bdf8", "#a78bfa", "#f97316"];
 
-type DuelPhase =
-  | { step: "pick-opponent"; challengerIndex: number }
-  | {
-      step: "result";
-      challengerIndex: number;
-      opponentIndex: number;
-      challengerRoll: number;
-      opponentRoll: number;
-      outcome: DuelOutcome;
-    };
-
 type MinigamePhase =
-  | { step: "intro"; triggeredByIndex: number }
+  | { step: "intro"; triggeredByIndex: number; minigameId: MinigameId }
   | {
       step: "result";
       triggeredByIndex: number;
+      minigameId: MinigameId;
       rolls: MinigameRollResult[];
       winnerIndex: number;
     };
+
+type CustomMatchPhase =
+  | { step: "announce"; match: ActiveCustomMatch }
+  | { step: "reveal"; match: ActiveCustomMatch }
+  | { step: "result"; match: ActiveCustomMatch; winnerIndex: number };
 
 function randomDiceRoll() {
   return Math.floor(Math.random() * 6) + 1;
@@ -287,6 +291,11 @@ export default function GamePage({
         weapon: null,
         shield: null,
         nextWeaponDiscount: 0,
+        items: [],
+        movementBonus: 0,
+        movementBonusTurns: 0,
+        maxStepsPerTurn: null,
+        maxStepsTurns: 0,
       };
     })
   );
@@ -389,6 +398,9 @@ export default function GamePage({
   } | null>(null);
   const [spikeReveal, setSpikeReveal] = useState<SpikePlantReveal | null>(null);
   const [defusePrompt, setDefusePrompt] = useState<DefusePromptState | null>(null);
+  const [defuseDice1, setDefuseDice1] = useState<number | null>(null);
+  const [defuseDice2, setDefuseDice2] = useState<number | null>(null);
+  const [defusePreviewMode, setDefusePreviewMode] = useState(false);
   const [isResolvingDefuse, setIsResolvingDefuse] = useState(false);
   const [pendingAdvanceAfterSpikeReveal, setPendingAdvanceAfterSpikeReveal] =
     useState<{
@@ -455,9 +467,17 @@ export default function GamePage({
     "plant-spike" | "teleport-player" | null
   >(null);
 
-  const [duelPhase, setDuelPhase] = useState<DuelPhase | null>(null);
   const [minigamePhase, setMinigamePhase] = useState<MinigamePhase | null>(null);
-  const [isResolvingDuel, setIsResolvingDuel] = useState(false);
+  const [pendingEventChoice, setPendingEventChoice] =
+    useState<PendingEventChoiceState | null>(null);
+  const [eventEffectsApplied, setEventEffectsApplied] = useState(false);
+  const [scheduledCustomMatch, setScheduledCustomMatch] =
+    useState<ActiveCustomMatch | null>(null);
+  const [customMatchPhase, setCustomMatchPhase] = useState<CustomMatchPhase | null>(null);
+  const [pendingRoundWrap, setPendingRoundWrap] = useState<{
+    title?: string;
+    subtitle?: string;
+  } | null>(null);
   const [isResolvingMinigame, setIsResolvingMinigame] = useState(false);
 
   const [activeStoryEvent, setActiveStoryEvent] = useState<{
@@ -645,6 +665,7 @@ export default function GamePage({
       status: "planted",
       defuseProgress: 0,
       rewarded: false,
+      defuseDifficulty: rollSpikeDifficulty(),
       firstPassOpportunityPlayerIndex: nextPlayerMeta.nextPlayerIndex,
       firstPassOpportunityUsed: false,
     });
@@ -923,6 +944,36 @@ export default function GamePage({
   }
 
   function completeDirectorIntro() {
+    if (!activeStoryEvent) return;
+    const def = boardEventById.get(activeStoryEvent.event.id);
+    if (def?.playerChoices) {
+      setPendingEventChoice({
+        eventId: def.id,
+        playerIndex: activeStoryEvent.playerIndex,
+        choiceSpec: def.playerChoices,
+      });
+      setEventEffectsApplied(false);
+    } else if (def) {
+      const result = applyEventChoice({
+        eventId: def.id,
+        playerIndex: activeStoryEvent.playerIndex,
+        players: playersInGame,
+        round,
+      });
+      setPlayersInGame(result.players);
+      setEventEffectsApplied(true);
+      if (result.scheduleCustomMatch) {
+        setScheduledCustomMatch({
+          matchId: result.scheduleCustomMatch.matchId as ActiveCustomMatch["matchId"],
+          mapId: result.scheduleCustomMatch.mapId as ValorantMapId,
+          scheduledRound: round,
+        });
+      }
+      setActiveStoryEvent((current) =>
+        current ? { ...current, event: result.gameEvent, showDirectorIntro: false } : null
+      );
+      return;
+    }
     setActiveStoryEvent((current) =>
       current ? { ...current, showDirectorIntro: false } : null
     );
@@ -965,25 +1016,11 @@ export default function GamePage({
     beginShopPhaseForPlayer(debugSelectedPlayerIndex);
   }
 
-  function debugTriggerDuel() {
-    setDuelPhase({
-      step: "pick-opponent",
-      challengerIndex: debugSelectedPlayerIndex,
-    });
-    const player = playersInGame[debugSelectedPlayerIndex];
-    if (!player) return;
-    setStatusTitle(`${player.name} landed on Duel`);
-    setStatusSubtitle("Pick an opponent to challenge.");
-    showAnnouncement(
-      `${player.name} landed on Duel`,
-      "Pick an opponent , highest roll wins."
-    );
-  }
-
   function debugTriggerMinigame() {
     setMinigamePhase({
       step: "intro",
       triggeredByIndex: debugSelectedPlayerIndex,
+      minigameId: defaultBoardMinigameId,
     });
     const player = playersInGame[debugSelectedPlayerIndex];
     if (!player) return;
@@ -1097,90 +1134,89 @@ export default function GamePage({
     return handleSpikeDefuseAttempt(playerIdx, nodeId, false);
   }
 
-  async function finishDuelAndAdvance() {
-    if (!duelPhase || duelPhase.step !== "result") return;
+  function handleEventChoice(args: {
+    choiceId?: string;
+    targetPlayerIndex?: number;
+    betAmount?: number;
+  }) {
+    if (!pendingEventChoice || !activeStoryEvent) return;
 
-    const { challengerIndex, opponentIndex, outcome } = duelPhase;
+    const result = applyEventChoice({
+      eventId: pendingEventChoice.eventId,
+      playerIndex: pendingEventChoice.playerIndex,
+      players: playersInGame,
+      round,
+      ...args,
+    });
 
-    if (outcome === "challenger") {
-      updatePlayer(challengerIndex, (p) => applyDuelWinReward(p));
-      setRadianiteGainFxPlayerIndex(challengerIndex);
-      window.setTimeout(() => {
-        setRadianiteGainFxPlayerIndex((c) =>
-          c === challengerIndex ? null : c
-        );
-      }, 900);
-    } else if (outcome === "opponent") {
-      updatePlayer(opponentIndex, (p) => applyDuelWinReward(p));
-      setRadianiteGainFxPlayerIndex(opponentIndex);
-      window.setTimeout(() => {
-        setRadianiteGainFxPlayerIndex((c) =>
-          c === opponentIndex ? null : c
-        );
-      }, 900);
+    setPlayersInGame(result.players);
+    setEventEffectsApplied(true);
+
+    if (result.scheduleCustomMatch) {
+      const matchDef = customMatchById.get(
+        result.scheduleCustomMatch.matchId as ActiveCustomMatch["matchId"]
+      );
+      setScheduledCustomMatch({
+        matchId: result.scheduleCustomMatch.matchId as ActiveCustomMatch["matchId"],
+        mapId: result.scheduleCustomMatch.mapId as ValorantMapId,
+        scheduledRound: round,
+      });
+      showAnnouncement(
+        "Custom Match Scheduled",
+        `${matchDef?.name ?? "Custom Match"} at end of round on ${result.scheduleCustomMatch.mapId}.`
+      );
     }
 
-    setLastEventTitle("Duel Resolved");
-    setDuelPhase(null);
-    setIsResolvingDuel(false);
+    if (result.needsFollowUp) {
+      setPendingEventChoice(result.needsFollowUp);
+      setActiveStoryEvent((current) =>
+        current ? { ...current, event: result.gameEvent } : null
+      );
+      return;
+    }
 
+    setPendingEventChoice(null);
+    setActiveStoryEvent((current) =>
+      current ? { ...current, event: result.gameEvent } : null
+    );
+    setStatusSubtitle(result.gameEvent.outcome?.description ?? result.gameEvent.description);
+  }
+
+  async function finishCustomMatchAndAdvance(triggeredByIndex: number) {
+    if (!customMatchPhase || customMatchPhase.step !== "result") return;
+    const { winnerIndex, match } = customMatchPhase;
+    const matchDef = customMatchById.get(match.matchId);
+    updatePlayer(winnerIndex, (p) => ({
+      ...p,
+      creds: p.creds + (matchDef?.winCreds ?? 150),
+      radianitePoints: p.radianitePoints + (matchDef?.winRadianite ?? 1),
+    }));
+    setCustomMatchPhase(null);
+    setScheduledCustomMatch(null);
     await sleep(AUTO_ADVANCE_DELAY);
     await advanceToNextPlayer(
-      `Next player: ${getResolvedNextPlayerName(challengerIndex)}`,
-      `${getResolvedNextPlayerName(challengerIndex)} is now up`
+      `Next player: ${getResolvedNextPlayerName(triggeredByIndex)}`,
+      `${getResolvedNextPlayerName(triggeredByIndex)} is now up`
     );
   }
 
-  async function resolveDuelWithOpponent(opponentIndex: number) {
-    if (!duelPhase || duelPhase.step !== "pick-opponent") return;
-    if (isResolvingDuel) return;
-
-    setIsResolvingDuel(true);
-    const challengerIndex = duelPhase.challengerIndex;
-
-    for (let i = 0; i < 8; i += 1) {
-      setDiceDisplayValue(randomDiceRoll());
-      await sleep(70);
-    }
-
-    const challengerRoll = randomDiceRoll();
-    const opponentRoll = randomDiceRoll();
-    setDiceDisplayValue(opponentRoll);
-
-    const outcome = compareDuelRolls(challengerRoll, opponentRoll);
-    const challengerName = playersInGame[challengerIndex]?.name ?? "Player";
-    const opponentName = playersInGame[opponentIndex]?.name ?? "Player";
-
-    setDuelPhase({
+  async function playCustomMatchStub(match: ActiveCustomMatch) {
+    setCustomMatchPhase({ step: "reveal", match });
+    await sleep(4500);
+    const rolls = rollForAllPlayers(playersInGame.length);
+    const winner = findMinigameWinner(rolls);
+    setCustomMatchPhase({
       step: "result",
-      challengerIndex,
-      opponentIndex,
-      challengerRoll,
-      opponentRoll,
-      outcome,
+      match,
+      winnerIndex: winner.playerIndex,
     });
-
-    if (outcome === "tie") {
-      setStatusTitle("Duel , Draw");
-      setStatusSubtitle(
-        `${challengerName} (${challengerRoll}) vs ${opponentName} (${opponentRoll}). No rewards.`
-      );
-    } else {
-      const winnerName = outcome === "challenger" ? challengerName : opponentName;
-      const winnerRoll =
-        outcome === "challenger" ? challengerRoll : opponentRoll;
-      setStatusTitle(`${winnerName} wins the duel!`);
-      setStatusSubtitle(
-        `+${DUEL_WIN_CREDS} Creds & +${DUEL_WIN_RADIANITE} Radianite. Roll: ${winnerRoll}`
-      );
-    }
-
-    setLastEventTitle("Duel");
+    const winnerName = playersInGame[winner.playerIndex]?.name ?? "Player";
+    const matchDef = customMatchById.get(match.matchId);
+    setStatusTitle(`${winnerName} wins ${matchDef?.name ?? "Custom Match"}!`);
+    setStatusSubtitle(`+${matchDef?.winCreds ?? 150} Creds on ${match.mapId}`);
     showAnnouncement(
-      outcome === "tie" ? "Duel , Draw" : "Duel Won!",
-      outcome === "tie"
-        ? `${challengerName} (${challengerRoll}) vs ${opponentName} (${opponentRoll})`
-        : `${outcome === "challenger" ? challengerName : opponentName} wins!`
+      `${matchDef?.name ?? "Custom Match"} Complete`,
+      `${winnerName} wins on ${match.mapId}!`
     );
   }
 
@@ -1201,29 +1237,37 @@ export default function GamePage({
     setMinigamePhase({
       step: "result",
       triggeredByIndex: minigamePhase.triggeredByIndex,
+      minigameId: minigamePhase.minigameId,
       rolls,
       winnerIndex: winner.playerIndex,
     });
 
+    const minigameDef = minigameById.get(minigamePhase.minigameId);
     setDiceDisplayValue(winner.roll);
 
     const winnerName =
       playersInGame[winner.playerIndex]?.name ?? "Player";
 
-    setStatusTitle(`${winnerName} wins the minigame!`);
+    setStatusTitle(`${winnerName} wins ${minigameDef?.name ?? "Minigame"}!`);
     setStatusSubtitle(
-      `Highest roll (${winner.roll}). +${MINIGAME_WIN_CREDS} Creds & +${MINIGAME_WIN_RADIANITE} Radianite.`
+      `Highest roll (${winner.roll}). +${minigameDef?.rewards.creds ?? MINIGAME_WIN_CREDS} Creds & +${minigameDef?.rewards.radianite ?? MINIGAME_WIN_RADIANITE} Radianite.`
     );
-    setLastEventTitle("Minigame");
+    setLastEventTitle(minigameDef?.name ?? "Minigame");
     showAnnouncement("Minigame Won!", `${winnerName} rolled ${winner.roll}.`);
   }
 
   async function finishMinigameAndAdvance() {
     if (!minigamePhase || minigamePhase.step !== "result") return;
 
-    const { winnerIndex, triggeredByIndex } = minigamePhase;
+    const { winnerIndex, triggeredByIndex, minigameId } = minigamePhase;
+    const minigameDef = minigameById.get(minigameId);
 
-    updatePlayer(winnerIndex, (p) => applyMinigameWinReward(p));
+    updatePlayer(winnerIndex, (p) => ({
+      ...p,
+      creds: p.creds + (minigameDef?.rewards.creds ?? MINIGAME_WIN_CREDS),
+      radianitePoints:
+        p.radianitePoints + (minigameDef?.rewards.radianite ?? MINIGAME_WIN_RADIANITE),
+    }));
     setRadianiteGainFxPlayerIndex(winnerIndex);
     window.setTimeout(() => {
       setRadianiteGainFxPlayerIndex((c) => (c === winnerIndex ? null : c));
@@ -1300,7 +1344,7 @@ export default function GamePage({
     if (pendingPathChoice) return;
     if (canBuyAfterLanding) return;
     if (spikeReveal || spikeDetonationReveal || spikePlantAnimation) return;
-    if (duelPhase || minigamePhase) return;
+    if (minigamePhase || customMatchPhase) return;
     if (activeStoryEvent) return;
 
     if (
@@ -1340,14 +1384,37 @@ export default function GamePage({
     });
     const newRound = meta.wrapsRound ? round + 1 : round;
 
+    if (meta.wrapsRound && scheduledCustomMatch && !customMatchPhase) {
+      setPendingRoundWrap({ title, subtitle });
+      void playCustomMatchStub(scheduledCustomMatch);
+      setIsMoving(false);
+      setMovingPlayerIndex(null);
+      setAnimatedToken(null);
+      setPendingPathChoice(null);
+      setCanBuyAfterLanding(false);
+      setDefusePrompt(null);
+      setActiveStoryEvent(null);
+      setPendingEventChoice(null);
+      setLastRoll(null);
+      setDiceDisplayValue(null);
+      setDiceFlowPhase("hidden");
+      setHasRolledThisTurn(false);
+      setCurrentTurnOrderIndex(meta.nextOrderIndex);
+      setRound(newRound);
+      return;
+    }
+
     setIsMoving(false);
     setMovingPlayerIndex(null);
     setAnimatedToken(null);
     setPendingPathChoice(null);
     setCanBuyAfterLanding(false);
     setDefusePrompt(null);
-    setDuelPhase(null);
+    setDefuseDice1(null);
+    setDefuseDice2(null);
     setMinigamePhase(null);
+    setPendingEventChoice(null);
+    setEventEffectsApplied(false);
     setActiveStoryEvent(null);
     setLastRoll(null);
     setDiceDisplayValue(null);
@@ -1355,6 +1422,13 @@ export default function GamePage({
     setHasRolledThisTurn(false);
     setCurrentTurnOrderIndex(meta.nextOrderIndex);
     setRound(newRound);
+
+    const nextPlayerIndex = meta.nextPlayerIndex;
+    setPlayersInGame((current) =>
+      current.map((player, index) =>
+        index === nextPlayerIndex ? tickMovementModifiers(player) : player
+      )
+    );
 
     if (newRound > MAX_ROUNDS) {
       setPhase("game-over");
@@ -1413,6 +1487,9 @@ export default function GamePage({
       landedExactly ? "Exact landing defuse." : "Pass-over defuse."
     );
 
+    setDefuseDice1(null);
+    setDefuseDice2(null);
+    setDefusePreviewMode(false);
     setDefusePrompt({
       playerIndex,
       nodeId,
@@ -1422,9 +1499,8 @@ export default function GamePage({
     return true;
   }
 
-  async function resolveDefuseRoll() {
+  async function rollDefusePreview() {
     if (!defusePrompt || !activeSpike) return;
-
     setIsResolvingDefuse(true);
 
     for (let i = 0; i < 8; i += 1) {
@@ -1432,11 +1508,36 @@ export default function GamePage({
       await sleep(70);
     }
 
-    const roll = randomDiceRoll();
-    setDiceDisplayValue(roll);
+    const [d1, d2] = rollDefuseDice();
+    const player = playersInGame[defusePrompt.playerIndex];
+    const hasOwl = player?.items?.includes("owl-drone");
+    setDefuseDice1(d1);
+    setDefuseDice2(hasOwl ? d2 : d2);
+    setDefusePreviewMode(!!hasOwl);
+    setIsResolvingDefuse(false);
+  }
+
+  async function resolveDefuseChoice(
+    choice: SpikeDefuseDiceChoice,
+    itemId?: string
+  ) {
+    if (!defusePrompt || !activeSpike || defuseDice1 == null || defuseDice2 == null) return;
+
+    setIsResolvingDefuse(true);
+    let dice1 = defuseDice1;
+    let dice2 = defuseDice2;
+
+    if (itemId === "stim-beacon") {
+      [dice1, dice2] = rollDefuseDice();
+      setDefuseDice1(dice1);
+      setDefuseDice2(dice2);
+    }
+
+    let itemBonus = 0;
+    if (itemId === "wire-cutter") itemBonus = 1;
+    if (itemId === "ultimate-charge") itemBonus = 0;
 
     let spikeToResolve = activeSpike;
-
     if (
       defusePrompt.eligibility === "pass-over" &&
       !spikeToResolve.firstPassOpportunityUsed
@@ -1444,7 +1545,20 @@ export default function GamePage({
       spikeToResolve = markFirstPassOpportunityUsed(spikeToResolve);
     }
 
-    const outcome = resolveSpikeDefuseRoll(roll, spikeToResolve.defuseProgress);
+    const difficulty =
+      spikeToResolve.defuseProgress === 0
+        ? spikeToResolve.defuseDifficulty
+        : spikeToResolve.defuseDifficulty + 1;
+
+    const outcome = resolveSpikeDefuseDice({
+      dice1,
+      dice2,
+      choice: itemId === "ultimate-charge" ? "use-ultimate" : choice,
+      difficulty,
+      currentProgress: spikeToResolve.defuseProgress,
+      itemBonus,
+    });
+
     let resolvedSpike = applySpikeDefuseOutcome(spikeToResolve, outcome);
 
     if (shouldRewardDefuser(resolvedSpike)) {
@@ -1452,48 +1566,52 @@ export default function GamePage({
       resolvedSpike = markSpikeRewarded(resolvedSpike);
     }
 
+    if (itemId && playersInGame[defusePrompt.playerIndex]?.items.includes(itemId)) {
+      updatePlayer(defusePrompt.playerIndex, (p) => ({
+        ...p,
+        items: p.items.filter((id) => id !== itemId),
+      }));
+    }
+
     setActiveSpike(resolvedSpike);
 
     const playerName = playersInGame[defusePrompt.playerIndex]?.name ?? "Player";
+    const total = "chosenTotal" in outcome ? outcome.chosenTotal : 0;
 
     if (outcome.kind === "fail") {
       setLastEventTitle("Defuse Failed");
       setStatusTitle("Defuse Failed");
-      setStatusSubtitle(`${playerName} rolled ${roll}. The spike is still active.`);
-      showAnnouncement("Defuse Failed", `${playerName} rolled ${roll}. The spike is still active.`);
-    }
-
-    if (outcome.kind === "half") {
+      setStatusSubtitle(
+        `${playerName}: ${dice1}+${dice2} → ${total} vs ${difficulty}. Spike still active.`
+      );
+      showAnnouncement("Defuse Failed", `${playerName} failed the defuse (${total}/${difficulty}).`);
+    } else if (outcome.kind === "half") {
       setLastEventTitle("Spike Half-Defused");
       setStatusTitle("Spike Half-Defused");
-      setStatusSubtitle(
-        `${playerName} rolled ${roll}. One more successful roll is needed.`
-      );
-      showAnnouncement(
-        "Spike Half-Defused",
-        `${playerName} rolled ${roll}. One more successful roll is needed.`
-      );
-    }
-
-    if (outcome.kind === "defused") {
+      setStatusSubtitle(`${playerName}: ${total} vs ${difficulty}. One more stage.`);
+      showAnnouncement("Spike Half-Defused", `${playerName} cleared stage 1.`);
+    } else {
       setLastEventTitle("Spike Defused");
       setStatusTitle("Spike Defused");
-      setStatusSubtitle(`${playerName} rolled ${roll} and gained 1 Radianite Point.`);
-      showAnnouncement(
-        "Spike Defused",
-        `${playerName} rolled ${roll} and gained 1 Radianite Point.`
-      );
+      setStatusSubtitle(`${playerName} defused with ${total} vs ${difficulty}. +1 Radianite.`);
+      showAnnouncement("Spike Defused", `${playerName} saved the site!`);
     }
 
     await sleep(AUTO_ADVANCE_DELAY);
 
     setDefusePrompt(null);
+    setDefuseDice1(null);
+    setDefuseDice2(null);
     setIsResolvingDefuse(false);
 
     await advanceToNextPlayer(
       `Next player: ${getResolvedNextPlayerName(defusePrompt.playerIndex)}`,
       `${getResolvedNextPlayerName(defusePrompt.playerIndex)} is now up`
     );
+  }
+
+  async function resolveDefuseRoll() {
+    await rollDefusePreview();
   }
 
   const shopKeeperPool: ShopKeeper[] = [
@@ -1526,7 +1644,9 @@ export default function GamePage({
     const { event, playerIndex } = activeStoryEvent;
     const player = playersInGame[playerIndex];
 
-    updatePlayer(playerIndex, (current) => applyEventEffect(current, event));
+    if (!eventEffectsApplied) {
+      updatePlayer(playerIndex, (current) => applyEventEffect(current, event));
+    }
 
     const resolvedEffect = event.outcome?.effect;
     if (
@@ -1540,6 +1660,8 @@ export default function GamePage({
     }
 
     setActiveStoryEvent(null);
+    setPendingEventChoice(null);
+    setEventEffectsApplied(false);
     setPhase("playing");
     setLastEventTitle(event.title);
     setStatusTitle(`${player?.name ?? "Player"} , ${event.title}`);
@@ -1608,6 +1730,7 @@ export default function GamePage({
         introDurationMs: directorResult.introDurationMs,
         showDirectorIntro: true,
       });
+      setEventEffectsApplied(false);
       return;
     }
 
@@ -1644,23 +1767,19 @@ export default function GamePage({
     }
 
     if (resolution.kind === "minigame") {
-      setMinigamePhase({ step: "intro", triggeredByIndex: playerIndex });
+      const boardMinigame: MinigameId =
+        Math.random() < 0.5 ? "neon-race" : "cypher-seek";
+      setMinigamePhase({
+        step: "intro",
+        triggeredByIndex: playerIndex,
+        minigameId: boardMinigame,
+      });
+      const minigameDef = minigameById.get(boardMinigame);
       setStatusTitle(`${player.name} landed on Minigame`);
-      setStatusSubtitle("All players roll , highest wins rewards.");
+      setStatusSubtitle(minigameDef?.description ?? "All players roll — highest wins.");
       showAnnouncement(
-        `${player.name} triggered a Minigame`,
-        "All players roll , highest wins!"
-      );
-      return;
-    }
-
-    if (resolution.kind === "duel") {
-      setDuelPhase({ step: "pick-opponent", challengerIndex: playerIndex });
-      setStatusTitle(`${player.name} landed on Duel`);
-      setStatusSubtitle("Pick an opponent to challenge.");
-      showAnnouncement(
-        `${player.name} landed on Duel`,
-        "Pick an opponent , highest roll wins."
+        `${player.name} triggered ${minigameDef?.name ?? "Minigame"}`,
+        minigameDef?.rules ?? "Highest roll wins!"
       );
       return;
     }
@@ -1709,7 +1828,9 @@ export default function GamePage({
 
     await sleep(DICE_ROLL_DURATION_MS);
 
-    const finalRoll = debugForcedRoll ?? randomDiceRoll();
+    const rawRoll = debugForcedRoll ?? randomDiceRoll();
+    const player = playersInGame[currentPlayerIndex];
+    const finalRoll = player ? computeEffectiveRoll(rawRoll, player) : rawRoll;
     setDiceDisplayValue(finalRoll);
     setLastRoll(finalRoll);
     setDiceFlowPhase("revealing");
@@ -1962,8 +2083,9 @@ export default function GamePage({
       !pendingPathChoice &&
       !canBuyAfterLanding &&
       !defusePrompt &&
-      !duelPhase &&
       !minigamePhase &&
+      !customMatchPhase &&
+      !pendingEventChoice &&
       !activeStoryEvent &&
       !spikePlantAnimation &&
       turnBannerPlayerIndex === null &&
@@ -2335,95 +2457,42 @@ export default function GamePage({
       {defusePrompt &&
         activeSpike &&
         playersInGame[defusePrompt.playerIndex] && (
-          <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/55">
-            <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b1020]/95 p-8 text-center shadow-2xl">
-              <p className="text-sm font-semibold uppercase tracking-[0.35em] text-cyan-300">
-                Spike Found
-              </p>
-
-              <h2 className="mt-4 text-3xl font-bold text-white">
-                {playersInGame[defusePrompt.playerIndex].name} can defuse
-              </h2>
-
-              <p className="mt-3 text-sm text-zinc-400">
-                Tile: {defusePrompt.nodeId}
-              </p>
-
-              <p className="mt-2 text-sm text-zinc-400">
-                Current state:{" "}
-                <span className="font-semibold text-white">{activeSpike.status}</span>
-              </p>
-
-              <p className="mt-6 text-sm text-zinc-300">
-                {activeSpike.defuseProgress === 0
-                  ? "First roll: 1-3 fail, 4-6 half-defused."
-                  : "Second roll: 4-6 defuses the spike."}
-              </p>
-
-              <button
-                onClick={resolveDefuseRoll}
-                disabled={isResolvingDefuse}
-                className="mt-6 rounded-xl bg-cyan-400 px-5 py-3 font-bold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isResolvingDefuse ? "Rolling..." : "Roll to Defuse"}
-              </button>
-            </div>
-          </div>
+          <SpikeDefuseModal
+            player={playersInGame[defusePrompt.playerIndex]}
+            spike={activeSpike}
+            nodeId={defusePrompt.nodeId}
+            dice1={defuseDice1}
+            dice2={defuseDice2}
+            previewMode={defusePreviewMode}
+            isResolving={isResolvingDefuse}
+            onRollPreview={() => void rollDefusePreview()}
+            onChoose={(choice, itemId) => void resolveDefuseChoice(choice, itemId)}
+          />
         )}
 
-      {duelPhase?.step === "pick-opponent" && (
-        <div className="fixed inset-0 z-[66] flex items-center justify-center bg-black/55">
-          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b1020]/95 p-8 shadow-2xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.35em] text-red-300">
-              Duel
-            </p>
-            <h2 className="mt-4 text-3xl font-bold text-white">
-              {playersInGame[duelPhase.challengerIndex]?.name} challenges...
-            </h2>
-            <p className="mt-3 text-sm text-zinc-400">
-              Pick an opponent. Both roll , highest wins +{DUEL_WIN_CREDS} Creds
-              & +{DUEL_WIN_RADIANITE} Radianite.
-            </p>
-            <div className="mt-6 flex flex-col gap-2">
-              {playersInGame.map((opponent, index) => {
-                if (index === duelPhase.challengerIndex) return null;
-                return (
-                  <button
-                    key={opponent.id}
-                    onClick={() => resolveDuelWithOpponent(index)}
-                    disabled={isResolvingDuel}
-                    className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-left font-medium text-white transition hover:bg-white/5 disabled:opacity-50"
-                  >
-                    vs {opponent.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+      {customMatchPhase?.step === "reveal" && (
+        <MapRevealPresentation
+          matchId={customMatchPhase.match.matchId}
+          mapId={customMatchPhase.match.mapId}
+          onComplete={() => {}}
+        />
       )}
 
-      {duelPhase?.step === "result" && (
-        <div className="fixed inset-0 z-[66] flex items-center justify-center bg-black/55">
+      {customMatchPhase?.step === "result" && (
+        <div className="fixed inset-0 z-[67] flex items-center justify-center bg-black/55">
           <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b1020]/95 p-8 text-center shadow-2xl">
             <p className="text-sm font-semibold uppercase tracking-[0.35em] text-red-300">
-              Duel Result
+              {customMatchById.get(customMatchPhase.match.matchId)?.name ?? "Custom Match"}
             </p>
             <h2 className="mt-4 text-2xl font-bold text-white">
-              {playersInGame[duelPhase.challengerIndex]?.name} rolled{" "}
-              {duelPhase.challengerRoll}
+              {playersInGame[customMatchPhase.winnerIndex]?.name} wins on{" "}
+              {customMatchPhase.match.mapId}!
             </h2>
-            <p className="mt-2 text-2xl font-bold text-white">
-              {playersInGame[duelPhase.opponentIndex]?.name} rolled{" "}
-              {duelPhase.opponentRoll}
-            </p>
-            <p className="mt-4 text-lg text-zinc-300">
-              {duelPhase.outcome === "tie"
-                ? "Draw , no rewards."
-                : `${playersInGame[duelPhase.outcome === "challenger" ? duelPhase.challengerIndex : duelPhase.opponentIndex]?.name} wins!`}
-            </p>
             <button
-              onClick={finishDuelAndAdvance}
+              type="button"
+              onClick={() =>
+                void finishCustomMatchAndAdvance(currentPlayerIndex)
+              }
               className="mt-6 rounded-xl bg-cyan-400 px-5 py-3 font-bold text-black transition hover:brightness-110"
             >
               Continue
@@ -2432,6 +2501,23 @@ export default function GamePage({
         </div>
       )}
 
+      {pendingEventChoice &&
+        activeStoryEvent &&
+        !activeStoryEvent.showDirectorIntro && (
+          <EventChoiceModal
+            eventTitle={activeStoryEvent.event.title}
+            eventDescription={activeStoryEvent.event.description}
+            choiceSpec={pendingEventChoice.choiceSpec}
+            players={playersInGame}
+            triggerPlayerIndex={pendingEventChoice.playerIndex}
+            onFixedChoice={(choiceId) => handleEventChoice({ choiceId })}
+            onPickPlayer={(targetPlayerIndex) =>
+              handleEventChoice({ targetPlayerIndex })
+            }
+            onBetAmount={(betAmount) => handleEventChoice({ betAmount })}
+          />
+        )}
+
       {minigamePhase?.step === "intro" && (
         <div className="fixed inset-0 z-[66] flex items-center justify-center bg-black/55">
           <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b1020]/95 p-8 text-center shadow-2xl">
@@ -2439,11 +2525,11 @@ export default function GamePage({
               Minigame
             </p>
             <h2 className="mt-4 text-3xl font-bold text-white">
-              Quick Roll Challenge
+              {minigameById.get(minigamePhase.minigameId)?.name ?? "Minigame"}
             </h2>
             <p className="mt-3 text-sm text-zinc-400">
-              All {playersInGame.length} players roll a die. Highest roll wins
-              +{MINIGAME_WIN_CREDS} Creds & +{MINIGAME_WIN_RADIANITE} Radianite.
+              {minigameById.get(minigamePhase.minigameId)?.rules ??
+                `All ${playersInGame.length} players roll. Highest wins.`}
             </p>
             <button
               onClick={playMinigameRolls}
@@ -2564,6 +2650,7 @@ export default function GamePage({
 
       {activeStoryEvent &&
         !activeStoryEvent.showDirectorIntro &&
+        !pendingEventChoice &&
         playersInGame[activeStoryEvent.playerIndex] && (
         <EventStoryModal
           event={activeStoryEvent.event}
@@ -3051,13 +3138,6 @@ export default function GamePage({
                 className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white transition hover:border-sky-400/30 hover:bg-sky-400/10"
               >
                 Open shop
-              </button>
-
-              <button
-                onClick={debugTriggerDuel}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white transition hover:border-rose-400/30 hover:bg-rose-400/10"
-              >
-                Start duel
               </button>
 
               <button

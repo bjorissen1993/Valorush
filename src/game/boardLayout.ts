@@ -1,7 +1,6 @@
 export type TileType =
     | "start"
     | "empty"
-    | "duel"
     | "spike"
     | "shop"
     | "event"
@@ -20,10 +19,10 @@ export type BoardNode = {
 export const boardLayout: BoardNode[] = [
     // TOP ROW
     { id: "start", type: "start", x: 10, y: 15, next: ["top-1"] },
-    { id: "top-1", type: "duel", x: 25, y: 15, next: ["top-2"] },
+    { id: "top-1", type: "event", x: 25, y: 15, next: ["top-2"] },
     { id: "top-2", type: "spike", x: 40, y: 15, next: ["top-split"] },
     { id: "top-split", type: "split", x: 55, y: 15, next: ["top-outer-1", "top-inner-1"]},
-    { id: "top-outer-1", type: "duel", x: 70, y: 15, next: ["right-1"] },
+    { id: "top-outer-1", type: "minigame", x: 70, y: 15, next: ["right-1"] },
 
     // RIGHT SIDE OUTER
     { id: "right-1", type: "event", x: 85, y: 15, next: ["right-2"] },
@@ -32,7 +31,7 @@ export const boardLayout: BoardNode[] = [
     { id: "right-3", type: "spike", x: 85, y: 66, next: ["bottom-1"] },
 
     // BOTTOM ROW
-    { id: "bottom-1", type: "duel", x: 85, y: 83, next: ["bottom-2"] },
+    { id: "bottom-1", type: "event", x: 85, y: 83, next: ["bottom-2"] },
     { id: "bottom-2", type: "shop", x: 70, y: 83, next: ["bottom-3"] },
     { id: "bottom-3", type: "event", x: 55, y: 83, next: ["bottom-split"] },
     { id: "bottom-split", type: "split", x: 40, y: 83, next: ["bottom-outer-1", "bottom-inner-1"] },
@@ -42,7 +41,7 @@ export const boardLayout: BoardNode[] = [
     { id: "left-3", type: "minigame", x: 10, y: 83, next: ["left-2"] },
     { id: "left-2", type: "event", x: 10, y: 66, next: ["left-merge"] },
     { id: "left-merge", type: "merge", x: 10, y: 49, next: ["left-1"] },
-    { id: "left-1", type: "duel", x: 10, y: 32, next: ["start"] },
+    { id: "left-1", type: "event", x: 10, y: 32, next: ["start"] },
 
     // TOP INNER SHORTCUT
     { id: "top-inner-1", type: "event", x: 55, y: 32, next: ["top-inner-2"] },

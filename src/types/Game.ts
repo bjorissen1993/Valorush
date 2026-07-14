@@ -26,6 +26,11 @@ export type PlayerInGame = Player & {
   weapon: string | null;
   shield: ShieldName | null;
   nextWeaponDiscount: number;
+  items: string[];
+  movementBonus: number;
+  movementBonusTurns: number;
+  maxStepsPerTurn: number | null;
+  maxStepsTurns: number;
 };
 
 export type TurnPhase =

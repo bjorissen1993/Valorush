@@ -28,7 +28,26 @@ export type SyncedPlayerInGame = {
   weapon: string | null;
   shield: string | null;
   nextWeaponDiscount: number;
+  items?: string[];
+  movementBonus?: number;
+  movementBonusTurns?: number;
+  maxStepsPerTurn?: number | null;
+  maxStepsTurns?: number;
 };
+
+export type SyncedScheduledCustomMatch = {
+  matchId: string;
+  mapId: string;
+  scheduledRound: number;
+  announced: boolean;
+};
+
+export type SyncedPendingEventChoice = {
+  eventId: string;
+  playerIndex: number;
+  choiceKind: "fixed" | "pick_player" | "bet_creds";
+  followUpEventId?: string;
+} | null;
 
 export type OnlineDiceFlowPhase = "hidden" | "ready" | "rolling" | "revealing" | "result";
 
@@ -71,6 +90,8 @@ export type OnlineGameSnapshot = {
   animatedToken: OnlineAnimatedToken;
   pendingPathChoice: OnlinePendingPathChoice | null;
   activeStoryEvent?: SyncedActiveStoryEvent | null;
+  scheduledCustomMatch?: SyncedScheduledCustomMatch | null;
+  pendingEventChoice?: SyncedPendingEventChoice;
 };
 
 export type OnlineGameAction =
