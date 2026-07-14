@@ -5,12 +5,15 @@ import type { PlayerInGame, GameEvent } from "../types/Game";
 import type {
   OnlineGameAction,
   OnlineGameSnapshot,
+  SyncedActiveStoryEvent,
 } from "../../shared/onlineGameTypes";
+import type { DirectorPickPayload } from "../../shared/director";
 import { useOnlineGameSync } from "../hooks/useOnlineGameSync";
 import BoardMap from "./BoardMap";
 import TurnBanner from "./TurnBanner";
 import TurnOrderScreen from "./TurnOrderScreen";
 import EventStoryModal from "./EventStoryModal";
+import DirectorPresentation from "./DirectorPresentation";
 import ShopModal, { type ShopOffer } from "./ShopModal";
 import DiceRollOverlay, { type DiceOverlayPhase } from "./DiceRollOverlay";
 import { DICE_REVEAL_BLINK_MS } from "./DiceFace";
@@ -31,11 +34,7 @@ import {
   getNormalTileMessage,
 } from "../game/systems/landingSystem";
 import { eventPool } from "../game/eventPool";
-import {
-  personalizeEventStory,
-  resolveEventForPlayer,
-} from "../game/narrativeSystem";
-import { resolveEventOutcome } from "../game/eventResolution";
+import { pickDirectorEvent } from "../game/director";
 import type {
   ActiveSpike,
   SpikePlantReveal,
@@ -222,6 +221,42 @@ function AnimatedNumber({ value }: { value: number }) {
   return <span ref={spanRef}>{value}</span>;
 }
 
+function toSyncedActiveStoryEvent(
+  state: NonNullable<{
+    event: GameEvent;
+    playerIndex: number;
+    directorPick: DirectorPickPayload;
+    introDurationMs: number;
+    showDirectorIntro: boolean;
+  }>
+): SyncedActiveStoryEvent {
+  return {
+    playerIndex: state.playerIndex,
+    event: state.event as unknown as Record<string, unknown>,
+    directorPick: state.directorPick,
+    introDurationMs: state.introDurationMs,
+    showDirectorIntro: state.showDirectorIntro,
+  };
+}
+
+function fromSyncedActiveStoryEvent(
+  synced: SyncedActiveStoryEvent
+): {
+  event: GameEvent;
+  playerIndex: number;
+  directorPick: DirectorPickPayload;
+  introDurationMs: number;
+  showDirectorIntro: boolean;
+} {
+  return {
+    event: synced.event as unknown as GameEvent,
+    playerIndex: synced.playerIndex,
+    directorPick: synced.directorPick,
+    introDurationMs: synced.introDurationMs,
+    showDirectorIntro: synced.showDirectorIntro,
+  };
+}
+
 export default function GamePage({
   players,
   agents,
@@ -314,6 +349,13 @@ export default function GamePage({
     setMovingPlayerIndex(snapshot.movingPlayerIndex);
     setAnimatedToken(snapshot.animatedToken);
     setPendingPathChoice(snapshot.pendingPathChoice);
+    if (snapshot.activeStoryEvent !== undefined) {
+      setActiveStoryEvent(
+        snapshot.activeStoryEvent
+          ? fromSyncedActiveStoryEvent(snapshot.activeStoryEvent)
+          : null
+      );
+    }
   }, []);
 
   const { publishSnapshot, sendAction, leaveMatch } = useOnlineGameSync({
@@ -421,6 +463,9 @@ export default function GamePage({
   const [activeStoryEvent, setActiveStoryEvent] = useState<{
     event: GameEvent;
     playerIndex: number;
+    directorPick: DirectorPickPayload;
+    introDurationMs: number;
+    showDirectorIntro: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -877,29 +922,42 @@ export default function GamePage({
     showAnnouncement(`${player.name} landed on Shop`, "Browse the shop offers.");
   }
 
+  function completeDirectorIntro() {
+    setActiveStoryEvent((current) =>
+      current ? { ...current, showDirectorIntro: false } : null
+    );
+  }
+
   function debugTriggerStoryEvent(event: GameEvent) {
     const player = playersInGame[debugSelectedPlayerIndex];
     if (!player) return;
 
-    const personalized = personalizeEventStory(event, {
+    const context = {
       triggerPlayer: player,
       triggerAgentName: getAgentName(player),
       playersInGame,
       agents,
+    };
+    const directorResult = pickDirectorEvent(eventPool, context, {
+      forceAgent: event.story.narrator,
     });
-    const resolved = resolveEventOutcome(personalized);
 
     setPhase("resolving-event");
     setActiveStoryEvent({
-      event: resolved,
+      event: directorResult.event,
       playerIndex: debugSelectedPlayerIndex,
+      directorPick: directorResult,
+      introDurationMs: directorResult.introDurationMs,
+      showDirectorIntro: true,
     });
-    setLastEventTitle(resolved.title);
-    setStatusTitle(`${player.name} triggered ${resolved.title}`);
-    setStatusSubtitle(resolved.outcome?.headline ?? resolved.story.headline);
+    setLastEventTitle(directorResult.event.title);
+    setStatusTitle(`${player.name} triggered ${directorResult.event.title}`);
+    setStatusSubtitle(
+      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
+    );
     showAnnouncement(
-      `${player.name} triggered ${resolved.title}`,
-      resolved.outcome?.headline ?? resolved.story.headline
+      `${player.name} triggered ${directorResult.event.title}`,
+      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
     );
   }
 
@@ -1526,12 +1584,13 @@ export default function GamePage({
     });
 
     if (resolution.kind === "event") {
-      const gameEvent = resolveEventForPlayer(eventPool, {
+      const directorResult = pickDirectorEvent(eventPool, {
         triggerPlayer: player,
         triggerAgentName: getAgentName(player),
         playersInGame,
         agents,
       });
+      const gameEvent = directorResult.event;
 
       setPhase("resolving-event");
       setLastEventTitle(gameEvent.title);
@@ -1542,7 +1601,13 @@ export default function GamePage({
         gameEvent.outcome?.headline ?? gameEvent.story.headline
       );
 
-      setActiveStoryEvent({ event: gameEvent, playerIndex });
+      setActiveStoryEvent({
+        event: gameEvent,
+        playerIndex,
+        directorPick: directorResult,
+        introDurationMs: directorResult.introDurationMs,
+        showDirectorIntro: true,
+      });
       return;
     }
 
@@ -1950,8 +2015,12 @@ export default function GamePage({
       movingPlayerIndex,
       animatedToken,
       pendingPathChoice,
+      activeStoryEvent: activeStoryEvent
+        ? toSyncedActiveStoryEvent(activeStoryEvent)
+        : null,
     });
   }, [
+    activeStoryEvent,
     animatedToken,
     currentTurnOrderIndex,
     diceDisplayValue,
@@ -2485,7 +2554,17 @@ export default function GamePage({
         </div>
       )}
 
-      {activeStoryEvent && playersInGame[activeStoryEvent.playerIndex] && (
+      {activeStoryEvent?.showDirectorIntro && (
+        <DirectorPresentation
+          pick={activeStoryEvent.directorPick}
+          introDurationMs={activeStoryEvent.introDurationMs}
+          onComplete={completeDirectorIntro}
+        />
+      )}
+
+      {activeStoryEvent &&
+        !activeStoryEvent.showDirectorIntro &&
+        playersInGame[activeStoryEvent.playerIndex] && (
         <EventStoryModal
           event={activeStoryEvent.event}
           playerAgentName={getAgentName(

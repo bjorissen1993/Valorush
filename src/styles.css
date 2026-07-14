@@ -1512,3 +1512,154 @@ body {
     rgba(12, 28, 32, 0.22) 100%
   );
 }
+
+/* Director System presentation */
+@keyframes directorPortraitRing {
+  0%,
+  100% {
+    box-shadow: 0 0 24px rgba(34, 211, 238, 0.15);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(34, 211, 238, 0.35);
+    transform: scale(1.03);
+  }
+}
+
+@keyframes directorKingdomPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 48px rgba(239, 68, 68, 0.45);
+  }
+}
+
+@keyframes directorShake {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-3px, 2px);
+  }
+  40% {
+    transform: translate(3px, -2px);
+  }
+  60% {
+    transform: translate(-2px, -1px);
+  }
+  80% {
+    transform: translate(2px, 1px);
+  }
+}
+
+@keyframes directorGlitch {
+  0%,
+  92%,
+  100% {
+    filter: none;
+  }
+  93% {
+    filter: hue-rotate(90deg) saturate(1.4);
+  }
+  96% {
+    filter: hue-rotate(-40deg) contrast(1.2);
+  }
+}
+
+@keyframes directorAlarmBar {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes directorPulseDot {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes directorScanlines {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 8px;
+  }
+}
+
+.director-portrait-ring {
+  animation: directorPortraitRing 2.4s ease-in-out infinite;
+}
+
+.director-kingdom-frame {
+  animation: directorKingdomPulse 1.2s ease-in-out infinite;
+}
+
+.director-shake {
+  animation: directorShake 0.35s ease-in-out infinite;
+}
+
+.director-glitch {
+  animation: directorGlitch 3s steps(1) infinite;
+}
+
+.director-alarm-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #ef4444, transparent);
+  animation: directorAlarmBar 0.6s ease-in-out infinite;
+}
+
+.director-alarm-bar--top {
+  top: -6px;
+}
+
+.director-alarm-bar--bottom {
+  bottom: -6px;
+  animation-delay: 0.3s;
+}
+
+.director-alarm-scanlines {
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(239, 68, 68, 0.03) 2px,
+    rgba(239, 68, 68, 0.03) 4px
+  );
+  animation: directorScanlines 0.5s linear infinite;
+  z-index: 1;
+}
+
+.director-pulse-dot {
+  animation: directorPulseDot 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .director-portrait-ring,
+  .director-kingdom-frame,
+  .director-shake,
+  .director-glitch,
+  .director-alarm-bar,
+  .director-alarm-scanlines,
+  .director-pulse-dot {
+    animation: none !important;
+  }
+}

@@ -1,5 +1,16 @@
 /** Serializable online game sync types — shared by server and browser client. */
 
+import type { DirectorPickPayload } from "./director/types";
+
+export type SyncedActiveStoryEvent = {
+  playerIndex: number;
+  /** JSON-serializable resolved event (GameEvent at runtime). */
+  event: Record<string, unknown>;
+  directorPick: DirectorPickPayload;
+  introDurationMs: number;
+  showDirectorIntro: boolean;
+};
+
 export type SyncedPlayerInGame = {
   id: number;
   slotIndex: number;
@@ -59,6 +70,7 @@ export type OnlineGameSnapshot = {
   movingPlayerIndex: number | null;
   animatedToken: OnlineAnimatedToken;
   pendingPathChoice: OnlinePendingPathChoice | null;
+  activeStoryEvent?: SyncedActiveStoryEvent | null;
 };
 
 export type OnlineGameAction =
