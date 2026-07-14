@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Player } from "../types/Player";
 import type { Agent } from "../types/Agent";
 import type { PlayerInGame, GameEvent } from "../types/Game";
@@ -17,6 +17,7 @@ import EventChoiceModal from "./EventChoiceModal";
 import MapRevealPresentation from "./MapRevealPresentation";
 import SpikeDefuseModal from "./SpikeDefuseModal";
 import DirectorPresentation from "./DirectorPresentation";
+import DebugPanel from "./DebugPanel";
 import ShopModal, { type ShopOffer } from "./ShopModal";
 import DiceRollOverlay, { type DiceOverlayPhase } from "./DiceRollOverlay";
 import { DICE_REVEAL_BLINK_MS } from "./DiceFace";
@@ -42,8 +43,16 @@ import {
   type PendingEventChoiceState,
 } from "../game/eventChoiceHandler";
 import { computeEffectiveRoll, tickMovementModifiers } from "../game/boardEventBridge";
-import { customMatchById } from "../../shared/customMatches";
-import { minigameById, defaultBoardMinigameId } from "../../shared/minigames";
+import {
+  customMatchById,
+  customMatchRegistry,
+  pickRandomMapForMatch,
+} from "../../shared/customMatches";
+import { minigameById, minigameRegistry } from "../../shared/minigames";
+import { boardEventRegistry } from "../../shared/events";
+import { agentDirectorRegistry } from "../../shared/director";
+import { itemRegistry } from "../../shared/items";
+import { boardLayout, type TileType } from "../game/boardLayout";
 import type { MinigameId } from "../../shared/minigames/types";
 import type { ActiveCustomMatch } from "../../shared/customMatches/types";
 import type { ValorantMapId } from "../../shared/customMatches/types";
@@ -112,6 +121,7 @@ const DICE_ROLL_DURATION_MS = 1400;
 const DICE_RESULT_HOLD_MS = 900;
 const AUTO_ADVANCE_DELAY = 1200;
 const DEBUG = true;
+const DEBUG_ENABLED = import.meta.env.DEV || DEBUG;
 
 type TurnPhase = "roll-for-order" | "playing" | "resolving-event" | "game-over";
 type DiceFlowPhase = "hidden" | DiceOverlayPhase;
@@ -462,10 +472,24 @@ export default function GamePage({
   const [debugOverlayOpen, setDebugOverlayOpen] = useState(false);
   const [debugForcedRoll, setDebugForcedRoll] = useState<number | null>(null);
   const [debugSelectedPlayerIndex, setDebugSelectedPlayerIndex] = useState(0);
-  const [debugSelectedNodeId, setDebugSelectedNodeId] = useState("top-1");
   const [debugBoardAction, setDebugBoardAction] = useState<
     "plant-spike" | "teleport-player" | null
   >(null);
+
+  const boardEventsByCategory = useMemo(() => {
+    const grouped = {
+      teleport: [] as typeof boardEventRegistry,
+      movement: [] as typeof boardEventRegistry,
+      economy: [] as typeof boardEventRegistry,
+      player_interaction: [] as typeof boardEventRegistry,
+      custom_match: [] as typeof boardEventRegistry,
+      map_event: [] as typeof boardEventRegistry,
+    };
+    for (const event of boardEventRegistry) {
+      grouped[event.category].push(event);
+    }
+    return grouped;
+  }, []);
 
   const [minigamePhase, setMinigamePhase] = useState<MinigamePhase | null>(null);
   const [pendingEventChoice, setPendingEventChoice] =
@@ -1016,22 +1040,6 @@ export default function GamePage({
     beginShopPhaseForPlayer(debugSelectedPlayerIndex);
   }
 
-  function debugTriggerMinigame() {
-    setMinigamePhase({
-      step: "intro",
-      triggeredByIndex: debugSelectedPlayerIndex,
-      minigameId: defaultBoardMinigameId,
-    });
-    const player = playersInGame[debugSelectedPlayerIndex];
-    if (!player) return;
-    setStatusTitle(`${player.name} landed on Minigame`);
-    setStatusSubtitle("All players roll , highest wins rewards.");
-    showAnnouncement(
-      `${player.name} triggered a Minigame`,
-      "All players roll , highest wins!"
-    );
-  }
-
   function debugTriggerSpikePlant() {
     const player = playersInGame[debugSelectedPlayerIndex];
     if (!player) return;
@@ -1089,6 +1097,213 @@ export default function GamePage({
     setDebugOverlayOpen(false);
     setDebugBoardAction(null);
     setDebugForcedRoll(null);
+  }
+
+  function resetTurnFlowState() {
+    setIsMoving(false);
+    setMovingPlayerIndex(null);
+    setAnimatedToken(null);
+    setPendingPathChoice(null);
+    setCanBuyAfterLanding(false);
+    setDefusePrompt(null);
+    setDefuseDice1(null);
+    setDefuseDice2(null);
+    setPendingEventChoice(null);
+    setEventEffectsApplied(false);
+    setActiveStoryEvent(null);
+    setLastRoll(null);
+    setDiceDisplayValue(null);
+    setDiceFlowPhase("hidden");
+    setHasRolledThisTurn(false);
+  }
+
+  function debugForceNextTurn() {
+    void advanceToNextPlayer("Debug: Next Turn", "Forced turn advance.");
+  }
+
+  function debugSkipToPlayer(playerIndex: number) {
+    const orderIndex = turnOrder.findIndex((index) => index === playerIndex);
+    if (orderIndex < 0) return;
+
+    resetTurnFlowState();
+    setPhase("playing");
+    setCurrentTurnOrderIndex(orderIndex);
+    showTurnBannerFor(playerIndex);
+
+    const playerName = playersInGame[playerIndex]?.name ?? "Player";
+    setStatusTitle(`Debug: Skipped to ${playerName}`);
+    setStatusSubtitle(`${playerName} is now up.`);
+    showAnnouncement(`Skipped to ${playerName}`, `${playerName} is now up.`);
+  }
+
+  function debugEndRound() {
+    if (turnOrder.length === 0) return;
+    setCurrentTurnOrderIndex(turnOrder.length - 1);
+    void advanceToNextPlayer("Debug: Round End", "Forced round wrap.");
+  }
+
+  function debugTriggerBoardEventById(eventId: string) {
+    const gameEvent = eventPool.find((event) => event.id === eventId);
+    if (!gameEvent) return;
+    debugTriggerStoryEvent(gameEvent);
+  }
+
+  function debugTriggerDirector(agentName?: string) {
+    const player = playersInGame[debugSelectedPlayerIndex];
+    if (!player) return;
+
+    const context = {
+      triggerPlayer: player,
+      triggerAgentName: getAgentName(player),
+      playersInGame,
+      agents,
+    };
+    const directorResult = pickDirectorEvent(
+      eventPool,
+      context,
+      agentName ? { forceAgent: agentName } : undefined
+    );
+
+    setPhase("resolving-event");
+    setActiveStoryEvent({
+      event: directorResult.event,
+      playerIndex: debugSelectedPlayerIndex,
+      directorPick: directorResult,
+      introDurationMs: directorResult.introDurationMs,
+      showDirectorIntro: true,
+    });
+    setLastEventTitle(directorResult.event.title);
+    setStatusTitle(`${player.name} — ${directorResult.event.title}`);
+    setStatusSubtitle(
+      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
+    );
+    showAnnouncement(
+      `Director: ${directorResult.event.title}`,
+      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
+    );
+  }
+
+  function debugTriggerKingdomProtocol() {
+    const player = playersInGame[debugSelectedPlayerIndex];
+    if (!player) return;
+
+    const context = {
+      triggerPlayer: player,
+      triggerAgentName: getAgentName(player),
+      playersInGame,
+      agents,
+    };
+    const directorResult = pickDirectorEvent(eventPool, context, {
+      forceKingdom: true,
+    });
+
+    setPhase("resolving-event");
+    setActiveStoryEvent({
+      event: directorResult.event,
+      playerIndex: debugSelectedPlayerIndex,
+      directorPick: directorResult,
+      introDurationMs: directorResult.introDurationMs,
+      showDirectorIntro: true,
+    });
+    setLastEventTitle(directorResult.event.title);
+    setStatusTitle(`Kingdom Protocol — ${directorResult.event.title}`);
+    setStatusSubtitle(
+      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
+    );
+    showAnnouncement(
+      "Kingdom Protocol",
+      directorResult.event.outcome?.headline ?? directorResult.event.story.headline
+    );
+  }
+
+  function debugScheduleCustomMatch(matchId: string) {
+    const mapId = pickRandomMapForMatch(matchId) as ValorantMapId;
+    setScheduledCustomMatch({
+      matchId: matchId as ActiveCustomMatch["matchId"],
+      mapId,
+      scheduledRound: round,
+    });
+    const matchName = customMatchById.get(matchId)?.name ?? matchId;
+    setStatusTitle(`Scheduled: ${matchName}`);
+    setStatusSubtitle("Plays at end of round.");
+    showAnnouncement(`Scheduled ${matchName}`, "Plays when this round completes.");
+  }
+
+  function debugPlayCustomMatch(matchId: string) {
+    const mapId = pickRandomMapForMatch(matchId) as ValorantMapId;
+    void playCustomMatchStub({
+      matchId: matchId as ActiveCustomMatch["matchId"],
+      mapId,
+      scheduledRound: round,
+    });
+  }
+
+  function debugTriggerScheduledMatch() {
+    if (scheduledCustomMatch) {
+      void playCustomMatchStub(scheduledCustomMatch);
+      return;
+    }
+    debugScheduleCustomMatch("spike-rush");
+    const mapId = pickRandomMapForMatch("spike-rush") as ValorantMapId;
+    void playCustomMatchStub({
+      matchId: "spike-rush",
+      mapId,
+      scheduledRound: round,
+    });
+  }
+
+  function debugTriggerMapReveal() {
+    const match =
+      scheduledCustomMatch ??
+      ({
+        matchId: "spike-rush" as ActiveCustomMatch["matchId"],
+        mapId: pickRandomMapForMatch("spike-rush") as ValorantMapId,
+        scheduledRound: round,
+      } satisfies ActiveCustomMatch);
+    setCustomMatchPhase({ step: "reveal", match });
+    const matchName = customMatchById.get(match.matchId)?.name ?? "Custom Match";
+    setStatusTitle(`Map Reveal: ${matchName}`);
+    setStatusSubtitle(`Revealing ${match.mapId}`);
+    showAnnouncement(`Map Reveal: ${matchName}`, `Revealing ${match.mapId}`);
+  }
+
+  function debugGiveItem(itemId: string) {
+    updatePlayer(debugSelectedPlayerIndex, (player) => ({
+      ...player,
+      items: player.items.includes(itemId)
+        ? player.items
+        : [...player.items, itemId],
+    }));
+    const itemName = itemRegistry.find((item) => item.id === itemId)?.name ?? itemId;
+    const playerName = playersInGame[debugSelectedPlayerIndex]?.name ?? "Player";
+    setStatusTitle(`Debug: Gave ${itemName}`);
+    setStatusSubtitle(`Added to ${playerName}'s inventory.`);
+    showAnnouncement(`Gave ${itemName}`, `Added to ${playerName}.`);
+  }
+
+  function debugTriggerMinigameById(minigameId: MinigameId) {
+    setMinigamePhase({
+      step: "intro",
+      triggeredByIndex: debugSelectedPlayerIndex,
+      minigameId,
+    });
+    const player = playersInGame[debugSelectedPlayerIndex];
+    const minigameDef = minigameById.get(minigameId);
+    if (!player) return;
+    setStatusTitle(`${player.name} — ${minigameDef?.name ?? "Minigame"}`);
+    setStatusSubtitle(minigameDef?.rules ?? "All players roll — highest wins.");
+    showAnnouncement(
+      `Minigame: ${minigameDef?.name ?? minigameId}`,
+      minigameDef?.rules ?? "Highest roll wins!"
+    );
+  }
+
+  function debugLandOnTile(tileType: TileType) {
+    const node = boardLayout.find((entry) => entry.type === tileType);
+    if (!node) return;
+
+    teleportPlayerToNode(debugSelectedPlayerIndex, node.id);
+    void resolveLanding(debugSelectedPlayerIndex, node.id, 1);
   }
 
   function getResolvedNextPlayerName(fromPlayerIndex: number) {
@@ -2926,244 +3141,59 @@ export default function GamePage({
         </div>
       </div>
       )}
-      {debugOverlayOpen && (
-        <div className="fixed bottom-20 right-4 z-[119] max-h-[85vh] w-[360px] overflow-y-auto rounded-2xl border border-red-400/20 bg-[#0b1020]/98 p-4 shadow-2xl">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-white">Debug Overlay</p>
-            <button
-              onClick={closeDebugOverlay}
-              className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs text-zinc-300"
-            >
-              X
-            </button>
-          </div>
-
-          <div className="mt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-              Selected Player
-            </p>
-
-            <div className="flex flex-wrap gap-2">
-              {playersInGame.map((player, index) => (
-                <button
-                  key={player.id}
-                  onClick={() => setDebugSelectedPlayerIndex(index)}
-                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition ${debugSelectedPlayerIndex === index
-                    ? "border-cyan-300/40 bg-cyan-400/10"
-                    : "border-white/10 bg-black/20"
-                    }`}
-                >
-                  <div className="h-8 w-8 overflow-hidden rounded-full border border-white/15 bg-white/5">
-                    {player.avatar ? (
-                      <img
-                        src={player.avatar}
-                        alt={player.name}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div
-                        className="flex h-full w-full items-center justify-center text-xs font-bold text-white"
-                        style={{ backgroundColor: player.color ?? "#334155" }}
-                      >
-                        {(player.name.trim().charAt(0) || "?").toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-xs text-white">{player.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-              Tile Target
-            </p>
-
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setDebugBoardAction("plant-spike")}
-                className={`rounded-xl border px-3 py-2 text-left text-sm text-white ${debugBoardAction === "plant-spike"
-                  ? "border-cyan-300/40 bg-cyan-400/10"
-                  : "border-white/10 bg-black/20"
-                  }`}
-              >
-                Plant spike on clicked tile
-              </button>
-
-              <button
-                onClick={() => setDebugBoardAction("teleport-player")}
-                className={`rounded-xl border px-3 py-2 text-left text-sm text-white ${debugBoardAction === "teleport-player"
-                  ? "border-cyan-300/40 bg-cyan-400/10"
-                  : "border-white/10 bg-black/20"
-                  }`}
-              >
-                Teleport player to clicked tile
-              </button>
-              {debugBoardAction && (
-                <p className="mt-2 text-xs text-cyan-300">
-                  Click a board tile to {debugBoardAction === "plant-spike" ? "plant the spike" : "teleport the selected player"}.
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-              Spike Controls
-            </p>
-
-            <div className="space-y-2">
-              <button
-                onClick={debugOpenDefusePromptForSelectedPlayer}
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white"
-              >
-                Force defuse prompt
-              </button>
-
-              <button
-                onClick={debugHalfDefuseSpike}
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white"
-              >
-                Set spike half-defused
-              </button>
-
-              <button
-                onClick={debugForceDefuseSpike}
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white"
-              >
-                Force spike defused
-              </button>
-
-              <button
-                onClick={debugDetonateSpikeNow}
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white"
-              >
-                Detonate spike now
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-              Selected Player Economy
-            </p>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => debugAdjustCreds(debugSelectedPlayerIndex, 500)}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white"
-              >
-                +500 Creds
-              </button>
-
-              <button
-                onClick={() => debugAdjustCreds(debugSelectedPlayerIndex, -500)}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white"
-              >
-                -500 Creds
-              </button>
-
-              <button
-                onClick={() => debugAdjustRadianite(debugSelectedPlayerIndex, 1)}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white"
-              >
-                +1 Radianite
-              </button>
-
-              <button
-                onClick={() => debugAdjustRadianite(debugSelectedPlayerIndex, -1)}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white"
-              >
-                -1 Radianite
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-              Forced Dice
-            </p>
-
-            <div className="grid grid-cols-4 gap-2">
-              {[1, 2, 3, 4, 5, 6].map((value) => (
-                <button
-                  key={value}
-                  onClick={() => setDebugForcedRoll(value)}
-                  className={`rounded-lg px-3 py-2 text-sm font-bold transition ${debugForcedRoll === value
-                    ? "bg-cyan-400 text-black"
-                    : "border border-white/10 bg-black/20 text-white"
-                    }`}
-                >
-                  {value}
-                </button>
-              ))}
-
-              <button
-                onClick={() => setDebugForcedRoll(null)}
-                className="col-span-4 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white"
-              >
-                Reset dice
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-              Story Events
-            </p>
-
-            <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
-              {eventPool.map((event) => (
-                <button
-                  key={event.id}
-                  onClick={() => debugTriggerStoryEvent(event)}
-                  className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-left transition hover:border-violet-400/30 hover:bg-violet-400/10"
-                >
-                  <p className="text-sm font-semibold text-white">{event.title}</p>
-                  <p className="text-[11px] text-zinc-400">{event.id}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-              Tile Triggers
-            </p>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={debugTriggerShop}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white transition hover:border-sky-400/30 hover:bg-sky-400/10"
-              >
-                Open shop
-              </button>
-
-              <button
-                onClick={debugTriggerMinigame}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white transition hover:border-yellow-400/30 hover:bg-yellow-400/10"
-              >
-                Start minigame
-              </button>
-
-              <button
-                onClick={debugTriggerSpikePlant}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-white transition hover:border-orange-400/30 hover:bg-orange-400/10"
-              >
-                Plant spike
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-white/10 pt-4 text-xs text-zinc-400">
-            <p>Selected player: {playersInGame[debugSelectedPlayerIndex]?.name ?? "-"}</p>
-            <p>Selected tile: {debugSelectedNodeId}</p>
-            <p>Active spike: {activeSpike?.plantedOnNodeId ?? "None"}</p>
-            <p>Spike status: {activeSpike?.status ?? "None"}</p>
-            <p>Forced roll: {debugForcedRoll ?? "Random"}</p>
-          </div>
-        </div>
+      {DEBUG_ENABLED && debugOverlayOpen && (
+        <DebugPanel
+          onClose={closeDebugOverlay}
+          players={playersInGame}
+          selectedPlayerIndex={debugSelectedPlayerIndex}
+          onSelectPlayer={setDebugSelectedPlayerIndex}
+          forcedRoll={debugForcedRoll}
+          onSetForcedRoll={setDebugForcedRoll}
+          boardAction={debugBoardAction}
+          onSetBoardAction={setDebugBoardAction}
+          activeSpike={activeSpike}
+          boardEventsByCategory={boardEventsByCategory}
+          directorAgents={agentDirectorRegistry.map((agent) => ({
+            agentId: agent.agentId,
+            agentName: agent.agentName,
+          }))}
+          customMatches={customMatchRegistry.map((match) => ({
+            id: match.id,
+            name: match.name,
+          }))}
+          minigames={minigameRegistry.map((minigame) => ({
+            id: minigame.id,
+            name: minigame.name,
+          }))}
+          items={itemRegistry.map((item) => ({
+            id: item.id,
+            name: item.name,
+          }))}
+          onForceNextTurn={debugForceNextTurn}
+          onSkipToPlayer={debugSkipToPlayer}
+          onEndRound={debugEndRound}
+          onTriggerEvent={debugTriggerBoardEventById}
+          onTriggerDirector={debugTriggerDirector}
+          onTriggerKingdomProtocol={debugTriggerKingdomProtocol}
+          onOpenDefusePrompt={debugOpenDefusePromptForSelectedPlayer}
+          onHalfDefuseSpike={debugHalfDefuseSpike}
+          onForceDefuseSpike={debugForceDefuseSpike}
+          onDetonateSpike={debugDetonateSpikeNow}
+          onPlantSpike={debugTriggerSpikePlant}
+          onScheduleCustomMatch={debugScheduleCustomMatch}
+          onPlayCustomMatch={debugPlayCustomMatch}
+          onForceRoundComplete={debugEndRound}
+          onTriggerScheduledMatch={debugTriggerScheduledMatch}
+          onTriggerMapReveal={debugTriggerMapReveal}
+          onAdjustCreds={(amount) => debugAdjustCreds(debugSelectedPlayerIndex, amount)}
+          onAdjustRadianite={(amount) =>
+            debugAdjustRadianite(debugSelectedPlayerIndex, amount)
+          }
+          onGiveItem={debugGiveItem}
+          onTriggerMinigame={debugTriggerMinigameById}
+          onLandOnTile={debugLandOnTile}
+          onTriggerShop={debugTriggerShop}
+        />
       )}
       <div className="fixed bottom-4 right-4 z-[120] flex flex-col items-end gap-2">
         <button
@@ -3178,18 +3208,20 @@ export default function GamePage({
         >
           {effectivePerformanceMode ? "Perf mode: ON" : "Perf mode: OFF"}
         </button>
-        <button
-          onClick={() => {
-            if (debugOverlayOpen) {
-              closeDebugOverlay();
-            } else {
-              setDebugOverlayOpen(true);
-            }
-          }}
-          className="rounded-full border border-white/15 bg-[#111827]/95 px-4 py-3 text-xs font-bold text-white shadow-2xl transition hover:brightness-110"
-        >
-          {debugOverlayOpen ? "Close Debug" : "Debug"}
-        </button>
+        {DEBUG_ENABLED && (
+          <button
+            onClick={() => {
+              if (debugOverlayOpen) {
+                closeDebugOverlay();
+              } else {
+                setDebugOverlayOpen(true);
+              }
+            }}
+            className="rounded-full border border-white/15 bg-[#111827]/95 px-4 py-3 text-xs font-bold text-white shadow-2xl transition hover:brightness-110"
+          >
+            {debugOverlayOpen ? "Close Debug" : "Debug"}
+          </button>
+        )}
       </div>
     </div >
   );
