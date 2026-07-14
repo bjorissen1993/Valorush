@@ -6,7 +6,7 @@ import type {
   LobbyRoomState,
   PlayerProfile,
 } from "../../shared/lobbyTypes";
-import { LobbyClient, readLobbySession, type LobbyConnectionStatus } from "../services/lobbyClient";
+import { LobbyClient, persistLobbySession, readLobbySession, readStoredLobbySession, type LobbyConnectionStatus } from "../services/lobbyClient";
 
 type UseLobbyRoomOptions = {
   mode: "create" | "join";
@@ -50,12 +50,30 @@ export function useLobbyRoom({
         setYourPlayerId(playerId);
         setIsHost(host);
         setError(null);
+        persistLobbySession(state.code, playerId, {
+          phase: state.status === "waiting" ? "lobby" : undefined,
+          profile,
+          isHost: host,
+        });
       },
       onGameStarting: (payload) => {
         setGameStartingPayload(payload);
+        const session = readLobbySession();
+        if (session) {
+          const stored = readStoredLobbySession();
+          persistLobbySession(session.code, session.playerId, {
+            phase: "turn_order",
+            gameStarting: payload,
+            profile,
+            isHost: stored?.isHost,
+          });
+        }
       },
       onTurnOrderRoll: () => {},
       onTurnOrderDone: () => {},
+      onGameBegin: () => {},
+      onGameState: () => {},
+      onGameAction: () => {},
       onChatMessage: (message) => {
         setChatMessages((prev) => [...prev, message]);
       },
@@ -95,6 +113,17 @@ export function useLobbyRoom({
     bootstrappedRef.current = true;
 
     if (mode === "create") {
+      const session = readLobbySession();
+      if (
+        session?.code &&
+        session.playerId &&
+        !rejoinAttemptedRef.current
+      ) {
+        rejoinAttemptedRef.current = true;
+        clientRef.current.rejoinLobby(session.code, session.playerId);
+        return;
+      }
+
       clientRef.current.createLobby(profile);
       return;
     }

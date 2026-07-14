@@ -69,6 +69,9 @@ export default function MultiplayerLobbyPage({
     ? 0
     : Math.max(0, chatMessages.length - lastReadChatCount);
 
+  const latestUnreadMessage =
+    unreadChatCount > 0 ? chatMessages[chatMessages.length - 1] : null;
+
   useEffect(() => {
     if (chatOpen) {
       setChatPanelMounted(true);
@@ -319,9 +322,13 @@ export default function MultiplayerLobbyPage({
                     <button
                       type="button"
                       onClick={() => setChatOpen(true)}
-                      className="relative flex h-full w-full items-center justify-center text-zinc-300 transition hover:border-white/20 hover:text-white"
+                      className="relative flex h-full w-full items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500/10 text-cyan-200 shadow-[0_0_16px_rgba(34,211,238,0.15)] transition hover:border-cyan-300/50 hover:bg-cyan-500/20 hover:text-white"
                       title="Lobby chat"
-                      aria-label="Open lobby chat"
+                      aria-label={
+                        unreadChatCount > 0
+                          ? `Open lobby chat, ${unreadChatCount} unread message${unreadChatCount === 1 ? "" : "s"}`
+                          : "Open lobby chat"
+                      }
                       aria-expanded={false}
                     >
                       <svg
@@ -338,11 +345,29 @@ export default function MultiplayerLobbyPage({
                         />
                       </svg>
                       {unreadChatCount > 0 && (
-                        <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-zinc-900" />
+                        <span className="absolute -right-1.5 -top-1.5 flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-zinc-950 animate-pulse">
+                          {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                        </span>
                       )}
                     </button>
                   )}
                 </div>
+                {!chatOpen && latestUnreadMessage && (
+                  <div
+                    className="pointer-events-none absolute right-0 top-12 z-40 w-[min(calc(100vw-2.5rem),18rem)] rounded-xl border border-amber-300/40 bg-zinc-950/95 px-3 py-2 shadow-2xl backdrop-blur-md"
+                    aria-live="polite"
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                      New message
+                    </p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-white">
+                      {latestUnreadMessage.playerName}
+                    </p>
+                    <p className="truncate text-sm text-zinc-200">
+                      {latestUnreadMessage.text}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

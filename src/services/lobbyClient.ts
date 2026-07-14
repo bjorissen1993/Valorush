@@ -8,6 +8,13 @@ import type {
   ServerMessage,
 } from "../../shared/lobbyTypes";
 
+export type LobbySessionPhase = "lobby" | "turn_order" | "in_game";
+import type {
+  GameBeginPayload,
+  OnlineGameAction,
+  OnlineGameSnapshot,
+} from "../../shared/onlineGameTypes";
+
 export type LobbyConnectionStatus =
   | "connecting"
   | "connected"
@@ -16,7 +23,26 @@ export type LobbyConnectionStatus =
 
 const SESSION_PLAYER_ID = "valorush_lobby_player_id";
 const SESSION_ROOM_CODE = "valorush_lobby_room_code";
+const SESSION_PHASE = "valorush_lobby_phase";
+const SESSION_PROFILE = "valorush_lobby_profile";
+const SESSION_IS_HOST = "valorush_lobby_is_host";
+const SESSION_GAME_STARTING = "valorush_lobby_game_starting";
+const SESSION_TURN_ORDER = "valorush_lobby_turn_order";
 const LOBBY_WS_URL_KEY = "valorush_lobby_ws_url";
+
+export type StoredLobbySession = {
+  code: string;
+  playerId: string;
+  phase: LobbySessionPhase;
+  profile?: PlayerProfile;
+  isHost?: boolean;
+  gameStarting?: GameStartingPayload;
+  turnOrder?: number[];
+};
+
+export type PersistLobbySessionExtras = Partial<
+  Omit<StoredLobbySession, "code" | "playerId">
+>;
 
 export function getBakedLobbyWsUrl(): string | null {
   return (
@@ -97,21 +123,102 @@ export function getLobbyWsUrl(): string {
   return `${protocol}//${window.location.host}/ws`;
 }
 
-export function persistLobbySession(code: string, playerId: string): void {
+function readStoredPhase(): LobbySessionPhase | null {
+  const phase = sessionStorage.getItem(SESSION_PHASE);
+  if (phase === "lobby" || phase === "turn_order" || phase === "in_game") {
+    return phase;
+  }
+  return null;
+}
+
+export function persistLobbySession(
+  code: string,
+  playerId: string,
+  extras?: PersistLobbySessionExtras
+): void {
+  const existing = readStoredLobbySession();
+  const phase = extras?.phase ?? existing?.phase ?? "lobby";
+
   sessionStorage.setItem(SESSION_ROOM_CODE, code);
   sessionStorage.setItem(SESSION_PLAYER_ID, playerId);
+  sessionStorage.setItem(SESSION_PHASE, phase);
+
+  if (extras?.profile) {
+    sessionStorage.setItem(SESSION_PROFILE, JSON.stringify(extras.profile));
+  }
+
+  if (extras?.isHost !== undefined) {
+    sessionStorage.setItem(SESSION_IS_HOST, extras.isHost ? "1" : "0");
+  }
+
+  if (extras?.gameStarting) {
+    sessionStorage.setItem(
+      SESSION_GAME_STARTING,
+      JSON.stringify(extras.gameStarting)
+    );
+  }
+
+  if (extras?.turnOrder) {
+    sessionStorage.setItem(SESSION_TURN_ORDER, JSON.stringify(extras.turnOrder));
+  }
 }
 
 export function readLobbySession(): { code: string; playerId: string } | null {
+  const stored = readStoredLobbySession();
+  if (!stored) return null;
+  return { code: stored.code, playerId: stored.playerId };
+}
+
+export function readStoredLobbySession(): StoredLobbySession | null {
   const code = sessionStorage.getItem(SESSION_ROOM_CODE);
   const playerId = sessionStorage.getItem(SESSION_PLAYER_ID);
   if (!code || !playerId) return null;
-  return { code, playerId };
+
+  const phase = readStoredPhase() ?? "lobby";
+  const stored: StoredLobbySession = { code, playerId, phase };
+
+  const profileRaw = sessionStorage.getItem(SESSION_PROFILE);
+  if (profileRaw) {
+    try {
+      stored.profile = JSON.parse(profileRaw) as PlayerProfile;
+    } catch {
+      // ignore corrupt profile
+    }
+  }
+
+  const isHostRaw = sessionStorage.getItem(SESSION_IS_HOST);
+  if (isHostRaw === "1") stored.isHost = true;
+  if (isHostRaw === "0") stored.isHost = false;
+
+  const gameStartingRaw = sessionStorage.getItem(SESSION_GAME_STARTING);
+  if (gameStartingRaw) {
+    try {
+      stored.gameStarting = JSON.parse(gameStartingRaw) as GameStartingPayload;
+    } catch {
+      // ignore corrupt payload
+    }
+  }
+
+  const turnOrderRaw = sessionStorage.getItem(SESSION_TURN_ORDER);
+  if (turnOrderRaw) {
+    try {
+      stored.turnOrder = JSON.parse(turnOrderRaw) as number[];
+    } catch {
+      // ignore corrupt turn order
+    }
+  }
+
+  return stored;
 }
 
 export function clearLobbySession(): void {
   sessionStorage.removeItem(SESSION_ROOM_CODE);
   sessionStorage.removeItem(SESSION_PLAYER_ID);
+  sessionStorage.removeItem(SESSION_PHASE);
+  sessionStorage.removeItem(SESSION_PROFILE);
+  sessionStorage.removeItem(SESSION_IS_HOST);
+  sessionStorage.removeItem(SESSION_GAME_STARTING);
+  sessionStorage.removeItem(SESSION_TURN_ORDER);
 }
 
 export type TurnOrderRollEvent = {
@@ -126,6 +233,9 @@ export type LobbyClientCallbacks = {
   onGameStarting: (payload: GameStartingPayload) => void;
   onTurnOrderRoll: (event: TurnOrderRollEvent) => void;
   onTurnOrderDone: () => void;
+  onGameBegin: (payload: GameBeginPayload) => void;
+  onGameState: (snapshot: OnlineGameSnapshot) => void;
+  onGameAction: (fromPlayerId: string, action: OnlineGameAction) => void;
   onChatMessage: (message: LobbyChatMessage) => void;
   onError: (message: string) => void;
   onStatusChange: (status: LobbyConnectionStatus) => void;
@@ -201,7 +311,12 @@ export class LobbyClient {
 
     switch (message.type) {
       case "room_state":
-        persistLobbySession(message.state.code, message.yourPlayerId);
+        persistLobbySession(message.state.code, message.yourPlayerId, {
+          phase:
+            message.state.status === "waiting"
+              ? "lobby"
+              : readStoredPhase() ?? "lobby",
+        });
         this.callbacks.onRoomState(
           message.state,
           message.yourPlayerId,
@@ -221,6 +336,15 @@ export class LobbyClient {
         return;
       case "turn_order_done":
         this.callbacks.onTurnOrderDone();
+        return;
+      case "game_begin":
+        this.callbacks.onGameBegin(message.payload);
+        return;
+      case "game_state":
+        this.callbacks.onGameState(message.snapshot);
+        return;
+      case "game_action":
+        this.callbacks.onGameAction(message.fromPlayerId, message.action);
         return;
       case "chat_message":
         this.callbacks.onChatMessage(message.message);
@@ -282,6 +406,14 @@ export class LobbyClient {
 
   finishTurnOrder(): void {
     this.send({ type: "turn_order_done" });
+  }
+
+  publishGameState(snapshot: OnlineGameSnapshot): void {
+    this.send({ type: "game_state_publish", snapshot });
+  }
+
+  sendGameAction(action: OnlineGameAction): void {
+    this.send({ type: "game_action", action });
   }
 
   startGame(): void {

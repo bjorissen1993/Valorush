@@ -12,6 +12,7 @@ import type {
   ServerMessage,
 } from "../shared/lobbyTypes.js";
 import { MAX_LOBBY_PLAYERS } from "../shared/lobbyTypes.js";
+import type { OnlineGameSnapshot } from "../shared/onlineGameTypes.js";
 import {
   buildPlayerIndexById,
   buildTurnOrderDiceSequence,
@@ -375,6 +376,9 @@ type Room = {
   players: LobbyPlayer[];
   clients: Map<string, ConnectedClient>;
   turnOrder?: TurnOrderRoomState;
+  gameSnapshot?: OnlineGameSnapshot;
+  gameBegun?: boolean;
+  hostPlayerId?: string;
 };
 
 const rooms = new Map<string, Room>();
@@ -497,6 +501,43 @@ function removePlayerOnExplicitLeave(playerId: string): void {
   pushRoomState(room);
 }
 
+function getHostPlayerId(room: Room): string | null {
+  if (room.hostPlayerId) {
+    const stillHost = room.players.some(
+      (player) => player.id === room.hostPlayerId && player.isHost
+    );
+    if (stillHost) return room.hostPlayerId;
+  }
+
+  return room.players.find((player) => player.isHost)?.id ?? null;
+}
+
+function broadcastGameState(room: Room, snapshot: OnlineGameSnapshot): void {
+  room.gameSnapshot = snapshot;
+  const message: ServerMessage = { type: "game_state", snapshot };
+  for (const client of room.clients.values()) {
+    send(client.ws, message);
+  }
+}
+
+function forwardGameActionToHost(
+  room: Room,
+  fromPlayerId: string,
+  action: ClientMessage & { type: "game_action" }
+): void {
+  const hostId = getHostPlayerId(room);
+  if (!hostId || hostId === fromPlayerId) return;
+
+  const hostClient = room.clients.get(hostId);
+  if (!hostClient) return;
+
+  send(hostClient.ws, {
+    type: "game_action",
+    fromPlayerId,
+    action: action.action,
+  });
+}
+
 function attachClient(room: Room, ws: WebSocket, playerId: string): void {
   room.clients.set(playerId, { ws, playerId, roomCode: room.code });
   playerToRoom.set(playerId, room.code);
@@ -562,6 +603,7 @@ function handleCreate(ws: WebSocket, profile: PlayerProfile): void {
 
   rooms.set(code, room);
   attachClient(room, ws, playerId);
+  room.hostPlayerId = playerId;
   pushRoomState(room);
 }
 
@@ -575,6 +617,13 @@ function handleJoin(ws: WebSocket, rawCode: string, profile: PlayerProfile): voi
   }
 
   if (room.status !== "waiting") {
+    const reconnectable = findReconnectablePlayer(room, profile);
+    if (reconnectable) {
+      attachClient(room, ws, reconnectable.id);
+      sendRejoinState(ws, room, reconnectable.id);
+      return;
+    }
+
     send(ws, { type: "error", message: "This lobby has already started." });
     return;
   }
@@ -620,6 +669,60 @@ function handleJoin(ws: WebSocket, rawCode: string, profile: PlayerProfile): voi
   pushRoomState(room);
 }
 
+function sendRejoinState(ws: WebSocket, room: Room, playerId: string): void {
+  const player = room.players.find((entry) => entry.id === playerId);
+
+  send(ws, {
+    type: "room_state",
+    state: roomState(room),
+    yourPlayerId: playerId,
+    isHost: !!player?.isHost,
+  });
+
+  if (room.status === "in_game" && room.turnOrder) {
+    send(ws, {
+      type: "game_starting",
+      payload: {
+        players: roomState(room).players,
+        turnOrder: {
+          sequence: room.turnOrder.sequence,
+          playerIndexById: buildPlayerIndexById(room.players),
+        },
+      },
+    });
+  }
+
+  if (room.status === "in_game" && room.gameBegun && room.turnOrder?.sequence.order.length) {
+    send(ws, {
+      type: "game_begin",
+      payload: { turnOrder: room.turnOrder.sequence.order },
+    });
+  }
+
+  if (room.status === "in_game" && room.gameSnapshot) {
+    send(ws, { type: "game_state", snapshot: room.gameSnapshot });
+  }
+}
+
+function findReconnectablePlayer(
+  room: Room,
+  profile: PlayerProfile
+): LobbyPlayer | undefined {
+  const normalized = profileFromMessage(profile);
+
+  return room.players.find((player) => {
+    if (room.clients.has(player.id)) return false;
+    if (
+      normalized.twitchId &&
+      player.twitchId &&
+      player.twitchId === normalized.twitchId
+    ) {
+      return true;
+    }
+    return player.name.toLowerCase() === normalized.name.toLowerCase();
+  });
+}
+
 function handleRejoin(ws: WebSocket, rawCode: string, playerId: string): void {
   const code = normalizeCode(rawCode);
   const room = rooms.get(code);
@@ -636,7 +739,7 @@ function handleRejoin(ws: WebSocket, rawCode: string, playerId: string): void {
   }
 
   attachClient(room, ws, playerId);
-  pushRoomState(room);
+  sendRejoinState(ws, room, playerId);
 }
 
 function getClientContext(ws: WebSocket): { room: Room; playerId: string } | null {
@@ -796,6 +899,7 @@ function handleMessage(ws: WebSocket, raw: string): void {
         return;
       }
       room.status = "starting";
+      room.hostPlayerId = playerId;
       const sequence = buildTurnOrderDiceSequence(room.players.length);
       room.turnOrder = {
         sequence,
@@ -855,9 +959,29 @@ function handleMessage(ws: WebSocket, raw: string): void {
         send(ws, { type: "error", message: "Only the host can begin the match." });
         return;
       }
+      room.gameBegun = true;
+      const turnOrder = room.turnOrder?.sequence.order ?? [];
+      const beginMessage: ServerMessage = {
+        type: "game_begin",
+        payload: { turnOrder },
+      };
       for (const client of room.clients.values()) {
-        send(client.ws, { type: "turn_order_done" });
+        send(client.ws, beginMessage);
       }
+      return;
+    }
+    case "game_state_publish": {
+      if (playerId !== getHostPlayerId(room)) {
+        send(ws, { type: "error", message: "Only the host can publish game state." });
+        return;
+      }
+      broadcastGameState(room, message.snapshot);
+      return;
+    }
+    case "game_action": {
+      if (room.status !== "in_game") return;
+      if (playerId === getHostPlayerId(room)) return;
+      forwardGameActionToHost(room, playerId, message);
       return;
     }
     case "chat_message": {

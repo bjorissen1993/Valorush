@@ -1,6 +1,11 @@
 /** Shared lobby protocol types — used by WebSocket server and browser client. */
 
 import type { TurnOrderDiceSequence } from "./turnOrderDiceSystem.js";
+import type {
+  GameBeginPayload,
+  OnlineGameAction,
+  OnlineGameSnapshot,
+} from "./onlineGameTypes.js";
 
 export const MAX_LOBBY_PLAYERS = 4;
 
@@ -67,6 +72,8 @@ export type ClientMessage =
   | { type: "turn_order_roll"; stepIndex: number }
   | { type: "turn_order_done" }
   | { type: "chat_message"; text: string }
+  | { type: "game_state_publish"; snapshot: OnlineGameSnapshot }
+  | { type: "game_action"; action: OnlineGameAction }
   | { type: "leave" }
   | { type: "ping" };
 
@@ -87,6 +94,13 @@ export type ServerMessage =
       roll: number;
     }
   | { type: "turn_order_done" }
+  | { type: "game_begin"; payload: GameBeginPayload }
+  | { type: "game_state"; snapshot: OnlineGameSnapshot }
+  | {
+      type: "game_action";
+      fromPlayerId: string;
+      action: OnlineGameAction;
+    }
   | { type: "chat_message"; message: LobbyChatMessage }
   | { type: "error"; message: string }
   | { type: "pong" };

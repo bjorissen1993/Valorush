@@ -79,14 +79,14 @@ function LobbyChatPanel({
                 <span
                   className={
                     message.playerId === yourPlayerId
-                      ? "font-semibold text-cyan-300"
-                      : "font-semibold text-zinc-200"
+                      ? "font-semibold text-cyan-200"
+                      : "font-semibold text-white"
                   }
                 >
                   {message.playerName}
                 </span>
-                <span className="text-zinc-500">: </span>
-                <span className="text-zinc-300">{message.text}</span>
+                <span className="text-zinc-400">: </span>
+                <span className="text-zinc-100">{message.text}</span>
               </div>
             ))
           )}

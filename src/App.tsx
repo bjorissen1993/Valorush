@@ -6,10 +6,9 @@ import HomePage from "./components/HomePage";
 import LobbyIdentityPage from "./components/LobbyIdentityPage";
 import MultiplayerLobbyPage from "./components/MultiplayerLobbyPage";
 import MultiplayerTurnOrderPage from "./components/MultiplayerTurnOrderPage";
-import SpectatorWaitingPage from "./components/SpectatorWaitingPage";
 import { usePerformanceSettings } from "./hooks/usePerformanceSettings";
 import { useAgents } from "./hooks/useLobbyRoom";
-import { clearJoinCodeFromUrl, readJoinCodeFromUrl } from "./services/lobbyClient";
+import { clearJoinCodeFromUrl, clearLobbySession, readJoinCodeFromUrl, readStoredLobbySession } from "./services/lobbyClient";
 import {
   completeTwitchOAuthIfPending,
   consumeTwitchOAuthError,
@@ -18,7 +17,7 @@ import {
 import { lobbyPlayersToLocalIds } from "../shared/lobbyTypes";
 import type { Player } from "./types/Player";
 import type { Agent } from "./types/Agent";
-import type { GameStartingPayload, LobbyPlayer, PlayerProfile } from "../shared/lobbyTypes";
+import type { GameStartingPayload, PlayerProfile } from "../shared/lobbyTypes";
 
 type Screen =
   | "home"
@@ -28,24 +27,74 @@ type Screen =
   | "mp_turn_order"
   | "local_lobby"
   | "pregame"
-  | "game"
-  | "spectator";
+  | "game";
+
+type RestoredMultiplayerState = {
+  screen: Screen;
+  mpMode: "create" | "join";
+  joinCode: string;
+  lobbyProfile: PlayerProfile;
+  mpSession: {
+    payload: GameStartingPayload;
+    isHost: boolean;
+    yourPlayerId: string;
+  } | null;
+  mpTurnOrder: number[];
+  players: ReturnType<typeof lobbyPlayersToLocalIds>;
+};
+
+function restoreMultiplayerFromSession(): RestoredMultiplayerState | null {
+  const stored = readStoredLobbySession();
+  if (!stored?.profile) return null;
+
+  const urlCode = readJoinCodeFromUrl();
+  if (urlCode && urlCode !== stored.code) return null;
+
+  const players = stored.gameStarting
+    ? lobbyPlayersToLocalIds(stored.gameStarting.players)
+    : [];
+
+  const mpSession = stored.gameStarting
+    ? {
+        payload: stored.gameStarting,
+        isHost: stored.isHost ?? false,
+        yourPlayerId: stored.playerId,
+      }
+    : null;
+
+  let screen: Screen = "mp_lobby";
+  if (stored.phase === "turn_order") screen = "mp_turn_order";
+  if (stored.phase === "in_game") screen = "game";
+
+  return {
+    screen,
+    mpMode: stored.isHost ? "create" : "join",
+    joinCode: stored.code,
+    lobbyProfile: stored.profile,
+    mpSession,
+    mpTurnOrder: stored.turnOrder ?? [],
+    players,
+  };
+}
 
 export default function App() {
+  const restored = useMemo(() => restoreMultiplayerFromSession(), []);
   const performanceSettings = usePerformanceSettings();
-  const [screen, setScreen] = useState<Screen>("home");
-  const [mpMode, setMpMode] = useState<"create" | "join">("create");
-  const [joinCode, setJoinCode] = useState("");
-  const [lobbyProfile, setLobbyProfile] = useState<PlayerProfile | null>(null);
-  const [spectatorPlayers, setSpectatorPlayers] = useState<LobbyPlayer[]>([]);
+  const [screen, setScreen] = useState<Screen>(restored?.screen ?? "home");
+  const [mpMode, setMpMode] = useState<"create" | "join">(restored?.mpMode ?? "create");
+  const [joinCode, setJoinCode] = useState(restored?.joinCode ?? "");
+  const [lobbyProfile, setLobbyProfile] = useState<PlayerProfile | null>(
+    restored?.lobbyProfile ?? null
+  );
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [mpSession, setMpSession] = useState<{
     payload: GameStartingPayload;
     isHost: boolean;
     yourPlayerId: string;
-  } | null>(null);
+  } | null>(restored?.mpSession ?? null);
+  const [mpTurnOrder, setMpTurnOrder] = useState<number[]>(restored?.mpTurnOrder ?? []);
 
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [players, setPlayers] = useState<Player[]>(restored?.players ?? []);
   const [localAgents, setLocalAgents] = useState<Agent[]>([]);
   const { agents: loadedAgents } = useAgents();
   const agents = localAgents.length > 0 ? localAgents : loadedAgents;
@@ -92,18 +141,20 @@ export default function App() {
   }, [handleOAuthProfile]);
 
   useEffect(() => {
+    if (restored) return;
     const codeFromUrl = readJoinCodeFromUrl();
     if (codeFromUrl && screen === "home") {
       setJoinCode(codeFromUrl);
       setScreen("identity_join");
     }
-  }, [screen]);
+  }, [restored, screen]);
 
   function resetToHome() {
     clearJoinCodeFromUrl();
     setLobbyProfile(null);
     setJoinCode("");
     setMpSession(null);
+    setMpTurnOrder([]);
     setScreen("home");
   }
 
@@ -120,6 +171,12 @@ export default function App() {
     setPlayers([]);
   }
 
+  function leaveMultiplayerMatch() {
+    clearLobbySession();
+    resetToHome();
+    setPlayers([]);
+  }
+
   const stableLobbyProfile = useMemo(() => {
     if (!lobbyProfile) return null;
     return lobbyProfile;
@@ -128,12 +185,38 @@ export default function App() {
   const handleGameStarting = useCallback(
     (payload: GameStartingPayload, isHost: boolean, yourPlayerId: string) => {
       setPlayers(lobbyPlayersToLocalIds(payload.players));
-      setSpectatorPlayers(payload.players);
       setMpSession({ payload, isHost, yourPlayerId });
       setScreen("mp_turn_order");
     },
     []
   );
+
+  const multiplayerGameConfig = useMemo(() => {
+    if (!mpSession) return null;
+
+    const effectiveTurnOrder =
+      mpTurnOrder.length > 0
+        ? mpTurnOrder
+        : mpSession.payload.turnOrder.sequence.order;
+
+    if (effectiveTurnOrder.length === 0) return null;
+
+    const sortedPlayers = [...mpSession.payload.players].sort(
+      (left, right) => left.slotIndex - right.slotIndex
+    );
+    const playerIndexByLobbyId: Record<string, number> = {};
+    sortedPlayers.forEach((player, index) => {
+      playerIndexByLobbyId[player.id] = index;
+    });
+
+    return {
+      isHost: mpSession.isHost,
+      yourPlayerId: mpSession.yourPlayerId,
+      yourPlayerIndex: playerIndexByLobbyId[mpSession.yourPlayerId] ?? 0,
+      playerIndexByLobbyId,
+      initialTurnOrder: effectiveTurnOrder,
+    };
+  }, [mpSession, mpTurnOrder]);
 
   if (screen === "home") {
     return (
@@ -221,20 +304,12 @@ export default function App() {
         turnOrder={mpSession.payload.turnOrder}
         yourPlayerId={mpSession.yourPlayerId}
         isHost={mpSession.isHost}
-        onHostComplete={(_order, resolvedPlayers) => {
+        onMatchBegin={(order, resolvedPlayers) => {
           setPlayers(resolvedPlayers);
-          setScreen("pregame");
-        }}
-        onGuestComplete={() => {
-          setScreen("spectator");
+          setMpTurnOrder(order);
+          setScreen("game");
         }}
       />
-    );
-  }
-
-  if (screen === "spectator") {
-    return (
-      <SpectatorWaitingPage players={spectatorPlayers} onBack={resetToHome} />
     );
   }
 
@@ -266,8 +341,10 @@ export default function App() {
       <GamePage
         players={players}
         agents={agents}
-        onBackToLobby={backToLobby}
+        onBackToLobby={multiplayerGameConfig ? undefined : backToLobby}
+        onLeaveMatch={multiplayerGameConfig ? leaveMultiplayerMatch : undefined}
         performanceSettings={performanceSettings}
+        multiplayer={multiplayerGameConfig ?? undefined}
       />
     );
   }

@@ -631,6 +631,7 @@ export default function TurnOrderScreen({
                   onClick={() => {
                     if (multiplayer?.isHost) {
                       multiplayer.onHostBegin();
+                      return;
                     }
                     onCompleteRef.current(sequence!.order);
                   }}

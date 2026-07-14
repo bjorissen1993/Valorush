@@ -6,7 +6,9 @@ import type { Agent } from "../types/Agent";
 import type { PlayerInGame } from "../types/Game";
 import {
   LobbyClient,
+  persistLobbySession,
   readLobbySession,
+  readStoredLobbySession,
   type TurnOrderRollEvent,
 } from "../services/lobbyClient";
 import { assignRandomUniqueAgentsSeeded } from "./lobby/lobbyPlayerUtils";
@@ -18,8 +20,7 @@ type MultiplayerTurnOrderPageProps = {
   turnOrder: GameStartingPayload["turnOrder"];
   yourPlayerId: string;
   isHost: boolean;
-  onHostComplete: (order: number[], players: Player[]) => void;
-  onGuestComplete: () => void;
+  onMatchBegin: (order: number[], players: Player[]) => void;
 };
 
 function toPlayersInGame(players: Player[], agents: Agent[]): PlayerInGame[] {
@@ -50,10 +51,10 @@ export default function MultiplayerTurnOrderPage({
   turnOrder,
   yourPlayerId,
   isHost,
-  onHostComplete,
-  onGuestComplete,
+  onMatchBegin,
 }: MultiplayerTurnOrderPageProps) {
   const clientRef = useRef<LobbyClient | null>(null);
+  const resolvedPlayersRef = useRef(players);
   const [resolvedPlayers, setResolvedPlayers] = useState(players);
   const [syncedRoll, setSyncedRoll] = useState<{
     playerIndex: number;
@@ -62,6 +63,7 @@ export default function MultiplayerTurnOrderPage({
   } | null>(null);
   const [hostBeginPending, setHostBeginPending] = useState(false);
   const rollNonceRef = useRef(0);
+  const matchStartedRef = useRef(false);
 
   const localPlayerIndex = turnOrder.playerIndexById[yourPlayerId] ?? 0;
 
@@ -70,12 +72,34 @@ export default function MultiplayerTurnOrderPage({
       (player) => player.isRandomizePending && !player.selectedAgentId
     );
     const seed = JSON.stringify(turnOrder.sequence.order);
-    setResolvedPlayers(
-      needsRandom
-        ? assignRandomUniqueAgentsSeeded(players, agents, seed)
-        : players
-    );
+    const nextPlayers = needsRandom
+      ? assignRandomUniqueAgentsSeeded(players, agents, seed)
+      : players;
+    resolvedPlayersRef.current = nextPlayers;
+    setResolvedPlayers(nextPlayers);
   }, [agents, players, turnOrder.sequence.order]);
+
+  const beginMatch = useCallback(
+    (order: number[]) => {
+      if (matchStartedRef.current) return;
+      matchStartedRef.current = true;
+
+      const session = readLobbySession();
+      if (session) {
+        const stored = readStoredLobbySession();
+        persistLobbySession(session.code, session.playerId, {
+          phase: "in_game",
+          turnOrder: order,
+          isHost: stored?.isHost,
+          gameStarting: stored?.gameStarting,
+          profile: stored?.profile,
+        });
+      }
+
+      onMatchBegin(order, resolvedPlayersRef.current);
+    },
+    [onMatchBegin]
+  );
 
   useEffect(() => {
     const session = readLobbySession();
@@ -92,9 +116,12 @@ export default function MultiplayerTurnOrderPage({
           nonce: rollNonceRef.current,
         });
       },
-      onTurnOrderDone: () => {
-        onGuestComplete();
+      onTurnOrderDone: () => {},
+      onGameBegin: (payload) => {
+        beginMatch(payload.turnOrder);
       },
+      onGameState: () => {},
+      onGameAction: () => {},
       onChatMessage: () => {},
       onError: () => {},
       onStatusChange: () => {},
@@ -108,7 +135,7 @@ export default function MultiplayerTurnOrderPage({
       client.disconnect();
       clientRef.current = null;
     };
-  }, [onGuestComplete]);
+  }, [beginMatch]);
 
   const handleRequestRoll = useCallback((stepIndex: number) => {
     clientRef.current?.requestTurnOrderRoll(stepIndex);
@@ -118,15 +145,6 @@ export default function MultiplayerTurnOrderPage({
     setHostBeginPending(true);
     clientRef.current?.finishTurnOrder();
   }, []);
-
-  const handleComplete = useCallback(
-    (order: number[]) => {
-      if (isHost) {
-        onHostComplete(order, resolvedPlayers);
-      }
-    },
-    [isHost, onHostComplete, resolvedPlayers]
-  );
 
   const playersInGame = toPlayersInGame(resolvedPlayers, agents);
 
@@ -144,7 +162,7 @@ export default function MultiplayerTurnOrderPage({
         onHostBegin: handleHostBegin,
         hostBeginPending,
       }}
-      onComplete={handleComplete}
+      onComplete={() => {}}
     />
   );
 }

@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Player } from "../types/Player";
 import type { Agent } from "../types/Agent";
 import type { PlayerInGame, GameEvent } from "../types/Game";
+import type {
+  OnlineGameAction,
+  OnlineGameSnapshot,
+} from "../../shared/onlineGameTypes";
+import { useOnlineGameSync } from "../hooks/useOnlineGameSync";
 import BoardMap from "./BoardMap";
 import TurnBanner from "./TurnBanner";
 import TurnOrderScreen from "./TurnOrderScreen";
@@ -77,11 +82,21 @@ import { rankPlayersByScore } from "../game/systems/gameOverSystem";
 import { weaponImageMap, shieldImageMap } from "../game/data/weaponImages";
 import { agentBackgroundPath, agentPortraitPath } from "../game/assetPaths";
 
+type MultiplayerGameConfig = {
+  isHost: boolean;
+  yourPlayerId: string;
+  yourPlayerIndex: number;
+  playerIndexByLobbyId: Record<string, number>;
+  initialTurnOrder: number[];
+};
+
 type GamePageProps = {
   players: Player[];
   agents: Agent[];
   onBackToLobby?: () => void;
+  onLeaveMatch?: () => void;
   performanceSettings: ReturnType<typeof usePerformanceSettings>;
+  multiplayer?: MultiplayerGameConfig;
 };
 
 const MAX_ROUNDS = 10;
@@ -211,9 +226,16 @@ export default function GamePage({
   players,
   agents,
   onBackToLobby,
+  onLeaveMatch,
   performanceSettings,
+  multiplayer,
 }: GamePageProps) {
-  const { effectivePerformanceMode, togglePerformanceMode } = performanceSettings;
+  const isOnlineGuest = !!multiplayer && !multiplayer.isHost;
+  const initialTurnOrder = multiplayer?.initialTurnOrder ?? [];
+  const hasPresetTurnOrder = initialTurnOrder.length > 0;
+  const { effectivePerformanceMode, performanceMode, togglePerformanceMode } =
+    performanceSettings;
+  const [gameMenuOpen, setGameMenuOpen] = useState(false);
   const [playersInGame, setPlayersInGame] = useState<PlayerInGame[]>(
     players.map((player, index): PlayerInGame => {
       const selectedAgent = agents.find(
@@ -234,12 +256,14 @@ export default function GamePage({
     })
   );
 
-  const [phase, setPhase] = useState<TurnPhase>("roll-for-order");
+  const [phase, setPhase] = useState<TurnPhase>(
+    hasPresetTurnOrder ? "playing" : "roll-for-order"
+  );
   const [round, setRound] = useState(1);
 
-  const [turnOrder, setTurnOrder] = useState<number[]>([]);
+  const [turnOrder, setTurnOrder] = useState<number[]>(initialTurnOrder);
   const [currentTurnOrderIndex, setCurrentTurnOrderIndex] = useState(0);
-  const [turnOrderRevealOpen, setTurnOrderRevealOpen] = useState(true);
+  const [turnOrderRevealOpen, setTurnOrderRevealOpen] = useState(!hasPresetTurnOrder);
   const [shopKeeper, setShopKeeper] = useState<ShopKeeper | null>(null);
   const [shopOffers, setShopOffers] = useState<ShopOffer[]>([]);
   const [pendingPurchase, setPendingPurchase] = useState<ShopOffer | null>(null);
@@ -264,6 +288,42 @@ export default function GamePage({
   } | null>(null);
 
   const announcementTimeoutRef = useRef<number | null>(null);
+  const snapshotVersionRef = useRef(0);
+  const lastAppliedSnapshotVersionRef = useRef(-1);
+  const onlineIntroShownRef = useRef(false);
+  const remoteActionHandlerRef = useRef<
+    (fromPlayerId: string, action: OnlineGameAction) => void
+  >(() => {});
+
+  const applySnapshot = useCallback((snapshot: OnlineGameSnapshot) => {
+    if (snapshot.version <= lastAppliedSnapshotVersionRef.current) return;
+    lastAppliedSnapshotVersionRef.current = snapshot.version;
+    setTurnOrder(snapshot.turnOrder);
+    setCurrentTurnOrderIndex(snapshot.currentTurnOrderIndex);
+    setRound(snapshot.round);
+    setPhase(snapshot.phase);
+    setPlayersInGame(snapshot.players as PlayerInGame[]);
+    setLastRoll(snapshot.lastRoll);
+    setDiceDisplayValue(snapshot.diceDisplayValue);
+    setDiceFlowPhase(snapshot.diceFlowPhase);
+    setHasRolledThisTurn(snapshot.hasRolledThisTurn);
+    setTurnBannerPlayerIndex(snapshot.turnBannerPlayerIndex);
+    setStatusTitle(snapshot.statusTitle);
+    setStatusSubtitle(snapshot.statusSubtitle);
+    setIsMoving(snapshot.isMoving);
+    setMovingPlayerIndex(snapshot.movingPlayerIndex);
+    setAnimatedToken(snapshot.animatedToken);
+    setPendingPathChoice(snapshot.pendingPathChoice);
+  }, []);
+
+  const { publishSnapshot, sendAction, leaveMatch } = useOnlineGameSync({
+    enabled: !!multiplayer,
+    isHost: !!multiplayer?.isHost,
+    onSnapshot: applySnapshot,
+    onRemoteAction: (fromPlayerId, action) => {
+      remoteActionHandlerRef.current(fromPlayerId, action);
+    },
+  });
 
   const [isMoving, setIsMoving] = useState(false);
   const [movingPlayerIndex, setMovingPlayerIndex] = useState<number | null>(null);
@@ -408,6 +468,22 @@ export default function GamePage({
       setAnnouncement(null);
     }, duration);
   }
+
+  useEffect(() => {
+    if (!hasPresetTurnOrder || onlineIntroShownRef.current) return;
+    onlineIntroShownRef.current = true;
+
+    const firstPlayerIndex = initialTurnOrder[0] ?? 0;
+    const firstPlayer = playersInGame[firstPlayerIndex];
+    showTurnBannerFor(firstPlayerIndex);
+    setStatusTitle("Turn order decided");
+    setStatusSubtitle(`${firstPlayer?.name ?? "First player"} starts the match.`);
+    showAnnouncement(
+      "Turn order decided",
+      `${firstPlayer?.name ?? "First player"} starts the match.`,
+      2400
+    );
+  }, [hasPresetTurnOrder, initialTurnOrder, playersInGame]);
 
   function getAgentName(player: Player) {
     const agent = agents.find((a) => a.uuid === player.selectedAgentId);
@@ -1625,6 +1701,18 @@ export default function GamePage({
   }
 
   function handleDiceOverlayAction() {
+    if (isOnlineGuest) {
+      if (multiplayer?.yourPlayerIndex !== currentPlayerIndex) return;
+      if (diceFlowPhase === "ready") {
+        sendAction({ type: "roll_dice" });
+        return;
+      }
+      if (diceFlowPhase === "result") {
+        sendAction({ type: "begin_movement" });
+      }
+      return;
+    }
+
     if (diceFlowPhase === "ready") {
       void beginDiceRoll();
       return;
@@ -1638,6 +1726,12 @@ export default function GamePage({
   async function choosePath(nextNodeId: string) {
     if (!pendingPathChoice) return;
     if (pendingPathChoice.playerIndex !== currentPlayerIndex) return;
+
+    if (isOnlineGuest) {
+      if (multiplayer?.yourPlayerIndex !== currentPlayerIndex) return;
+      sendAction({ type: "choose_path", nodeId: nextNodeId });
+      return;
+    }
 
     const chosenPlayerIndex = pendingPathChoice.playerIndex;
     const rolledValue = lastRoll ?? 0;
@@ -1807,11 +1901,25 @@ export default function GamePage({
       !minigamePhase &&
       !activeStoryEvent &&
       !spikePlantAnimation &&
-      turnBannerPlayerIndex === null
+      turnBannerPlayerIndex === null &&
+      (!multiplayer || multiplayer.yourPlayerIndex === currentPlayerIndex)
     );
   }
 
   function openDiceOverlay() {
+    if (isOnlineGuest) {
+      if (
+        multiplayer?.yourPlayerIndex !== currentPlayerIndex ||
+        !canInteractWithDice() ||
+        hasRolledThisTurn ||
+        diceFlowPhase !== "hidden"
+      ) {
+        return;
+      }
+      sendAction({ type: "open_dice" });
+      return;
+    }
+
     if (!canInteractWithDice() || hasRolledThisTurn || diceFlowPhase !== "hidden") {
       return;
     }
@@ -1819,6 +1927,89 @@ export default function GamePage({
     setDiceFlowPhase("ready");
     setDiceDisplayValue(1);
   }
+
+  useEffect(() => {
+    if (!multiplayer?.isHost) return;
+
+    snapshotVersionRef.current += 1;
+    publishSnapshot({
+      version: snapshotVersionRef.current,
+      turnOrder,
+      currentTurnOrderIndex,
+      round,
+      phase,
+      players: playersInGame,
+      lastRoll,
+      diceDisplayValue,
+      diceFlowPhase,
+      hasRolledThisTurn,
+      turnBannerPlayerIndex,
+      statusTitle,
+      statusSubtitle,
+      isMoving,
+      movingPlayerIndex,
+      animatedToken,
+      pendingPathChoice,
+    });
+  }, [
+    animatedToken,
+    currentTurnOrderIndex,
+    diceDisplayValue,
+    diceFlowPhase,
+    hasRolledThisTurn,
+    isMoving,
+    lastRoll,
+    movingPlayerIndex,
+    multiplayer?.isHost,
+    pendingPathChoice,
+    phase,
+    playersInGame,
+    publishSnapshot,
+    round,
+    statusSubtitle,
+    statusTitle,
+    turnBannerPlayerIndex,
+    turnOrder,
+  ]);
+
+  useEffect(() => {
+    remoteActionHandlerRef.current = (fromPlayerId, action) => {
+      if (!multiplayer?.isHost) return;
+      const playerIndex = multiplayer.playerIndexByLobbyId[fromPlayerId];
+      if (playerIndex == null || playerIndex !== currentPlayerIndex) return;
+
+      switch (action.type) {
+        case "open_dice":
+          if (
+            !canInteractWithDice() ||
+            hasRolledThisTurn ||
+            diceFlowPhase !== "hidden"
+          ) {
+            return;
+          }
+          setDiceFlowPhase("ready");
+          setDiceDisplayValue(1);
+          break;
+        case "roll_dice":
+          if (diceFlowPhase === "ready") {
+            void beginDiceRoll();
+          }
+          break;
+        case "begin_movement":
+          if (diceFlowPhase === "result") {
+            void beginMovement();
+          }
+          break;
+        case "choose_path":
+          if (pendingPathChoice?.options.includes(action.nodeId)) {
+            void choosePath(action.nodeId);
+          }
+          break;
+        default:
+          break;
+      }
+    };
+  });
 
   function renderShopOfferButton(offer: ShopOffer) {
     const isSoldOut = purchasedShopOfferIds.includes(offer.id);
@@ -1879,8 +2070,87 @@ export default function GamePage({
   const winner = rankedPlayers[0];
   const showTurnOrder = turnOrderRevealOpen && phase === "roll-for-order";
 
+  function handleLeaveMatch() {
+    setGameMenuOpen(false);
+    leaveMatch();
+    onLeaveMatch?.();
+  }
+
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#070b14] text-white">
+      {multiplayer && (
+        <div className="pointer-events-none fixed right-4 top-4 z-[70]">
+          <div className="pointer-events-auto relative">
+            <button
+              type="button"
+              onClick={() => setGameMenuOpen((open) => !open)}
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-zinc-900/90 text-zinc-200 shadow-lg backdrop-blur-md transition hover:border-cyan-400/40 hover:bg-zinc-800 hover:text-white"
+              aria-label="Game menu"
+              aria-expanded={gameMenuOpen}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="h-6 w-6"
+                aria-hidden
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                />
+              </svg>
+            </button>
+
+            {gameMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  className="fixed inset-0 z-[-1] cursor-default"
+                  aria-label="Close game menu"
+                  onClick={() => setGameMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-full z-10 mt-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-zinc-950/98 shadow-2xl backdrop-blur-md">
+                  <div className="border-b border-white/10 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Settings
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={togglePerformanceMode}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-white transition hover:bg-white/5"
+                  >
+                    Performance mode
+                    <span className="text-xs font-semibold text-cyan-300">
+                      {performanceMode ? "On" : "Off"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="flex w-full items-center justify-between border-t border-white/5 px-4 py-3 text-left text-sm text-zinc-500"
+                    title="Coming soon"
+                  >
+                    Sound
+                    <span className="text-[10px] uppercase tracking-wider">Soon</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLeaveMatch}
+                    className="flex w-full border-t border-red-400/20 px-4 py-3 text-left text-sm font-semibold text-red-300 transition hover:bg-red-500/10 hover:text-red-200"
+                  >
+                    Leave match
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {announcement && (
         <div className="pointer-events-none fixed left-1/2 top-6 z-50 -translate-x-1/2">
           <div className="min-w-[320px] rounded-2xl border border-cyan-300/20 bg-[#0b1020]/98 px-5 py-4 shadow-2xl">
@@ -2196,6 +2466,18 @@ export default function GamePage({
                   className="rounded-2xl bg-cyan-400 px-8 py-4 text-lg font-bold text-black transition hover:brightness-110"
                 >
                   Back to Lobby
+                </button>
+              </div>
+            )}
+
+            {multiplayer && onLeaveMatch && (
+              <div className="mt-8 flex justify-center">
+                <button
+                  type="button"
+                  onClick={handleLeaveMatch}
+                  className="rounded-2xl border border-red-400/30 bg-red-500/10 px-8 py-4 text-lg font-bold text-red-200 transition hover:bg-red-500/20"
+                >
+                  Leave match
                 </button>
               </div>
             )}
