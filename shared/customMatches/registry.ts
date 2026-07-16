@@ -38,20 +38,22 @@ export const customMatchRegistry: CustomMatchDefinition[] = [
     winRadianite: 2,
     durationLabel: "1 match",
   },
+
+  // ── 2v2 ─────────────────────────────────────────────────────────────────
   {
     id: "spike-rush",
     name: "Spike Rush",
-    category: "free_for_all",
-    playerFormat: "5v5",
-    description: "Fast rounds with a spike planted every site — chaotic economy swings.",
-    rulesStub: "Fast spike rounds. Host confirms the winning player after the match.",
+    category: "2v2",
+    playerFormat: "2v2",
+    description:
+      "Fast spike rounds — Team Alpha vs Team Bravo, chaotic economy swings.",
+    rulesStub:
+      "Team Alpha vs Team Bravo. Host confirms the winning team after the match.",
     eligibleMaps: competitive,
     winCreds: 200,
     winRadianite: 1,
     durationLabel: "4 rounds",
   },
-
-  // ── 2v2 ─────────────────────────────────────────────────────────────────
   {
     id: "team-deathmatch",
     name: "Team Deathmatch",

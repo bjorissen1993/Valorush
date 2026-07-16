@@ -43,8 +43,8 @@ Valorant ships **9 custom-game modes**. ValoRush groups them into three categori
 
 | Category | Modes | Player format |
 |----------|-------|---------------|
-| **Free for All** | Deathmatch, Escalation, Team Deathmatch, Spike Rush | FFA / 5v5 |
-| **2v2** | Skirmish | 2v2 |
+| **Free for All** | Deathmatch, Escalation | FFA |
+| **2v2** | Spike Rush, Team Deathmatch, Skirmish | 2v2 |
 | **1v3** | Standard, Retake, All Random One Site, Swiftplay | 1 attacker vs 3 defenders |
 
 Registry: `shared/customMatches/registry.ts` · Map pools: `shared/customMatches/mapRegistry.ts`
