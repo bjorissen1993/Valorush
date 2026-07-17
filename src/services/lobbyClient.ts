@@ -21,6 +21,7 @@ export type LobbyConnectionStatus =
   | "disconnected"
   | "error";
 
+/** Multiplayer session keys — localStorage so refresh and browser-close both restore. */
 const SESSION_PLAYER_ID = "valorush_lobby_player_id";
 const SESSION_ROOM_CODE = "valorush_lobby_room_code";
 const SESSION_PHASE = "valorush_lobby_phase";
@@ -28,8 +29,59 @@ const SESSION_PROFILE = "valorush_lobby_profile";
 const SESSION_IS_HOST = "valorush_lobby_is_host";
 const SESSION_GAME_STARTING = "valorush_lobby_game_starting";
 const SESSION_TURN_ORDER = "valorush_lobby_turn_order";
+/** Ephemeral kick banner — sessionStorage is enough (same-tab handoff). */
 const SESSION_KICKED = "valorush_kicked_reason";
 const LOBBY_WS_URL_KEY = "valorush_lobby_ws_url";
+
+const LOBBY_SESSION_KEYS = [
+  SESSION_PLAYER_ID,
+  SESSION_ROOM_CODE,
+  SESSION_PHASE,
+  SESSION_PROFILE,
+  SESSION_IS_HOST,
+  SESSION_GAME_STARTING,
+  SESSION_TURN_ORDER,
+] as const;
+
+function readPersistedItem(key: string): string | null {
+  try {
+    const fromLocal = localStorage.getItem(key);
+    if (fromLocal != null) return fromLocal;
+
+    // One-time migrate from older sessionStorage sessions.
+    const fromSession = sessionStorage.getItem(key);
+    if (fromSession != null) {
+      localStorage.setItem(key, fromSession);
+      sessionStorage.removeItem(key);
+      return fromSession;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return null;
+}
+
+function writePersistedItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+    sessionStorage.removeItem(key);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function removePersistedItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
 
 export type StoredLobbySession = {
   code: string;
@@ -125,7 +177,7 @@ export function getLobbyWsUrl(): string {
 }
 
 function readStoredPhase(): LobbySessionPhase | null {
-  const phase = sessionStorage.getItem(SESSION_PHASE);
+  const phase = readPersistedItem(SESSION_PHASE);
   if (phase === "lobby" || phase === "turn_order" || phase === "in_game") {
     return phase;
   }
@@ -140,27 +192,27 @@ export function persistLobbySession(
   const existing = readStoredLobbySession();
   const phase = extras?.phase ?? existing?.phase ?? "lobby";
 
-  sessionStorage.setItem(SESSION_ROOM_CODE, code);
-  sessionStorage.setItem(SESSION_PLAYER_ID, playerId);
-  sessionStorage.setItem(SESSION_PHASE, phase);
+  writePersistedItem(SESSION_ROOM_CODE, code);
+  writePersistedItem(SESSION_PLAYER_ID, playerId);
+  writePersistedItem(SESSION_PHASE, phase);
 
   if (extras?.profile) {
-    sessionStorage.setItem(SESSION_PROFILE, JSON.stringify(extras.profile));
+    writePersistedItem(SESSION_PROFILE, JSON.stringify(extras.profile));
   }
 
   if (extras?.isHost !== undefined) {
-    sessionStorage.setItem(SESSION_IS_HOST, extras.isHost ? "1" : "0");
+    writePersistedItem(SESSION_IS_HOST, extras.isHost ? "1" : "0");
   }
 
   if (extras?.gameStarting) {
-    sessionStorage.setItem(
+    writePersistedItem(
       SESSION_GAME_STARTING,
       JSON.stringify(extras.gameStarting)
     );
   }
 
   if (extras?.turnOrder) {
-    sessionStorage.setItem(SESSION_TURN_ORDER, JSON.stringify(extras.turnOrder));
+    writePersistedItem(SESSION_TURN_ORDER, JSON.stringify(extras.turnOrder));
   }
 }
 
@@ -171,14 +223,14 @@ export function readLobbySession(): { code: string; playerId: string } | null {
 }
 
 export function readStoredLobbySession(): StoredLobbySession | null {
-  const code = sessionStorage.getItem(SESSION_ROOM_CODE);
-  const playerId = sessionStorage.getItem(SESSION_PLAYER_ID);
+  const code = readPersistedItem(SESSION_ROOM_CODE);
+  const playerId = readPersistedItem(SESSION_PLAYER_ID);
   if (!code || !playerId) return null;
 
   const phase = readStoredPhase() ?? "lobby";
   const stored: StoredLobbySession = { code, playerId, phase };
 
-  const profileRaw = sessionStorage.getItem(SESSION_PROFILE);
+  const profileRaw = readPersistedItem(SESSION_PROFILE);
   if (profileRaw) {
     try {
       stored.profile = JSON.parse(profileRaw) as PlayerProfile;
@@ -187,11 +239,11 @@ export function readStoredLobbySession(): StoredLobbySession | null {
     }
   }
 
-  const isHostRaw = sessionStorage.getItem(SESSION_IS_HOST);
+  const isHostRaw = readPersistedItem(SESSION_IS_HOST);
   if (isHostRaw === "1") stored.isHost = true;
   if (isHostRaw === "0") stored.isHost = false;
 
-  const gameStartingRaw = sessionStorage.getItem(SESSION_GAME_STARTING);
+  const gameStartingRaw = readPersistedItem(SESSION_GAME_STARTING);
   if (gameStartingRaw) {
     try {
       stored.gameStarting = JSON.parse(gameStartingRaw) as GameStartingPayload;
@@ -200,7 +252,7 @@ export function readStoredLobbySession(): StoredLobbySession | null {
     }
   }
 
-  const turnOrderRaw = sessionStorage.getItem(SESSION_TURN_ORDER);
+  const turnOrderRaw = readPersistedItem(SESSION_TURN_ORDER);
   if (turnOrderRaw) {
     try {
       stored.turnOrder = JSON.parse(turnOrderRaw) as number[];
@@ -213,13 +265,9 @@ export function readStoredLobbySession(): StoredLobbySession | null {
 }
 
 export function clearLobbySession(): void {
-  sessionStorage.removeItem(SESSION_ROOM_CODE);
-  sessionStorage.removeItem(SESSION_PLAYER_ID);
-  sessionStorage.removeItem(SESSION_PHASE);
-  sessionStorage.removeItem(SESSION_PROFILE);
-  sessionStorage.removeItem(SESSION_IS_HOST);
-  sessionStorage.removeItem(SESSION_GAME_STARTING);
-  sessionStorage.removeItem(SESSION_TURN_ORDER);
+  for (const key of LOBBY_SESSION_KEYS) {
+    removePersistedItem(key);
+  }
 }
 
 export function setLobbyKickedFlag(reason = "host"): void {

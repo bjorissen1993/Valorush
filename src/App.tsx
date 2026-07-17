@@ -63,8 +63,9 @@ function restoreMultiplayerFromSession(): RestoredMultiplayerState | null {
     : null;
 
   let screen: Screen = "mp_lobby";
-  if (stored.phase === "turn_order") screen = "mp_turn_order";
-  if (stored.phase === "in_game") screen = "game";
+  if (stored.phase === "turn_order" && mpSession) screen = "mp_turn_order";
+  if (stored.phase === "in_game" && mpSession) screen = "game";
+  // Missing gameStarting payload → fall back to lobby rather than a broken game screen.
 
   return {
     screen,

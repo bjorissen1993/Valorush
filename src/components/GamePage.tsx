@@ -380,6 +380,8 @@ export default function GamePage({
   const { effectivePerformanceMode, performanceMode, togglePerformanceMode } =
     performanceSettings;
   const [gameMenuOpen, setGameMenuOpen] = useState(false);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
+  const canOpenGameMenu = Boolean(multiplayer || onBackToLobby || onLeaveMatch);
   const [playersInGame, setPlayersInGame] = useState<PlayerInGame[]>(
     players.map((player, index): PlayerInGame => {
       const selectedAgent = agents.find(
@@ -495,6 +497,24 @@ export default function GamePage({
       remoteActionHandlerRef.current(fromPlayerId, action);
     },
   });
+
+  useEffect(() => {
+    if (!canOpenGameMenu) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (leaveConfirmOpen) {
+        event.preventDefault();
+        setLeaveConfirmOpen(false);
+        return;
+      }
+      event.preventDefault();
+      setGameMenuOpen((open) => !open);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canOpenGameMenu, leaveConfirmOpen]);
 
   const [isMoving, setIsMoving] = useState(false);
   const [movingPlayerIndex, setMovingPlayerIndex] = useState<number | null>(null);
@@ -2772,23 +2792,38 @@ export default function GamePage({
   const winner = rankedPlayers[0];
   const showTurnOrder = turnOrderRevealOpen && phase === "roll-for-order";
 
-  function handleLeaveMatch() {
+  function closeGameMenu() {
     setGameMenuOpen(false);
-    leaveMatch();
-    onLeaveMatch?.();
+    setLeaveConfirmOpen(false);
+  }
+
+  function handleLeaveMatch() {
+    closeGameMenu();
+    if (multiplayer) {
+      leaveMatch();
+      onLeaveMatch?.();
+      return;
+    }
+    onBackToLobby?.();
   }
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#070b14] text-white">
-      {multiplayer && (
+      {canOpenGameMenu && (
         <div className="pointer-events-none fixed right-4 top-4 z-[70]">
-          <div className="pointer-events-auto relative">
+          <div className="pointer-events-auto">
             <button
               type="button"
-              onClick={() => setGameMenuOpen((open) => !open)}
+              onClick={() =>
+                setGameMenuOpen((open) => {
+                  if (open) setLeaveConfirmOpen(false);
+                  return !open;
+                })
+              }
               className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-zinc-900/90 text-zinc-200 shadow-lg backdrop-blur-md transition hover:border-cyan-400/40 hover:bg-zinc-800 hover:text-white"
               aria-label="Game menu"
               aria-expanded={gameMenuOpen}
+              aria-controls="in-game-menu"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -2806,50 +2841,128 @@ export default function GamePage({
                 />
               </svg>
             </button>
+          </div>
+        </div>
+      )}
 
-            {gameMenuOpen && (
-              <>
+      {gameMenuOpen && canOpenGameMenu && (
+        <div
+          id="in-game-menu"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="in-game-menu-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            aria-label="Close game menu"
+            onClick={closeGameMenu}
+          />
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-[#0b1020]/98 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-400">
+                  ValoRush
+                </p>
+                <h2 id="in-game-menu-title" className="mt-1 text-xl font-bold text-white">
+                  Game menu
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeGameMenu}
+                className="rounded-lg px-2 py-1 text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
+              >
+                Esc
+              </button>
+            </div>
+
+            <div className="border-b border-white/10 px-5 py-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                Settings
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                More options will land here as they are ready.
+              </p>
+
+              <div className="mt-4 space-y-1">
                 <button
                   type="button"
-                  className="fixed inset-0 z-[-1] cursor-default"
-                  aria-label="Close game menu"
-                  onClick={() => setGameMenuOpen(false)}
-                />
-                <div className="absolute right-0 top-full z-10 mt-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-zinc-950/98 shadow-2xl backdrop-blur-md">
-                  <div className="border-b border-white/10 px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                      Settings
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={togglePerformanceMode}
-                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-white transition hover:bg-white/5"
-                  >
-                    Performance mode
-                    <span className="text-xs font-semibold text-cyan-300">
-                      {performanceMode ? "On" : "Off"}
+                  onClick={togglePerformanceMode}
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm text-white transition hover:bg-white/5"
+                >
+                  <span>
+                    <span className="font-medium">Performance mode</span>
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      Reduces animations and GPU load for streaming
                     </span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    className="flex w-full items-center justify-between border-t border-white/5 px-4 py-3 text-left text-sm text-zinc-500"
-                    title="Coming soon"
+                  </span>
+                  <span
+                    className={`text-xs font-semibold ${
+                      performanceMode ? "text-emerald-300" : "text-zinc-400"
+                    }`}
                   >
-                    Sound
-                    <span className="text-[10px] uppercase tracking-wider">Soon</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLeaveMatch}
-                    className="flex w-full border-t border-red-400/20 px-4 py-3 text-left text-sm font-semibold text-red-300 transition hover:bg-red-500/10 hover:text-red-200"
-                  >
-                    Leave match
-                  </button>
+                    {performanceMode ? "On" : "Off"}
+                  </span>
+                </button>
+
+                <div className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm text-zinc-500">
+                  <span>
+                    <span className="font-medium text-zinc-400">Sound</span>
+                    <span className="mt-0.5 block text-xs">Audio mix and mute</span>
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider">Soon</span>
                 </div>
-              </>
-            )}
+
+                <div className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm text-zinc-500">
+                  <span>
+                    <span className="font-medium text-zinc-400">Language</span>
+                    <span className="mt-0.5 block text-xs">UI language</span>
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider">Soon</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-4">
+              {!leaveConfirmOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setLeaveConfirmOpen(true)}
+                  className="flex w-full items-center justify-center rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 hover:text-red-100"
+                >
+                  {multiplayer ? "Leave match" : "Leave game"}
+                </button>
+              ) : (
+                <div className="rounded-xl border border-red-400/20 bg-red-950/40 p-4">
+                  <p className="text-sm font-semibold text-red-100">
+                    {multiplayer ? "Leave this match?" : "Leave this game?"}
+                  </p>
+                  <p className="mt-1 text-xs text-red-200/70">
+                    {multiplayer
+                      ? "You will return to the main menu and will not rejoin automatically."
+                      : "Progress in this local game will not be saved."}
+                  </p>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLeaveConfirmOpen(false)}
+                      className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLeaveMatch}
+                      className="flex-1 rounded-xl border border-red-400/30 bg-red-500/20 px-3 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-500/30"
+                    >
+                      {multiplayer ? "Leave match" : "Leave game"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
