@@ -2045,3 +2045,632 @@ body {
   from { opacity: 0.4; transform: scale(0.85); }
   to { opacity: 1; transform: scale(1); }
 }
+
+/* In-game inventory sidebar + player strip */
+.game-play-shell {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+@media (min-width: 1024px) {
+  .game-play-shell {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0.85rem;
+  }
+}
+
+.game-inventory-sidebar {
+  display: none;
+  width: 17.5rem;
+  min-width: 17.5rem;
+  max-width: 17.5rem;
+  min-height: 0;
+  flex-shrink: 0;
+}
+
+@media (min-width: 1024px) {
+  .game-inventory-sidebar {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.game-play-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.game-player-strip {
+  display: grid;
+  flex-shrink: 0;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+}
+
+@media (min-width: 1024px) {
+  .game-player-strip {
+    grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  }
+}
+
+.game-board-area {
+  min-height: 0;
+  flex: 1;
+}
+
+.game-inventory-mobile-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  border-radius: 1rem;
+  background: linear-gradient(
+    135deg,
+    rgba(8, 20, 32, 0.95),
+    rgba(12, 18, 30, 0.92)
+  );
+  padding: 0.65rem 0.85rem;
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.08);
+}
+
+@media (min-width: 1024px) {
+  .game-inventory-mobile-bar {
+    display: none;
+  }
+}
+
+.game-inventory-mobile-bar__meta {
+  min-width: 0;
+}
+
+.game-inventory-mobile-bar__meta p:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.game-inventory-mobile-bar__meta p:last-child {
+  margin-top: 0.1rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(34, 211, 238, 0.85);
+}
+
+.game-inventory-mobile-bar__btn {
+  flex-shrink: 0;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  border-radius: 0.75rem;
+  background: rgba(34, 211, 238, 0.12);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #67e8f9;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.game-inventory-mobile-bar__btn:hover {
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.2);
+}
+
+.game-inventory-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+@media (min-width: 1024px) {
+  .game-inventory-sheet {
+    display: none;
+  }
+}
+
+.game-inventory-sheet__panel {
+  max-height: min(78dvh, 40rem);
+  overflow: hidden;
+  border-radius: 1.25rem 1.25rem 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45);
+  animation: inventorySheetRise 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.game-inventory-sheet__panel .player-inventory-panel {
+  max-height: min(78dvh, 40rem);
+  border-radius: 1.25rem 1.25rem 0 0;
+}
+
+@keyframes inventorySheetRise {
+  from {
+    opacity: 0.4;
+    transform: translateY(18%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.player-inventory-panel {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+  background: rgba(9, 12, 20, 0.92);
+}
+
+.player-inventory-panel--active {
+  border-color: rgba(34, 211, 238, 0.45);
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.12);
+}
+
+.player-inventory-panel__bg {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  z-index: 0;
+  opacity: 0.14;
+  transform: translateY(-50%);
+  object-fit: contain;
+}
+
+.player-inventory-panel__bg--full {
+  height: 220%;
+}
+
+.player-inventory-panel__bg--perf {
+  height: 140%;
+}
+
+.player-inventory-panel__veil {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(7, 11, 20, 0.35) 0%,
+    rgba(7, 11, 20, 0.82) 45%,
+    rgba(7, 11, 20, 0.96) 100%
+  );
+}
+
+.player-inventory-panel__body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0.85rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(34, 211, 238, 0.35) transparent;
+}
+
+.player-inventory-panel__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.player-inventory-panel__identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.player-inventory-panel__avatar {
+  height: 2.75rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.player-inventory-panel__avatar img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+}
+
+.player-inventory-panel__avatar-fallback {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.player-inventory-panel__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.player-inventory-panel__agent {
+  margin-top: 0.1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.player-inventory-panel__turn-tag {
+  margin-top: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #67e8f9;
+}
+
+.player-inventory-panel__close {
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.3rem 0.55rem;
+  font-size: 0.75rem;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.player-inventory-panel__portrait-wrap {
+  display: flex;
+  height: 6.5rem;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.player-inventory-panel__portrait {
+  height: 135%;
+  max-width: none;
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+.player-inventory-panel__economy {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.player-inventory-panel__stat {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.7rem;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 0.45rem 0.55rem;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.player-inventory-panel__stat img {
+  height: 1.25rem;
+  width: 1.25rem;
+  object-fit: contain;
+}
+
+.player-inventory-panel__stat--rad {
+  color: #67e8f9;
+}
+
+.player-inventory-panel__stat--rad img {
+  height: 1.45rem;
+  width: 1.45rem;
+}
+
+.player-inventory-panel__roll-btn {
+  width: 100%;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  border-radius: 0.75rem;
+  background: linear-gradient(
+    180deg,
+    rgba(34, 211, 238, 0.28),
+    rgba(8, 145, 178, 0.2)
+  );
+  padding: 0.65rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #ecfeff;
+  transition: filter 160ms ease, border-color 160ms ease;
+}
+
+.player-inventory-panel__roll-btn:hover {
+  border-color: rgba(103, 232, 249, 0.7);
+  filter: brightness(1.08);
+}
+
+.player-inventory-panel__hint {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(103, 232, 249, 0.85);
+}
+
+.player-inventory-panel__section h3 {
+  margin-bottom: 0.4rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.player-inventory-panel__empty {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.65);
+}
+
+.player-inventory-panel__buff {
+  margin-bottom: 0.4rem;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  border-radius: 0.55rem;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #6ee7b7;
+}
+
+.player-inventory-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.player-inventory-panel__list--spike {
+  margin-top: 0.4rem;
+}
+
+.player-inventory-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.7rem;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 0.4rem 0.45rem;
+}
+
+.player-inventory-item--pending {
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.player-inventory-item__icon {
+  display: flex;
+  height: 2.1rem;
+  width: 2.1rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.player-inventory-item__icon img {
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+}
+
+.player-inventory-item__meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.player-inventory-item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.player-inventory-item__desc {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.player-inventory-item__badge {
+  display: inline-block;
+  margin-top: 0.2rem;
+  border-radius: 9999px;
+  background: rgba(251, 146, 60, 0.15);
+  padding: 0.1rem 0.4rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fdba74;
+}
+
+.player-inventory-item__use {
+  flex-shrink: 0;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  border-radius: 0.5rem;
+  background: rgba(34, 211, 238, 0.12);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #67e8f9;
+}
+
+.player-inventory-item__use:hover {
+  background: rgba(34, 211, 238, 0.22);
+}
+
+.player-inventory-item__locked {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.45);
+}
+
+.player-inventory-panel__targets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.player-inventory-panel__target-btn {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.player-inventory-panel__target-btn:hover {
+  border-color: rgba(34, 211, 238, 0.4);
+  background: rgba(34, 211, 238, 0.1);
+}
+
+.player-inventory-panel__cancel-target {
+  margin-top: 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: rgba(248, 113, 113, 0.9);
+}
+
+.player-inventory-panel__gear {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.player-inventory-panel__gear-slot {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.7rem;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 0.45rem 0.55rem;
+}
+
+.player-inventory-panel__gear-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.75);
+}
+
+.player-inventory-panel__gear-body {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.player-inventory-panel__gear-body img {
+  height: 1.75rem;
+  width: 2.5rem;
+  object-fit: contain;
+}
+
+.player-inventory-panel__gear-placeholder {
+  height: 1.75rem;
+  width: 2.5rem;
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.player-inventory-panel__gear-body span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.player-inventory-panel__discount {
+  margin-top: 0.4rem;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 0.25rem 0.55rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #6ee7b7;
+}
+
+.player-inventory-panel__readonly {
+  margin-top: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.performance-mode .game-inventory-sheet__panel {
+  animation: none;
+}
+

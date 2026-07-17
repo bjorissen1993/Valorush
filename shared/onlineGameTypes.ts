@@ -119,7 +119,12 @@ export type OnlineGameAction =
   | { type: "open_dice" }
   | { type: "roll_dice" }
   | { type: "begin_movement" }
-  | { type: "choose_path"; nodeId: string };
+  | { type: "choose_path"; nodeId: string }
+  | {
+      type: "use_item";
+      itemId: string;
+      targetPlayerIndex?: number;
+    };
 
 export type GameBeginPayload = {
   turnOrder: number[];

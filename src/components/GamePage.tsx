@@ -56,7 +56,11 @@ import {
 import { minigameById, minigameRegistry } from "../../shared/minigames";
 import { boardEventRegistry } from "../../shared/events";
 import { agentDirectorRegistry } from "../../shared/director";
-import { itemRegistry } from "../../shared/items";
+import { itemById, itemRegistry } from "../../shared/items";
+import PlayerInventorySidebar, {
+  rotatePlayersToActive,
+  type InventoryItemAction,
+} from "./PlayerInventorySidebar";
 import { boardLayout, type TileType } from "../game/boardLayout";
 import type { MinigameId } from "../../shared/minigames/types";
 import type {
@@ -635,11 +639,28 @@ export default function GamePage({
 
   const currentPlayer = playersInGame[currentPlayerIndex];
 
+  const orderedPlayerIndices = useMemo(
+    () => rotatePlayersToActive(playersInGame.length, currentPlayerIndex),
+    [playersInGame.length, currentPlayerIndex]
+  );
+
+  const inventoryOtherPlayers = useMemo(
+    () =>
+      playersInGame
+        .map((player, index) => ({ index, name: player.name }))
+        .filter((entry) => entry.index !== currentPlayerIndex),
+    [playersInGame, currentPlayerIndex]
+  );
+
   const [debugOverlayOpen, setDebugOverlayOpen] = useState(false);
   const [debugForcedRoll, setDebugForcedRoll] = useState<number | null>(null);
   const [debugSelectedPlayerIndex, setDebugSelectedPlayerIndex] = useState(0);
   const [debugBoardAction, setDebugBoardAction] = useState<
     "plant-spike" | "teleport-player" | null
+  >(null);
+  const [mobileInventoryOpen, setMobileInventoryOpen] = useState(false);
+  const [pendingInventoryItemId, setPendingInventoryItemId] = useState<
+    string | null
   >(null);
 
   const boardEventsByCategory = useMemo(() => {
@@ -2672,6 +2693,172 @@ export default function GamePage({
     );
   }
 
+  function canUseInventoryActions() {
+    return (
+      canInteractWithDice() &&
+      diceFlowPhase === "hidden" &&
+      !hasRolledThisTurn
+    );
+  }
+
+  function applyInventoryItemUse(
+    itemId: string,
+    targetPlayerIndex?: number
+  ): boolean {
+    if (!canUseInventoryActions()) return false;
+    const player = playersInGame[currentPlayerIndex];
+    if (!player?.items.includes(itemId)) return false;
+
+    const item = itemById.get(itemId);
+    const effect = item?.boardEffect;
+    if (!effect) return false;
+
+    if (effect.kind === "dice_bonus") {
+      updatePlayer(currentPlayerIndex, (current) => ({
+        ...current,
+        items: current.items.filter((id) => id !== itemId),
+        movementBonus: (current.movementBonus ?? 0) + effect.amount,
+        movementBonusTurns: Math.max(current.movementBonusTurns ?? 0, 1),
+      }));
+      setPendingInventoryItemId(null);
+      setStatusTitle(`${player.name} used ${item.name}`);
+      setStatusSubtitle(`+${effect.amount} on next movement roll.`);
+      showAnnouncement(
+        `${player.name} used ${item.name}`,
+        `+${effect.amount} on next movement roll.`
+      );
+      return true;
+    }
+
+    if (effect.kind === "steal_creds") {
+      if (
+        targetPlayerIndex == null ||
+        targetPlayerIndex === currentPlayerIndex ||
+        !playersInGame[targetPlayerIndex]
+      ) {
+        setPendingInventoryItemId(itemId);
+        return false;
+      }
+      const stolen = Math.min(
+        effect.amount,
+        playersInGame[targetPlayerIndex].creds
+      );
+      const targetName = playersInGame[targetPlayerIndex].name;
+      setPlayersInGame((current) =>
+        current.map((entry, index) => {
+          if (index === targetPlayerIndex) {
+            return {
+              ...entry,
+              creds: Math.max(0, entry.creds - stolen),
+            };
+          }
+          if (index === currentPlayerIndex) {
+            return {
+              ...entry,
+              items: entry.items.filter((id) => id !== itemId),
+              creds: entry.creds + stolen,
+            };
+          }
+          return entry;
+        })
+      );
+      setPendingInventoryItemId(null);
+      setStatusTitle(`${player.name} used ${item.name}`);
+      setStatusSubtitle(`Stole ${stolen} creds from ${targetName}.`);
+      showAnnouncement(
+        `${player.name} used ${item.name}`,
+        `Stole ${stolen} creds from ${targetName}.`
+      );
+      return true;
+    }
+
+    if (effect.kind === "swap_position") {
+      if (
+        targetPlayerIndex == null ||
+        targetPlayerIndex === currentPlayerIndex ||
+        !playersInGame[targetPlayerIndex]
+      ) {
+        setPendingInventoryItemId(itemId);
+        return false;
+      }
+      const selfPos = playersInGame[currentPlayerIndex].position;
+      const targetPos = playersInGame[targetPlayerIndex].position;
+      const targetName = playersInGame[targetPlayerIndex].name;
+      setPlayersInGame((current) =>
+        current.map((entry, index) => {
+          if (index === currentPlayerIndex) {
+            return {
+              ...entry,
+              items: entry.items.filter((id) => id !== itemId),
+              position: targetPos,
+            };
+          }
+          if (index === targetPlayerIndex) {
+            return {
+              ...entry,
+              position: selfPos,
+            };
+          }
+          return entry;
+        })
+      );
+      setPendingInventoryItemId(null);
+      setStatusTitle(`${player.name} used ${item.name}`);
+      setStatusSubtitle(`Swapped positions with ${targetName}.`);
+      showAnnouncement(
+        `${player.name} used ${item.name}`,
+        `Swapped positions with ${targetName}.`
+      );
+      return true;
+    }
+
+    if (effect.kind === "hit_anywhere") {
+      setStatusTitle(item.name);
+      setStatusSubtitle("Board targeting is not available from inventory yet.");
+      showAnnouncement(
+        item.name,
+        "Board targeting is not available from inventory yet."
+      );
+      return false;
+    }
+
+    setStatusTitle(item.name);
+    setStatusSubtitle("This item can only be used during spike defuse.");
+    return false;
+  }
+
+  function handleInventoryItemAction(action: InventoryItemAction) {
+    if (!canUseInventoryActions()) return;
+
+    if (isOnlineGuest) {
+      if (multiplayer?.yourPlayerIndex !== currentPlayerIndex) return;
+      if (action.kind === "use") {
+        const item = itemById.get(action.itemId);
+        if (
+          item?.boardEffect?.kind === "steal_creds" ||
+          item?.boardEffect?.kind === "swap_position"
+        ) {
+          setPendingInventoryItemId(action.itemId);
+          return;
+        }
+        sendAction({ type: "use_item", itemId: action.itemId });
+        return;
+      }
+      sendAction({
+        type: "use_item",
+        itemId: action.itemId,
+        targetPlayerIndex: action.targetPlayerIndex,
+      });
+      return;
+    }
+
+    if (action.kind === "use") {
+      applyInventoryItemUse(action.itemId);
+      return;
+    }
+    applyInventoryItemUse(action.itemId, action.targetPlayerIndex);
+  }
+
   function openDiceOverlay() {
     if (isOnlineGuest) {
       if (
@@ -2837,6 +3024,9 @@ export default function GamePage({
             void choosePath(action.nodeId);
           }
           break;
+        case "use_item":
+          applyInventoryItemUse(action.itemId, action.targetPlayerIndex);
+          break;
         default:
           break;
       }
@@ -2901,6 +3091,33 @@ export default function GamePage({
   const rankedPlayers = rankPlayersByScore(playersInGame);
   const winner = rankedPlayers[0];
   const showTurnOrder = turnOrderRevealOpen && phase === "roll-for-order";
+
+  useEffect(() => {
+    setPendingInventoryItemId(null);
+    setMobileInventoryOpen(false);
+  }, [currentPlayerIndex]);
+
+  const activeCanOpenDice =
+    !gameFinished &&
+    phase !== "roll-for-order" &&
+    diceFlowPhase === "hidden" &&
+    !hasRolledThisTurn &&
+    canInteractWithDice();
+
+  const activeDiceHint =
+    !gameFinished &&
+    phase !== "roll-for-order" &&
+    diceFlowPhase === "ready"
+      ? "Roll on screen"
+      : !gameFinished &&
+          phase !== "roll-for-order" &&
+          diceFlowPhase === "result"
+        ? "Move on screen"
+        : activeCanOpenDice
+          ? "Tap to roll"
+          : null;
+
+  const inventoryCanAct = canUseInventoryActions();
 
   function closeGameMenu() {
     setGameMenuOpen(false);
@@ -3473,193 +3690,269 @@ export default function GamePage({
 
       {!showTurnOrder && (
       <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden px-[4vw] py-4">
-        <div className="mb-3 grid shrink-0 gap-2 md:grid-cols-2 md:gap-3 xl:grid-cols-4">
-          {playersInGame.map((player, index) => {
-            const isCurrent =
-              index === currentPlayerIndex &&
-              !gameFinished &&
-              phase !== "roll-for-order";
-            const isMovingPlayer = index === movingPlayerIndex && isMoving;
-            const canOpenDice =
-              isCurrent &&
-              diceFlowPhase === "hidden" &&
-              !hasRolledThisTurn &&
-              canInteractWithDice();
-            const isDiceTurn =
-              isCurrent &&
-              diceFlowPhase !== "hidden" &&
-              index === currentPlayerIndex;
+        <div className="game-play-shell">
+          {currentPlayer && (
+            <aside className="game-inventory-sidebar">
+              <PlayerInventorySidebar
+                player={currentPlayer}
+                agentName={getAgentName(currentPlayer)}
+                agentBackgroundImage={getAgentBackgroundImage(currentPlayer)}
+                agentPortraitImage={getAgentPortraitImage(currentPlayer)}
+                isCurrentTurn={!gameFinished && phase !== "roll-for-order"}
+                canAct={inventoryCanAct}
+                canOpenDice={activeCanOpenDice}
+                diceHint={activeDiceHint}
+                performanceMode={effectivePerformanceMode}
+                pendingTargetItemId={pendingInventoryItemId}
+                otherPlayers={inventoryOtherPlayers}
+                onOpenDice={openDiceOverlay}
+                onUseItem={handleInventoryItemAction}
+                onCancelTarget={() => setPendingInventoryItemId(null)}
+              />
+            </aside>
+          )}
 
-            const cardClassName = `relative flex h-40 flex-col justify-between overflow-hidden rounded-2xl border p-3 text-left transition sm:h-44 ${isCurrent
-                ? "border-cyan-400/50 bg-cyan-400/10 shadow-[0_0_28px_rgba(34,211,238,0.12)]"
-                : "border-white/10 bg-zinc-900/70"
-              } ${isMovingPlayer ? "ring-2 ring-cyan-300/30" : ""} ${
-              canOpenDice
-                ? "cursor-pointer hover:border-cyan-300/70 hover:brightness-110"
-                : ""
-            }`;
+          <div className="game-play-main">
+            <div className="game-player-strip">
+              {orderedPlayerIndices.map((index) => {
+                const player = playersInGame[index];
+                if (!player) return null;
 
-            const cardBody = (
-              <>
-                {getAgentBackgroundImage(player) && (
-                  <img
-                    src={getAgentBackgroundImage(player)!}
-                    alt=""
-                    className={`pointer-events-none absolute left-0 top-1/2 z-0 -translate-y-1/2 object-contain opacity-15 ${
-                      effectivePerformanceMode ? "h-[280%]" : "h-[615%]"
-                    }`}
-                  />
-                )}
+                const isCurrent =
+                  index === currentPlayerIndex &&
+                  !gameFinished &&
+                  phase !== "roll-for-order";
+                const isMovingPlayer = index === movingPlayerIndex && isMoving;
+                const canOpenDice =
+                  isCurrent &&
+                  diceFlowPhase === "hidden" &&
+                  !hasRolledThisTurn &&
+                  canInteractWithDice();
+                const isDiceTurn =
+                  isCurrent &&
+                  diceFlowPhase !== "hidden" &&
+                  index === currentPlayerIndex;
 
-                <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-r from-transparent via-zinc-900/40 to-zinc-900/90" />
+                const cardClassName = `relative flex h-28 flex-col justify-between overflow-hidden rounded-2xl border p-3 text-left transition sm:h-32 ${
+                  isCurrent
+                    ? "border-cyan-400/50 bg-cyan-400/10 shadow-[0_0_28px_rgba(34,211,238,0.12)] lg:hidden"
+                    : "border-white/10 bg-zinc-900/70"
+                } ${isMovingPlayer ? "ring-2 ring-cyan-300/30" : ""} ${
+                  canOpenDice
+                    ? "cursor-pointer hover:border-cyan-300/70 hover:brightness-110"
+                    : ""
+                }`;
 
-                <div className="relative z-10 flex h-full flex-col justify-between">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                      {player.avatar ? (
-                        <img
-                          src={player.avatar}
-                          alt={player.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          className="flex h-full w-full items-center justify-center text-lg font-bold text-white"
-                          style={{ backgroundColor: player.color ?? "#334155" }}
+                const cardBody = (
+                  <>
+                    {getAgentBackgroundImage(player) && (
+                      <img
+                        src={getAgentBackgroundImage(player)!}
+                        alt=""
+                        className={`pointer-events-none absolute left-0 top-1/2 z-0 -translate-y-1/2 object-contain opacity-15 ${
+                          effectivePerformanceMode ? "h-[280%]" : "h-[615%]"
+                        }`}
+                      />
+                    )}
+
+                    <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-r from-transparent via-zinc-900/40 to-zinc-900/90" />
+
+                    <div className="relative z-10 flex h-full flex-col justify-between">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5">
+                          {player.avatar ? (
+                            <img
+                              src={player.avatar}
+                              alt={player.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div
+                              className="flex h-full w-full items-center justify-center text-base font-bold text-white"
+                              style={{
+                                backgroundColor: player.color ?? "#334155",
+                              }}
+                            >
+                              {(player.name.trim().charAt(0) || "?").toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-white">
+                            {player.name}
+                          </p>
+                          <p className="truncate text-[11px] text-zinc-400">
+                            {getAgentName(player)}
+                          </p>
+                          {canOpenDice && (
+                            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
+                              Tap to roll
+                            </p>
+                          )}
+                          {isDiceTurn && diceFlowPhase === "ready" && (
+                            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
+                              Roll on screen
+                            </p>
+                          )}
+                          {isDiceTurn && diceFlowPhase === "result" && (
+                            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                              Move on screen
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <img
+                            src="/points/Credits_icon.png"
+                            alt="Credits"
+                            className="h-5 w-5 object-contain"
+                          />
+                          <span className="flex h-6 items-center text-xl font-bold leading-none text-white">
+                            <AnimatedNumber value={player.creds} />
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <img
+                            src="/points/Radianite_Points.png"
+                            alt="Radianite"
+                            className="h-6 w-6 object-contain"
+                          />
+                          <span className="flex h-6 items-center text-xl font-bold leading-none text-cyan-300">
+                            <AnimatedNumber value={player.radianitePoints} />
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+
+                if (isCurrent) {
+                  return (
+                    <div
+                      key={player.id}
+                      className={`${cardClassName} flex flex-col gap-1.5`}
+                    >
+                      {canOpenDice ? (
+                        <button
+                          type="button"
+                          onClick={openDiceOverlay}
+                          className="relative min-h-0 flex-1 overflow-hidden rounded-xl text-left"
                         >
-                          {(player.name.trim().charAt(0) || "?").toUpperCase()}
+                          {cardBody}
+                        </button>
+                      ) : (
+                        <div className="relative min-h-0 flex-1 overflow-hidden">
+                          {cardBody}
                         </div>
                       )}
                     </div>
+                  );
+                }
 
-                    <div className="min-w-0">
-                      <p className="truncate text-base font-bold text-white">
-                        {player.name}
-                      </p>
-                      {canOpenDice && (
-                        <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-cyan-300">
-                          Tap to roll
-                        </p>
-                      )}
-                      {isDiceTurn && diceFlowPhase === "ready" && (
-                        <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-cyan-300">
-                          Roll on screen
-                        </p>
-                      )}
-                      {isDiceTurn && diceFlowPhase === "result" && (
-                        <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-emerald-300">
-                          Move on screen
-                        </p>
-                      )}
-                    </div>
+                return (
+                  <div key={player.id} className={cardClassName}>
+                    {cardBody}
                   </div>
+                );
+              })}
+            </div>
 
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <img
-                        src="/points/Credits_icon.png"
-                        alt="Credits"
-                        className="h-6 w-6 object-contain"
-                      />
-                      <span className="flex h-7 items-center text-[30px] font-bold leading-none text-white -translate-y-[2px]">
-                        <AnimatedNumber value={player.creds} />
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <img
-                        src="/points/Radianite_Points.png"
-                        alt="Radianite"
-                        className="h-8 w-8 object-contain"
-                      />
-                      <span className="flex h-7 items-center text-[30px] font-bold leading-none text-cyan-300 -translate-y-[2px]">
-                        <AnimatedNumber value={player.radianitePoints} />
-                      </span>
-                    </div>
-                  </div>
+            {currentPlayer && (
+              <div className="game-inventory-mobile-bar">
+                <div className="game-inventory-mobile-bar__meta">
+                  <p>{currentPlayer.name}</p>
+                  <p>
+                    {getAgentName(currentPlayer)}
+                    {currentPlayer.weapon
+                      ? ` · ${currentPlayer.weapon}`
+                      : " · No weapon"}
+                  </p>
                 </div>
-
-                <div className="mt-3">
-                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-                      Weapon
-                    </p>
-                    <p className="mt-1 truncate text-sm font-semibold text-white">
-                      {player.weapon ?? "None"}
-                    </p>
-                    {player.shield && (
-                      <p className="mt-0.5 truncate text-xs text-zinc-400">
-                        {player.shield}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-3 flex min-h-[32px] items-center gap-2 text-xs">
-                  <div
-                    className={`rounded-full px-2 py-1 font-medium transition-opacity ${player.nextWeaponDiscount > 0
-                      ? "bg-emerald-500/10 text-emerald-300 opacity-100"
-                      : "bg-white/5 text-white/30"
-                      }`}
-                  >
-                    {player.nextWeaponDiscount > 0
-                      ? `Discount: -${player.nextWeaponDiscount}`
-                      : "No discount"}
-                  </div>
-                </div>
-              </>
-            );
-
-            return canOpenDice ? (
-              <button
-                key={player.id}
-                type="button"
-                onClick={openDiceOverlay}
-                className={cardClassName}
-              >
-                {cardBody}
-              </button>
-            ) : (
-              <div key={player.id} className={cardClassName}>
-                {cardBody}
+                <button
+                  type="button"
+                  className="game-inventory-mobile-bar__btn"
+                  onClick={() => setMobileInventoryOpen(true)}
+                >
+                  Loadout
+                </button>
               </div>
-            );
-          })}
+            )}
+
+            <div className="game-board-area">
+              <BoardMap
+                players={playersInGame}
+                currentPlayerIndex={currentPlayerIndex}
+                movingPlayerIndex={movingPlayerIndex}
+                animatedToken={animatedToken}
+                round={round}
+                maxRounds={MAX_ROUNDS}
+                activeSpikeNodeId={
+                  activeSpike &&
+                  (activeSpike.status === "planted" ||
+                    activeSpike.status === "half-defused")
+                    ? activeSpike.plantedOnNodeId
+                    : null
+                }
+                activeSpikeStatus={
+                  activeSpike?.status === "planted" ||
+                  activeSpike?.status === "half-defused"
+                    ? activeSpike.status
+                    : null
+                }
+                onTileClick={handleBoardTileClick}
+                debugClickable={debugBoardAction !== null}
+                selectableNodeIds={pendingPathChoice?.options ?? []}
+                pathChoiceHint={
+                  pendingPathChoice
+                    ? `${playersInGame[pendingPathChoice.playerIndex]?.name ?? "Player"} — choose your route, click a highlighted tile`
+                    : null
+                }
+                spikePlantAnimation={spikePlantAnimation}
+                onSpikePlantAnimationComplete={handleSpikePlantAnimationComplete}
+              />
+            </div>
+          </div>
         </div>
 
-        <div className="min-h-0 flex-1">
-        <BoardMap
-          players={playersInGame}
-          currentPlayerIndex={currentPlayerIndex}
-          movingPlayerIndex={movingPlayerIndex}
-          animatedToken={animatedToken}
-          round={round}
-          maxRounds={MAX_ROUNDS}
-          activeSpikeNodeId={
-            activeSpike &&
-            (activeSpike.status === "planted" ||
-              activeSpike.status === "half-defused")
-              ? activeSpike.plantedOnNodeId
-              : null
-          }
-          activeSpikeStatus={
-            activeSpike?.status === "planted" ||
-            activeSpike?.status === "half-defused"
-              ? activeSpike.status
-              : null
-          }
-          onTileClick={handleBoardTileClick}
-          debugClickable={debugBoardAction !== null}
-          selectableNodeIds={pendingPathChoice?.options ?? []}
-          pathChoiceHint={
-            pendingPathChoice
-              ? `${playersInGame[pendingPathChoice.playerIndex]?.name ?? "Player"} — choose your route, click a highlighted tile`
-              : null
-          }
-          spikePlantAnimation={spikePlantAnimation}
-          onSpikePlantAnimationComplete={handleSpikePlantAnimationComplete}
-        />
-        </div>
+        {mobileInventoryOpen && currentPlayer && (
+          <div
+            className="game-inventory-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Player loadout"
+            onClick={() => setMobileInventoryOpen(false)}
+          >
+            <div
+              className="game-inventory-sheet__panel"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <PlayerInventorySidebar
+                player={currentPlayer}
+                agentName={getAgentName(currentPlayer)}
+                agentBackgroundImage={getAgentBackgroundImage(currentPlayer)}
+                agentPortraitImage={getAgentPortraitImage(currentPlayer)}
+                isCurrentTurn={!gameFinished && phase !== "roll-for-order"}
+                canAct={inventoryCanAct}
+                canOpenDice={activeCanOpenDice}
+                diceHint={activeDiceHint}
+                performanceMode={effectivePerformanceMode}
+                pendingTargetItemId={pendingInventoryItemId}
+                otherPlayers={inventoryOtherPlayers}
+                onOpenDice={() => {
+                  setMobileInventoryOpen(false);
+                  openDiceOverlay();
+                }}
+                onUseItem={handleInventoryItemAction}
+                onCancelTarget={() => setPendingInventoryItemId(null)}
+                onClose={() => setMobileInventoryOpen(false)}
+              />
+            </div>
+          </div>
+        )}
       </div>
       )}
       {DEBUG_ENABLED && debugOverlayOpen && (
