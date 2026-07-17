@@ -118,8 +118,12 @@ type MultiplayerGameConfig = {
 type GamePageProps = {
   players: Player[];
   agents: Agent[];
+  /** Restore a local (pass-and-play) match after refresh. */
+  initialSnapshot?: OnlineGameSnapshot;
   onBackToLobby?: () => void;
   onLeaveMatch?: () => void;
+  /** Persist local game state for refresh restore (online uses WS sync instead). */
+  onLocalSnapshotChange?: (snapshot: OnlineGameSnapshot) => void;
   performanceSettings: ReturnType<typeof usePerformanceSettings>;
   multiplayer?: MultiplayerGameConfig;
 };
@@ -369,21 +373,28 @@ function fromSyncedActiveStoryEvent(
 export default function GamePage({
   players,
   agents,
+  initialSnapshot,
   onBackToLobby,
   onLeaveMatch,
+  onLocalSnapshotChange,
   performanceSettings,
   multiplayer,
 }: GamePageProps) {
   const isOnlineGuest = !!multiplayer && !multiplayer.isHost;
-  const initialTurnOrder = multiplayer?.initialTurnOrder ?? [];
+  const restoredLocal = !multiplayer && !!initialSnapshot;
+  const initialTurnOrder =
+    multiplayer?.initialTurnOrder ?? initialSnapshot?.turnOrder ?? [];
   const hasPresetTurnOrder = initialTurnOrder.length > 0;
   const { effectivePerformanceMode, performanceMode, togglePerformanceMode } =
     performanceSettings;
   const [gameMenuOpen, setGameMenuOpen] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const canOpenGameMenu = Boolean(multiplayer || onBackToLobby || onLeaveMatch);
-  const [playersInGame, setPlayersInGame] = useState<PlayerInGame[]>(
-    players.map((player, index): PlayerInGame => {
+  const [playersInGame, setPlayersInGame] = useState<PlayerInGame[]>(() => {
+    if (initialSnapshot?.players?.length) {
+      return initialSnapshot.players as PlayerInGame[];
+    }
+    return players.map((player, index): PlayerInGame => {
       const selectedAgent = agents.find(
         (agent) => agent.uuid === player.selectedAgentId
       );
@@ -404,33 +415,53 @@ export default function GamePage({
         maxStepsPerTurn: null,
         maxStepsTurns: 0,
       };
-    })
-  );
+    });
+  });
 
   const [phase, setPhase] = useState<TurnPhase>(
-    hasPresetTurnOrder ? "playing" : "roll-for-order"
+    initialSnapshot?.phase ??
+      (hasPresetTurnOrder ? "playing" : "roll-for-order")
   );
-  const [round, setRound] = useState(1);
+  const [round, setRound] = useState(initialSnapshot?.round ?? 1);
 
   const [turnOrder, setTurnOrder] = useState<number[]>(initialTurnOrder);
-  const [currentTurnOrderIndex, setCurrentTurnOrderIndex] = useState(0);
-  const [turnOrderRevealOpen, setTurnOrderRevealOpen] = useState(!hasPresetTurnOrder);
+  const [currentTurnOrderIndex, setCurrentTurnOrderIndex] = useState(
+    initialSnapshot?.currentTurnOrderIndex ?? 0
+  );
+  const [turnOrderRevealOpen, setTurnOrderRevealOpen] = useState(
+    restoredLocal
+      ? initialSnapshot?.phase === "roll-for-order"
+      : !hasPresetTurnOrder
+  );
   const [shopKeeper, setShopKeeper] = useState<ShopKeeper | null>(null);
   const [shopOffers, setShopOffers] = useState<ShopOffer[]>([]);
   const [pendingPurchase, setPendingPurchase] = useState<ShopOffer | null>(null);
   const [purchasedShopOfferIds, setPurchasedShopOfferIds] = useState<string[]>([]);
 
-  const [lastRoll, setLastRoll] = useState<number | null>(null);
-  const [diceDisplayValue, setDiceDisplayValue] = useState<number | null>(null);
-  const [diceFlowPhase, setDiceFlowPhase] = useState<DiceFlowPhase>("hidden");
-  const [hasRolledThisTurn, setHasRolledThisTurn] = useState(false);
+  const [lastRoll, setLastRoll] = useState<number | null>(
+    initialSnapshot?.lastRoll ?? null
+  );
+  const [diceDisplayValue, setDiceDisplayValue] = useState<number | null>(
+    initialSnapshot?.diceDisplayValue ?? null
+  );
+  const [diceFlowPhase, setDiceFlowPhase] = useState<DiceFlowPhase>(
+    initialSnapshot?.diceFlowPhase ?? "hidden"
+  );
+  const [hasRolledThisTurn, setHasRolledThisTurn] = useState(
+    initialSnapshot?.hasRolledThisTurn ?? false
+  );
 
-  const [turnBannerPlayerIndex, setTurnBannerPlayerIndex] = useState<number | null>(null);
+  const [turnBannerPlayerIndex, setTurnBannerPlayerIndex] = useState<number | null>(
+    initialSnapshot?.turnBannerPlayerIndex ?? null
+  );
   const [lastBannerPlayerIndex, setLastBannerPlayerIndex] = useState<number | null>(null);
 
-  const [statusTitle, setStatusTitle] = useState("Determine turn order");
+  const [statusTitle, setStatusTitle] = useState(
+    initialSnapshot?.statusTitle ?? "Determine turn order"
+  );
   const [statusSubtitle, setStatusSubtitle] = useState(
-    "One random draw decides who goes first."
+    initialSnapshot?.statusSubtitle ??
+      "One random draw decides who goes first."
   );
 
   const [announcement, setAnnouncement] = useState<{
@@ -439,8 +470,9 @@ export default function GamePage({
   } | null>(null);
 
   const announcementTimeoutRef = useRef<number | null>(null);
-  const snapshotVersionRef = useRef(0);
-  const lastAppliedSnapshotVersionRef = useRef(-1);
+  const snapshotVersionRef = useRef(initialSnapshot?.version ?? 0);
+  const lastAppliedSnapshotVersionRef = useRef(initialSnapshot?.version ?? -1);
+  const localSnapshotReadyRef = useRef(false);
   const onlineIntroShownRef = useRef(false);
   const remoteActionHandlerRef = useRef<
     (fromPlayerId: string, action: OnlineGameAction) => void
@@ -516,13 +548,17 @@ export default function GamePage({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canOpenGameMenu, leaveConfirmOpen]);
 
-  const [isMoving, setIsMoving] = useState(false);
-  const [movingPlayerIndex, setMovingPlayerIndex] = useState<number | null>(null);
+  const [isMoving, setIsMoving] = useState(initialSnapshot?.isMoving ?? false);
+  const [movingPlayerIndex, setMovingPlayerIndex] = useState<number | null>(
+    initialSnapshot?.movingPlayerIndex ?? null
+  );
 
   const [pendingPathChoice, setPendingPathChoice] =
-    useState<PendingPathChoice | null>(null);
+    useState<PendingPathChoice | null>(initialSnapshot?.pendingPathChoice ?? null);
 
-  const [animatedToken, setAnimatedToken] = useState<AnimatedTokenState>(null);
+  const [animatedToken, setAnimatedToken] = useState<AnimatedTokenState>(
+    initialSnapshot?.animatedToken ?? null
+  );
 
   const [lastEventTitle, setLastEventTitle] = useState<string | null>(null);
   const [canBuyAfterLanding, setCanBuyAfterLanding] = useState(false);
@@ -626,8 +662,20 @@ export default function GamePage({
     useState<PendingEventChoiceState | null>(null);
   const [eventEffectsApplied, setEventEffectsApplied] = useState(false);
   const [scheduledCustomMatch, setScheduledCustomMatch] =
-    useState<ScheduledCustomMatch | null>(null);
-  const [customMatchPhase, setCustomMatchPhase] = useState<CustomMatchPhase | null>(null);
+    useState<ScheduledCustomMatch | null>(() =>
+      initialSnapshot?.scheduledCustomMatch
+        ? fromSyncedScheduledCustomMatch(initialSnapshot.scheduledCustomMatch)
+        : null
+    );
+  const [customMatchPhase, setCustomMatchPhase] = useState<CustomMatchPhase | null>(
+    () => {
+      if (!initialSnapshot?.customMatchPhase) return null;
+      const syncedMatch = initialSnapshot.scheduledCustomMatch
+        ? fromSyncedScheduledCustomMatch(initialSnapshot.scheduledCustomMatch)
+        : null;
+      return mergeCustomMatchPhase(initialSnapshot.customMatchPhase, syncedMatch);
+    }
+  );
   const [pendingRoundWrap, setPendingRoundWrap] = useState<{
     title?: string;
     subtitle?: string;
@@ -640,7 +688,11 @@ export default function GamePage({
     directorPick: DirectorPickPayload;
     introDurationMs: number;
     showDirectorIntro: boolean;
-  } | null>(null);
+  } | null>(() =>
+    initialSnapshot?.activeStoryEvent
+      ? fromSyncedActiveStoryEvent(initialSnapshot.activeStoryEvent)
+      : null
+  );
 
   useEffect(() => {
     if (
@@ -2686,6 +2738,64 @@ export default function GamePage({
     phase,
     playersInGame,
     publishSnapshot,
+    round,
+    scheduledCustomMatch,
+    statusSubtitle,
+    statusTitle,
+    turnBannerPlayerIndex,
+    turnOrder,
+  ]);
+
+  useEffect(() => {
+    if (multiplayer || !onLocalSnapshotChange) return;
+
+    // Skip the first paint so a restored snapshot is not immediately rewritten.
+    if (!localSnapshotReadyRef.current) {
+      localSnapshotReadyRef.current = true;
+      return;
+    }
+
+    snapshotVersionRef.current += 1;
+    onLocalSnapshotChange({
+      version: snapshotVersionRef.current,
+      turnOrder,
+      currentTurnOrderIndex,
+      round,
+      phase,
+      players: playersInGame,
+      lastRoll,
+      diceDisplayValue,
+      diceFlowPhase,
+      hasRolledThisTurn,
+      turnBannerPlayerIndex,
+      statusTitle,
+      statusSubtitle,
+      isMoving,
+      movingPlayerIndex,
+      animatedToken,
+      pendingPathChoice,
+      activeStoryEvent: activeStoryEvent
+        ? toSyncedActiveStoryEvent(activeStoryEvent)
+        : null,
+      scheduledCustomMatch: toSyncedScheduledCustomMatch(scheduledCustomMatch),
+      customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
+    });
+  }, [
+    activeStoryEvent,
+    animatedToken,
+    customMatchPhase,
+    currentTurnOrderIndex,
+    diceDisplayValue,
+    diceFlowPhase,
+    hasRolledThisTurn,
+    isMoving,
+    lastRoll,
+    movingPlayerIndex,
+    multiplayer,
+    onLocalSnapshotChange,
+    pendingPathChoice,
+    phase,
+    playersInGame,
     round,
     scheduledCustomMatch,
     statusSubtitle,

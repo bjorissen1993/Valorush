@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { PlayerProfile } from "../../shared/lobbyTypes";
-import { validateLobbyCode } from "../services/lobbyClient";
+import { lobbyCodeToSlug } from "../../shared/lobbySlug";
+import {
+  setPendingJoinCode,
+  validateLobbyCode,
+} from "../services/lobbyClient";
 import {
   clearTwitchLink,
   getStoredTwitchLink,
@@ -75,13 +79,19 @@ export default function LobbyIdentityPage({
   }, [joinCode, mode]);
 
   function getOAuthReturnPath() {
-    return mode === "join" && joinCode ? `/lobby/${joinCode}` : "/?create=1";
+    if (mode === "join" && joinCode) {
+      return `/lobby/${lobbyCodeToSlug(joinCode)}`;
+    }
+    return "/?create=1";
   }
 
   function handleTwitchLogin() {
     setError(null);
 
     try {
+      if (mode === "join" && joinCode) {
+        setPendingJoinCode(joinCode);
+      }
       startTwitchOAuth(getOAuthReturnPath());
     } catch (oauthError) {
       setError(

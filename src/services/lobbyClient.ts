@@ -7,6 +7,11 @@ import type {
   PlayerProfile,
   ServerMessage,
 } from "../../shared/lobbyTypes";
+import {
+  classifyLobbyPathSegment,
+  lobbyCodeToSlug,
+  normalizeLobbyCode,
+} from "../../shared/lobbySlug";
 
 export type LobbySessionPhase = "lobby" | "turn_order" | "in_game";
 import type {
@@ -32,6 +37,8 @@ const SESSION_TURN_ORDER = "valorush_lobby_turn_order";
 /** Ephemeral kick banner — sessionStorage is enough (same-tab handoff). */
 const SESSION_KICKED = "valorush_kicked_reason";
 const LOBBY_WS_URL_KEY = "valorush_lobby_ws_url";
+/** Pending join code across Twitch OAuth (slug-only return URLs). */
+const PENDING_JOIN_CODE_KEY = "valorush_pending_join_code";
 
 const LOBBY_SESSION_KEYS = [
   SESSION_PLAYER_ID,
@@ -195,6 +202,7 @@ export function persistLobbySession(
   writePersistedItem(SESSION_ROOM_CODE, code);
   writePersistedItem(SESSION_PLAYER_ID, playerId);
   writePersistedItem(SESSION_PHASE, phase);
+  clearPendingJoinCode();
   syncLobbyUrl(code);
 
   if (extras?.profile) {
@@ -269,6 +277,7 @@ export function clearLobbySession(): void {
   for (const key of LOBBY_SESSION_KEYS) {
     removePersistedItem(key);
   }
+  clearPendingJoinCode();
 }
 
 export function setLobbyKickedFlag(reason = "host"): void {
@@ -523,12 +532,11 @@ export class LobbyClient {
 
 const LOBBY_PATH_RE = /^\/lobby\/([A-Za-z0-9]+)\/?$/i;
 
-function normalizeLobbyCode(raw: string): string {
-  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
+export { normalizeLobbyCode, lobbyCodeToSlug };
 
 export function buildLobbyPath(code: string): string {
-  return `/lobby/${normalizeLobbyCode(code)}`;
+  const slug = lobbyCodeToSlug(code);
+  return slug ? `/lobby/${slug}` : "/";
 }
 
 export function buildJoinUrl(code: string): string {
@@ -539,17 +547,91 @@ export function buildJoinUrl(code: string): string {
   return url.toString();
 }
 
-/** Reads `/lobby/:code` first, then legacy `?join=CODE`. */
-export function readJoinCodeFromUrl(): string | null {
+export type LobbyUrlContext =
+  | { kind: "code"; code: string; slug: string }
+  | { kind: "slug"; slug: string; code: null }
+  | null;
+
+/** Reads `/lobby/:slug` (or legacy `/lobby/:code` / `?join=CODE`). */
+export function readLobbyUrlContext(): LobbyUrlContext {
   const pathMatch = window.location.pathname.match(LOBBY_PATH_RE);
   if (pathMatch?.[1]) {
-    const fromPath = normalizeLobbyCode(pathMatch[1]);
-    return fromPath || null;
+    const classified = classifyLobbyPathSegment(pathMatch[1]);
+    if (classified?.kind === "code") {
+      return {
+        kind: "code",
+        code: classified.code,
+        slug: lobbyCodeToSlug(classified.code),
+      };
+    }
+    if (classified?.kind === "slug") {
+      return { kind: "slug", slug: classified.slug, code: null };
+    }
   }
 
   const params = new URLSearchParams(window.location.search);
   const join = params.get("join")?.trim();
-  return join ? normalizeLobbyCode(join) : null;
+  if (join) {
+    const code = normalizeLobbyCode(join);
+    if (code) {
+      return { kind: "code", code, slug: lobbyCodeToSlug(code) };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolve a join code from the URL when possible.
+ * Prefer the stored session / pending OAuth code when the path only has a slug.
+ */
+export function readJoinCodeFromUrl(): string | null {
+  const ctx = readLobbyUrlContext();
+  if (!ctx) return null;
+  if (ctx.kind === "code") return ctx.code;
+
+  const stored = readStoredLobbySession();
+  if (stored?.code && lobbyCodeToSlug(stored.code) === ctx.slug) {
+    return stored.code;
+  }
+
+  const pending = readPendingJoinCode();
+  if (pending && lobbyCodeToSlug(pending) === ctx.slug) {
+    return pending;
+  }
+
+  return null;
+}
+
+export function readLobbySlugFromUrl(): string | null {
+  return readLobbyUrlContext()?.slug ?? null;
+}
+
+export function setPendingJoinCode(code: string): void {
+  const normalized = normalizeLobbyCode(code);
+  if (!normalized) return;
+  try {
+    sessionStorage.setItem(PENDING_JOIN_CODE_KEY, normalized);
+  } catch {
+    // ignore
+  }
+}
+
+export function readPendingJoinCode(): string | null {
+  try {
+    const value = sessionStorage.getItem(PENDING_JOIN_CODE_KEY);
+    return value ? normalizeLobbyCode(value) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingJoinCode(): void {
+  try {
+    sessionStorage.removeItem(PENDING_JOIN_CODE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 function writeHistoryUrl(path: string, mode: "replace" | "push"): void {
@@ -558,7 +640,7 @@ function writeHistoryUrl(path: string, mode: "replace" | "push"): void {
   write.call(window.history, {}, "", path);
 }
 
-/** Keep the address bar on `/lobby/:CODE` while in a multiplayer session. */
+/** Keep the address bar on `/lobby/:slug` while in a multiplayer session. */
 export function syncLobbyUrl(
   code: string,
   mode: "replace" | "push" = "replace"
@@ -588,20 +670,31 @@ export function clearJoinCodeFromUrl(): void {
 }
 
 /**
- * Migrate legacy `?join=CODE` to `/lobby/CODE`.
+ * Migrate legacy `?join=CODE` or `/lobby/CODE` to `/lobby/<slug>`.
  * Skips Twitch OAuth callback URLs (`?code=&state=`).
  */
 export function canonicalizeLobbyUrl(): void {
   const params = new URLSearchParams(window.location.search);
   if (params.has("code") && params.has("state")) return;
 
-  const join = params.get("join")?.trim();
-  if (!join) return;
+  const ctx = readLobbyUrlContext();
+  if (!ctx) return;
 
-  const code = normalizeLobbyCode(join);
-  if (!code) return;
+  if (ctx.kind === "code") {
+    setPendingJoinCode(ctx.code);
+    const target = buildLobbyPath(ctx.code);
+    const path = window.location.pathname.replace(/\/$/, "") || "/";
+    const hasJoinQuery = params.has("join");
+    if (path !== target.replace(/\/$/, "") || hasJoinQuery || window.location.hash) {
+      writeHistoryUrl(target, "replace");
+    }
+    return;
+  }
 
-  writeHistoryUrl(buildLobbyPath(code), "replace");
+  // Already a slug path — drop legacy join query if present.
+  if (params.has("join")) {
+    writeHistoryUrl(`/lobby/${ctx.slug}`, "replace");
+  }
 }
 
 const LOBBY_CHECK_TIMEOUT_MS = 10_000;

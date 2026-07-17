@@ -4,6 +4,7 @@ import LoadingScreen from "./components/LoadingScreen";
 import GamePage from "./components/GamePage";
 import HomePage from "./components/HomePage";
 import LobbyIdentityPage from "./components/LobbyIdentityPage";
+import LobbyCodeEntryModal from "./components/LobbyCodeEntryModal";
 import MultiplayerLobbyPage from "./components/MultiplayerLobbyPage";
 import MultiplayerTurnOrderPage from "./components/MultiplayerTurnOrderPage";
 import { usePerformanceSettings } from "./hooks/usePerformanceSettings";
@@ -11,21 +12,35 @@ import { useAgents } from "./hooks/useLobbyRoom";
 import {
   canonicalizeLobbyUrl,
   clearLobbySession,
+  clearPendingJoinCode,
+  lobbyCodeToSlug,
   navigateToHome,
   readJoinCodeFromUrl,
+  readLobbySlugFromUrl,
+  readLobbyUrlContext,
+  readPendingJoinCode,
   readStoredLobbySession,
+  setPendingJoinCode,
   syncLobbyUrl,
   validateLobbyCode,
 } from "./services/lobbyClient";
+import {
+  clearLocalSession,
+  persistLocalSession,
+  readLocalSession,
+  type LocalSession,
+} from "./services/localSession";
 import {
   completeTwitchOAuthIfPending,
   consumeTwitchOAuthError,
   identityToProfile,
 } from "./services/twitchOAuth";
 import { lobbyPlayersToLocalIds } from "../shared/lobbyTypes";
+import { LOBBY_SLUG_LENGTH } from "../shared/lobbySlug";
 import type { Player } from "./types/Player";
 import type { Agent } from "./types/Agent";
 import type { GameStartingPayload, PlayerProfile } from "../shared/lobbyTypes";
+import type { OnlineGameSnapshot } from "../shared/onlineGameTypes";
 
 type Screen =
   | "home"
@@ -51,11 +66,16 @@ type RestoredMultiplayerState = {
   players: ReturnType<typeof lobbyPlayersToLocalIds>;
 };
 
-function parseLobbyCodeFromReturnPath(returnPath: string): string {
-  const pathMatch = returnPath.match(/\/lobby\/([A-Z0-9]+)/i);
-  if (pathMatch?.[1]) return pathMatch[1].toUpperCase();
-  const queryMatch = returnPath.match(/[?&]join=([A-Z0-9]+)/i);
-  return queryMatch?.[1]?.toUpperCase() ?? "";
+type RestoredLocalState = {
+  screen: Screen;
+  players: Player[];
+  agents: Agent[];
+  gameSnapshot: OnlineGameSnapshot | null;
+};
+
+function parseLobbySlugFromReturnPath(returnPath: string): string | null {
+  const pathMatch = returnPath.match(/\/lobby\/([A-Za-z0-9]+)/i);
+  return pathMatch?.[1]?.toLowerCase() ?? null;
 }
 
 /**
@@ -67,9 +87,10 @@ function restoreMultiplayerFromSession(): RestoredMultiplayerState | null {
   const stored = readStoredLobbySession();
   if (!stored?.profile || !stored.playerId || !stored.code) return null;
 
-  const urlCode = readJoinCodeFromUrl();
+  const urlSlug = readLobbySlugFromUrl();
+  const storedSlug = lobbyCodeToSlug(stored.code);
   // Opened a different lobby link than the stored session — let URL join win.
-  if (urlCode && urlCode !== stored.code) return null;
+  if (urlSlug && urlSlug !== storedSlug) return null;
 
   const players = stored.gameStarting
     ? lobbyPlayersToLocalIds(stored.gameStarting.players)
@@ -99,50 +120,132 @@ function restoreMultiplayerFromSession(): RestoredMultiplayerState | null {
   };
 }
 
+function restoreLocalFromSession(): RestoredLocalState | null {
+  // Prefer online restore when a multiplayer session is active for this URL.
+  if (restoreMultiplayerFromSession()) return null;
+  if (readLobbyUrlContext()) return null;
+
+  const stored = readLocalSession();
+  if (!stored) return null;
+
+  let screen: Screen = "local_lobby";
+  if (stored.phase === "pregame") screen = "pregame";
+  if (stored.phase === "game") {
+    screen = stored.gameSnapshot ? "game" : "pregame";
+  }
+
+  return {
+    screen,
+    players: stored.players,
+    agents: stored.agents ?? [],
+    gameSnapshot: stored.gameSnapshot ?? null,
+  };
+}
+
 export default function App() {
-  const restored = useMemo(() => {
+  const restoredMp = useMemo(() => {
     canonicalizeLobbyUrl();
     return restoreMultiplayerFromSession();
   }, []);
+  const restoredLocal = useMemo(() => restoreLocalFromSession(), []);
+
   const performanceSettings = usePerformanceSettings();
-  const [screen, setScreen] = useState<Screen>(restored?.screen ?? "home");
-  const [mpMode, setMpMode] = useState<"create" | "join">(restored?.mpMode ?? "create");
-  const [joinCode, setJoinCode] = useState(restored?.joinCode ?? "");
+  const [screen, setScreen] = useState<Screen>(
+    restoredMp?.screen ?? restoredLocal?.screen ?? "home"
+  );
+  const [mpMode, setMpMode] = useState<"create" | "join">(
+    restoredMp?.mpMode ?? "create"
+  );
+  const [joinCode, setJoinCode] = useState(restoredMp?.joinCode ?? "");
   const [lobbyProfile, setLobbyProfile] = useState<PlayerProfile | null>(
-    restored?.lobbyProfile ?? null
+    restoredMp?.lobbyProfile ?? null
   );
   const [homeJoinError, setHomeJoinError] = useState<string | null>(null);
   const [validatingUrlJoin, setValidatingUrlJoin] = useState(false);
-  const urlJoinValidatedRef = useRef(false);
+  const [codeEntrySlug, setCodeEntrySlug] = useState<string | null>(null);
+  const urlJoinHandledRef = useRef(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [mpSession, setMpSession] = useState<{
     payload: GameStartingPayload;
     isHost: boolean;
     yourPlayerId: string;
-  } | null>(restored?.mpSession ?? null);
-  const [mpTurnOrder, setMpTurnOrder] = useState<number[]>(restored?.mpTurnOrder ?? []);
+  } | null>(restoredMp?.mpSession ?? null);
+  const [mpTurnOrder, setMpTurnOrder] = useState<number[]>(
+    restoredMp?.mpTurnOrder ?? []
+  );
 
-  const [players, setPlayers] = useState<Player[]>(restored?.players ?? []);
-  const [localAgents, setLocalAgents] = useState<Agent[]>([]);
+  const [players, setPlayers] = useState<Player[]>(
+    restoredMp?.players ?? restoredLocal?.players ?? []
+  );
+  const [localAgents, setLocalAgents] = useState<Agent[]>(
+    restoredLocal?.agents ?? []
+  );
+  const [localGameSnapshot, setLocalGameSnapshot] =
+    useState<OnlineGameSnapshot | null>(restoredLocal?.gameSnapshot ?? null);
   const { agents: loadedAgents } = useAgents();
   const agents = localAgents.length > 0 ? localAgents : loadedAgents;
 
-  // Ensure lobby code is in the URL after a localStorage restore.
+  // Ensure hashed lobby slug is in the URL after a localStorage restore.
   useEffect(() => {
-    if (restored?.joinCode) {
-      syncLobbyUrl(restored.joinCode);
+    if (restoredMp?.joinCode) {
+      syncLobbyUrl(restoredMp.joinCode);
     }
-  }, [restored]);
+  }, [restoredMp]);
+
+  const persistLocal = useCallback(
+    (next: Partial<LocalSession> & { phase: LocalSession["phase"] }) => {
+      const session: LocalSession = {
+        phase: next.phase,
+        players: next.players ?? players,
+        agents: next.agents ?? (localAgents.length > 0 ? localAgents : undefined),
+        gameSnapshot:
+          next.gameSnapshot !== undefined
+            ? next.gameSnapshot
+            : next.phase === "game"
+              ? localGameSnapshot ?? undefined
+              : undefined,
+      };
+      persistLocalSession(session);
+      if (next.gameSnapshot !== undefined) {
+        setLocalGameSnapshot(next.gameSnapshot);
+      }
+    },
+    [localAgents, localGameSnapshot, players]
+  );
 
   const handleOAuthProfile = useCallback((profile: PlayerProfile, returnPath: string) => {
     setLobbyProfile(profile);
 
-    const lobbyFromReturn = parseLobbyCodeFromReturnPath(returnPath);
-    if (lobbyFromReturn || returnPath.includes("join=")) {
-      const code = lobbyFromReturn || readJoinCodeFromUrl() || "";
-      setJoinCode(code);
+    const slugFromReturn = parseLobbySlugFromReturnPath(returnPath);
+    const pendingCode = readPendingJoinCode();
+    const codeFromPending =
+      pendingCode &&
+      slugFromReturn &&
+      lobbyCodeToSlug(pendingCode) ===
+        slugFromReturn.toLowerCase().slice(0, LOBBY_SLUG_LENGTH)
+        ? pendingCode
+        : null;
+    const code =
+      codeFromPending ||
+      readJoinCodeFromUrl() ||
+      (returnPath.includes("join=")
+        ? new URLSearchParams(returnPath.split("?")[1] ?? "").get("join")
+        : null);
+
+    if (slugFromReturn || returnPath.includes("join=") || code) {
+      const normalized = code ? code.toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
+      if (normalized) {
+        setJoinCode(normalized);
+        setPendingJoinCode(normalized);
+        syncLobbyUrl(normalized);
+      } else if (slugFromReturn) {
+        setCodeEntrySlug(
+          slugFromReturn.toLowerCase().slice(0, LOBBY_SLUG_LENGTH)
+        );
+        setScreen("home");
+        return;
+      }
       setMpMode("join");
-      if (code) syncLobbyUrl(code);
       setScreen("identity_join");
       return;
     }
@@ -176,63 +279,82 @@ export default function App() {
     void handleOAuthCallback();
   }, [handleOAuthProfile]);
 
-  // Cold load with /lobby/:code (or ?join=) and no matching session → identity join.
+  // Cold load with /lobby/:slug and no matching session → code entry popup.
   useEffect(() => {
-    if (restored) return;
-    const codeFromUrl = readJoinCodeFromUrl();
-    if (!codeFromUrl || screen !== "home" || urlJoinValidatedRef.current) return;
+    if (restoredMp || restoredLocal) return;
+    if (screen !== "home" || urlJoinHandledRef.current) return;
 
-    let cancelled = false;
-    urlJoinValidatedRef.current = true;
-    setValidatingUrlJoin(true);
-    setHomeJoinError(null);
+    const ctx = readLobbyUrlContext();
+    if (!ctx) return;
 
-    void validateLobbyCode(codeFromUrl)
-      .then(() => {
-        if (cancelled) return;
-        setJoinCode(codeFromUrl);
-        syncLobbyUrl(codeFromUrl);
-        setScreen("identity_join");
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        navigateToHome("replace");
-        setHomeJoinError(
-          error instanceof Error
-            ? error.message
-            : "Lobby not found. Check the join code."
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setValidatingUrlJoin(false);
-      });
+    urlJoinHandledRef.current = true;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [restored, screen]);
+    const knownCode =
+      ctx.kind === "code"
+        ? ctx.code
+        : readPendingJoinCode() &&
+            lobbyCodeToSlug(readPendingJoinCode()!) === ctx.slug
+          ? readPendingJoinCode()!
+          : null;
+
+    if (knownCode) {
+      setValidatingUrlJoin(true);
+      setHomeJoinError(null);
+      void validateLobbyCode(knownCode)
+        .then(() => {
+          setJoinCode(knownCode);
+          setPendingJoinCode(knownCode);
+          syncLobbyUrl(knownCode);
+          setScreen("identity_join");
+        })
+        .catch((error) => {
+          navigateToHome("replace");
+          clearPendingJoinCode();
+          setHomeJoinError(
+            error instanceof Error
+              ? error.message
+              : "Lobby not found. Check the join code."
+          );
+        })
+        .finally(() => {
+          setValidatingUrlJoin(false);
+        });
+      return;
+    }
+
+    // Slug-only link without a stored session — ask for the real code.
+    setCodeEntrySlug(ctx.slug);
+  }, [restoredLocal, restoredMp, screen]);
 
   // Browser back/forward: keep screen in sync with the URL.
   useEffect(() => {
     function onPopState() {
-      const code = readJoinCodeFromUrl();
-      if (!code) {
+      const ctx = readLobbyUrlContext();
+      if (!ctx) {
         clearLobbySession();
+        clearLocalSession();
         setLobbyProfile(null);
         setJoinCode("");
         setMpSession(null);
         setMpTurnOrder([]);
         setPlayers([]);
+        setLocalGameSnapshot(null);
         setHomeJoinError(null);
+        setCodeEntrySlug(null);
         setScreen("home");
         return;
       }
 
       const stored = readStoredLobbySession();
-      if (stored?.code === code && stored.profile) {
-        setJoinCode(code);
+      if (
+        stored?.code &&
+        lobbyCodeToSlug(stored.code) === ctx.slug &&
+        stored.profile
+      ) {
+        setJoinCode(stored.code);
         setLobbyProfile(stored.profile);
         setMpMode(stored.isHost ? "create" : "join");
+        setCodeEntrySlug(null);
 
         const nextSession = stored.gameStarting
           ? {
@@ -250,41 +372,86 @@ export default function App() {
         );
 
         if (stored.phase === "in_game" && nextSession) setScreen("game");
-        else if (stored.phase === "turn_order" && nextSession) setScreen("mp_turn_order");
+        else if (stored.phase === "turn_order" && nextSession)
+          setScreen("mp_turn_order");
         else setScreen("mp_lobby");
         return;
       }
 
-      setJoinCode(code);
-      setMpMode("join");
-      setScreen("identity_join");
+      const knownCode =
+        ctx.kind === "code"
+          ? ctx.code
+          : readPendingJoinCode() &&
+              lobbyCodeToSlug(readPendingJoinCode()!) === ctx.slug
+            ? readPendingJoinCode()!
+            : null;
+
+      if (knownCode) {
+        setJoinCode(knownCode);
+        setMpMode("join");
+        setCodeEntrySlug(null);
+        setScreen("identity_join");
+        return;
+      }
+
+      setCodeEntrySlug(ctx.slug);
+      setScreen("home");
     }
 
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  // Persist local lobby / pregame whenever players change.
+  useEffect(() => {
+    if (screen !== "local_lobby" && screen !== "pregame") return;
+    persistLocal({
+      phase: screen,
+      players,
+      agents: localAgents.length > 0 ? localAgents : undefined,
+      gameSnapshot: undefined,
+    });
+  }, [localAgents, persistLocal, players, screen]);
+
   function resetToHome() {
     navigateToHome();
+    clearPendingJoinCode();
     setLobbyProfile(null);
     setJoinCode("");
     setMpSession(null);
     setMpTurnOrder([]);
     setHomeJoinError(null);
+    setCodeEntrySlug(null);
     setScreen("home");
   }
 
   function startGame() {
+    persistLocal({
+      phase: "game",
+      players,
+      agents: localAgents.length > 0 ? localAgents : undefined,
+      gameSnapshot: undefined,
+    });
+    setLocalGameSnapshot(null);
     setScreen("game");
   }
 
   function goToPreGame() {
+    persistLocal({
+      phase: "pregame",
+      players,
+      agents: localAgents.length > 0 ? localAgents : undefined,
+      gameSnapshot: undefined,
+    });
     setScreen("pregame");
   }
 
-  function backToLobby() {
+  function leaveLocalSession() {
+    clearLocalSession();
+    setLocalGameSnapshot(null);
     resetToHome();
     setPlayers([]);
+    setLocalAgents([]);
   }
 
   function leaveMultiplayerMatch() {
@@ -355,14 +522,17 @@ export default function App() {
           onCreateLobby={() => {
             setOauthError(null);
             setHomeJoinError(null);
+            clearLocalSession();
             setScreen("identity_create");
           }}
           onJoinLobby={(code) => {
             setOauthError(null);
             setHomeJoinError(null);
+            clearLocalSession();
             if (code) {
               const normalized = code.toUpperCase();
               setJoinCode(normalized);
+              setPendingJoinCode(normalized);
               syncLobbyUrl(normalized, "push");
             }
             setScreen("identity_join");
@@ -370,7 +540,25 @@ export default function App() {
           onLocalGame={() => {
             setOauthError(null);
             setHomeJoinError(null);
+            clearLobbySession();
+            navigateToHome("replace");
             setScreen("local_lobby");
+          }}
+        />
+        <LobbyCodeEntryModal
+          open={!!codeEntrySlug}
+          slug={codeEntrySlug ?? ""}
+          onBackHome={() => {
+            clearPendingJoinCode();
+            setCodeEntrySlug(null);
+            navigateToHome("replace");
+          }}
+          onSuccess={(code) => {
+            setCodeEntrySlug(null);
+            setJoinCode(code);
+            setPendingJoinCode(code);
+            syncLobbyUrl(code, "replace");
+            setScreen("identity_join");
           }}
         />
       </>
@@ -414,6 +602,7 @@ export default function App() {
               resetToHome();
               return;
             }
+            setPendingJoinCode(joinCode);
             syncLobbyUrl(joinCode);
           }
           setLobbyProfile(profile);
@@ -469,7 +658,7 @@ export default function App() {
         agents={agents}
         setAgents={setLocalAgents}
         onContinue={goToPreGame}
-        onBack={resetToHome}
+        onBack={leaveLocalSession}
       />
     );
   }
@@ -489,8 +678,24 @@ export default function App() {
       <GamePage
         players={players}
         agents={agents}
-        onBackToLobby={multiplayerGameConfig ? undefined : backToLobby}
+        initialSnapshot={
+          multiplayerGameConfig ? undefined : localGameSnapshot ?? undefined
+        }
+        onBackToLobby={multiplayerGameConfig ? undefined : leaveLocalSession}
         onLeaveMatch={multiplayerGameConfig ? leaveMultiplayerMatch : undefined}
+        onLocalSnapshotChange={
+          multiplayerGameConfig
+            ? undefined
+            : (snapshot) => {
+                setLocalGameSnapshot(snapshot);
+                persistLocalSession({
+                  phase: "game",
+                  players,
+                  agents: localAgents.length > 0 ? localAgents : undefined,
+                  gameSnapshot: snapshot,
+                });
+              }
+        }
         performanceSettings={performanceSettings}
         multiplayer={multiplayerGameConfig ?? undefined}
       />

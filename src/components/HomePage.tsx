@@ -306,7 +306,8 @@ export default function HomePage({
                   </div>
                 </div>
                 <p className="mt-2 text-sm text-zinc-400">
-                  Enter the 6-character code from the stream or a shared link.
+                  Enter the 6-character code from the stream. Invite links hide
+                  the code for stream safety.
                 </p>
 
                 {needsServerUrl && (
