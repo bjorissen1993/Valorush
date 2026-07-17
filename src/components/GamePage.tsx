@@ -692,10 +692,14 @@ export default function GamePage({
 
   const currentPlayer = playersInGame[currentPlayerIndex];
 
-  const orderedPlayerIndices = useMemo(
-    () => rotatePlayersToActive(playersInGame.length, currentPlayerIndex),
-    [playersInGame.length, currentPlayerIndex]
-  );
+  const orderedPlayerIndices = useMemo(() => {
+    if (turnOrder.length > 0) {
+      return rotatePlayersToActive(turnOrder, currentPlayerIndex);
+    }
+    // Fallback before turn order is resolved: seat order from active.
+    const seats = playersInGame.map((_, index) => index);
+    return rotatePlayersToActive(seats, currentPlayerIndex);
+  }, [turnOrder, currentPlayerIndex, playersInGame]);
 
   const inventoryOtherPlayers = useMemo(
     () =>
@@ -3221,9 +3225,9 @@ export default function GamePage({
   function getAgentPortraitImage(player: PlayerInGame) {
     const agent = getAgentData(player);
     if (!agent) return null;
-    // Prefer local cropped portraits for the sidebar (API fullPortrait is full-body).
+    // Head-only: local bust portrait or API displayIcon — never fullPortrait body art.
     if (agent.displayName) return agentPortraitPath(agent.displayName);
-    return agent.displayIcon ?? agent.fullPortrait ?? null;
+    return agent.displayIcon ?? null;
   }
 
   const rankedPlayers = rankPlayersByScore(playersInGame);
@@ -3849,6 +3853,17 @@ export default function GamePage({
                 performanceMode={effectivePerformanceMode}
                 pendingTargetItemId={pendingInventoryItemId}
                 otherPlayers={inventoryOtherPlayers}
+                plantedSpike={
+                  activeSpike &&
+                  activeSpike.plantedByPlayerIndex === currentPlayerIndex &&
+                  (activeSpike.status === "planted" ||
+                    activeSpike.status === "half-defused")
+                    ? {
+                        nodeId: activeSpike.plantedOnNodeId,
+                        status: activeSpike.status,
+                      }
+                    : null
+                }
                 onOpenDice={openDiceOverlay}
                 onUseItem={handleInventoryItemAction}
                 onCancelTarget={() => setPendingInventoryItemId(null)}
@@ -4091,6 +4106,17 @@ export default function GamePage({
                 performanceMode={effectivePerformanceMode}
                 pendingTargetItemId={pendingInventoryItemId}
                 otherPlayers={inventoryOtherPlayers}
+                plantedSpike={
+                  activeSpike &&
+                  activeSpike.plantedByPlayerIndex === currentPlayerIndex &&
+                  (activeSpike.status === "planted" ||
+                    activeSpike.status === "half-defused")
+                    ? {
+                        nodeId: activeSpike.plantedOnNodeId,
+                        status: activeSpike.status,
+                      }
+                    : null
+                }
                 onOpenDice={() => {
                   setMobileInventoryOpen(false);
                   openDiceOverlay();

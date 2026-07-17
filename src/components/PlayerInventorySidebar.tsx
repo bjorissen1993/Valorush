@@ -14,6 +14,11 @@ export type InventoryItemAction =
   | { kind: "use"; itemId: string }
   | { kind: "use-with-target"; itemId: string; targetPlayerIndex: number };
 
+export type PlantedSpikeInfo = {
+  nodeId: string;
+  status: "planted" | "half-defused";
+};
+
 type PlayerInventorySidebarProps = {
   player: PlayerInGame;
   agentName: string;
@@ -28,6 +33,7 @@ type PlayerInventorySidebarProps = {
   compact?: boolean;
   pendingTargetItemId?: string | null;
   otherPlayers?: { index: number; name: string }[];
+  plantedSpike?: PlantedSpikeInfo | null;
   onOpenDice?: () => void;
   onUseItem?: (action: InventoryItemAction) => void;
   onCancelTarget?: () => void;
@@ -74,6 +80,14 @@ function needsTarget(item: ItemDefinition): boolean {
   return kind === "steal_creds" || kind === "swap_position";
 }
 
+function formatSpikeNodeLabel(nodeId: string): string {
+  return nodeId
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export default function PlayerInventorySidebar({
   player,
   agentName,
@@ -87,6 +101,7 @@ export default function PlayerInventorySidebar({
   compact = false,
   pendingTargetItemId = null,
   otherPlayers = [],
+  plantedSpike = null,
   onOpenDice,
   onUseItem,
   onCancelTarget,
@@ -110,6 +125,7 @@ export default function PlayerInventorySidebar({
   const pendingItem = pendingTargetItemId
     ? itemById.get(pendingTargetItemId)
     : null;
+  const headshotImage = agentPortraitImage;
 
   function handleItemClick(item: ItemDefinition) {
     if (!canAct || !onUseItem || !isUsableBoardItem(item)) return;
@@ -138,18 +154,6 @@ export default function PlayerInventorySidebar({
       <div className="player-inventory-panel__body">
         <header className="player-inventory-panel__header">
           <div className="player-inventory-panel__identity">
-            <div className="player-inventory-panel__avatar">
-              {player.avatar ? (
-                <img src={player.avatar} alt={player.name} />
-              ) : (
-                <div
-                  className="player-inventory-panel__avatar-fallback"
-                  style={{ backgroundColor: player.color ?? "#334155" }}
-                >
-                  {(player.name.trim().charAt(0) || "?").toUpperCase()}
-                </div>
-              )}
-            </div>
             <div className="min-w-0 flex-1">
               <p className="player-inventory-panel__name">{player.name}</p>
               <p className="player-inventory-panel__agent">{agentName}</p>
@@ -169,12 +173,12 @@ export default function PlayerInventorySidebar({
             )}
           </div>
 
-          {(agentPortraitImage || agentBackgroundImage) && (
-            <div className="player-inventory-panel__portrait-wrap">
+          {headshotImage && (
+            <div className="player-inventory-panel__headshot-wrap">
               <img
-                src={agentPortraitImage ?? agentBackgroundImage!}
+                src={headshotImage}
                 alt={agentName}
-                className="player-inventory-panel__portrait"
+                className="player-inventory-panel__headshot"
               />
             </div>
           )}
@@ -307,9 +311,9 @@ export default function PlayerInventorySidebar({
           <h3>Loadout</h3>
           <div className="player-inventory-panel__gear">
             <LoadoutSlot
-              label="Primary"
-              name={primaryWeapon}
-              image={primaryImage}
+              label="Shield"
+              name={player.shield}
+              image={shieldImage}
             />
             <LoadoutSlot
               label="Secondary"
@@ -317,14 +321,42 @@ export default function PlayerInventorySidebar({
               image={secondaryImage}
             />
             <LoadoutSlot
-              label="Shield"
-              name={player.shield}
-              image={shieldImage}
+              label="Primary"
+              name={primaryWeapon}
+              image={primaryImage}
             />
           </div>
           {player.nextWeaponDiscount > 0 && (
             <div className="player-inventory-panel__discount">
               Shop discount −{player.nextWeaponDiscount}
+            </div>
+          )}
+        </section>
+
+        <section className="player-inventory-panel__section">
+          <h3>Spike planted</h3>
+          {plantedSpike ? (
+            <div
+              className={`player-inventory-panel__spike-planted ${
+                plantedSpike.status === "half-defused"
+                  ? "player-inventory-panel__spike-planted--half"
+                  : ""
+              }`}
+            >
+              <p className="player-inventory-panel__spike-planted-title">
+                {plantedSpike.status === "half-defused"
+                  ? "Half-defused"
+                  : "Active on map"}
+              </p>
+              <p className="player-inventory-panel__spike-planted-loc">
+                {formatSpikeNodeLabel(plantedSpike.nodeId)}
+              </p>
+            </div>
+          ) : (
+            <div className="player-inventory-panel__spike-planted player-inventory-panel__spike-planted--empty">
+              <p className="player-inventory-panel__spike-planted-title">
+                No spike planted
+              </p>
             </div>
           )}
         </section>
@@ -348,16 +380,21 @@ function LoadoutSlot({
   name: string | null;
   image?: string;
 }) {
+  const equipped = Boolean(name);
   return (
-    <div className="player-inventory-panel__gear-slot">
+    <div
+      className={`player-inventory-panel__gear-slot ${
+        equipped ? "" : "player-inventory-panel__gear-slot--empty"
+      }`}
+    >
       <p className="player-inventory-panel__gear-label">{label}</p>
       <div className="player-inventory-panel__gear-body">
-        {image ? (
+        {equipped && image ? (
           <img src={image} alt="" />
         ) : (
-          <div className="player-inventory-panel__gear-placeholder" />
+          <div className="player-inventory-panel__gear-placeholder" aria-hidden />
         )}
-        <span>{name ?? "None"}</span>
+        <span>{equipped ? name : label}</span>
       </div>
     </div>
   );
@@ -413,11 +450,21 @@ function InventoryItemRow({
   );
 }
 
+/**
+ * Rotate turn-order seats so the active player is first, then upcoming
+ * players left → right (wrapping around the turn cycle).
+ */
 export function rotatePlayersToActive(
-  playerCount: number,
-  activeIndex: number
+  turnOrder: number[],
+  activePlayerIndex: number
 ): number[] {
-  if (playerCount <= 0) return [];
-  const start = ((activeIndex % playerCount) + playerCount) % playerCount;
-  return Array.from({ length: playerCount }, (_, i) => (start + i) % playerCount);
+  if (turnOrder.length === 0) return [];
+  const start = turnOrder.findIndex((index) => index === activePlayerIndex);
+  if (start < 0) {
+    return [...turnOrder];
+  }
+  return Array.from(
+    { length: turnOrder.length },
+    (_, i) => turnOrder[(start + i) % turnOrder.length]!
+  );
 }
