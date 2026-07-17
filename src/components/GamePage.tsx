@@ -31,6 +31,7 @@ import ValorantCrate from "./valorant/ValorantCrate";
 import { StoryArtPanel, StoryDialogueLines } from "./StoryArtPanel";
 import { isEffectivePerformanceMode } from "../hooks/usePerformanceSettings";
 import type { usePerformanceSettings } from "../hooks/usePerformanceSettings";
+import { useDebugMode } from "../hooks/useDebugMode";
 import {
   traverseMovement,
   sleep,
@@ -138,8 +139,6 @@ const MAX_ROUNDS = 10;
 const DICE_ROLL_DURATION_MS = 1400;
 const DICE_RESULT_HOLD_MS = 900;
 const AUTO_ADVANCE_DELAY = 1200;
-const DEBUG = true;
-const DEBUG_ENABLED = import.meta.env.DEV || DEBUG;
 
 type TurnPhase = "roll-for-order" | "playing" | "resolving-event" | "game-over";
 type DiceFlowPhase = "hidden" | DiceOverlayPhase;
@@ -427,9 +426,12 @@ export default function GamePage({
   const hasPresetTurnOrder = initialTurnOrder.length > 0;
   const { effectivePerformanceMode, performanceMode, togglePerformanceMode } =
     performanceSettings;
+  const { debugMode, setDebugMode } = useDebugMode();
   const [gameMenuOpen, setGameMenuOpen] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
-  const canOpenGameMenu = Boolean(multiplayer || onBackToLobby || onLeaveMatch);
+  const canLeaveGame = Boolean(multiplayer || onBackToLobby || onLeaveMatch);
+  /** Settings (perf / debug) are always available; leave actions need handlers. */
+  const canOpenGameMenu = true;
   const [playersInGame, setPlayersInGame] = useState<PlayerInGame[]>(() => {
     if (initialSnapshot?.players?.length) {
       return initialSnapshot.players.map((player) =>
@@ -1435,6 +1437,29 @@ export default function GamePage({
     setDebugOverlayOpen(false);
     setDebugBoardAction(null);
     setDebugForcedRoll(null);
+  }
+
+  function handleToggleDebugMode() {
+    const next = !debugMode;
+    setDebugMode(next);
+    if (!next) {
+      closeDebugOverlay();
+    }
+  }
+
+  function toggleDebugOverlay() {
+    if (debugOverlayOpen) {
+      closeDebugOverlay();
+    } else {
+      setDebugOverlayOpen(true);
+    }
+  }
+
+  function openGameMenu() {
+    setGameMenuOpen((open) => {
+      if (open) setLeaveConfirmOpen(false);
+      return !open;
+    });
   }
 
   function resetTurnFlowState() {
@@ -3286,42 +3311,6 @@ export default function GamePage({
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#070b14] text-white">
-      {canOpenGameMenu && (
-        <div className="pointer-events-none fixed right-4 top-4 z-[70]">
-          <div className="pointer-events-auto">
-            <button
-              type="button"
-              onClick={() =>
-                setGameMenuOpen((open) => {
-                  if (open) setLeaveConfirmOpen(false);
-                  return !open;
-                })
-              }
-              className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-zinc-900/90 text-zinc-200 shadow-lg backdrop-blur-md transition hover:border-cyan-400/40 hover:bg-zinc-800 hover:text-white"
-              aria-label="Game menu"
-              aria-expanded={gameMenuOpen}
-              aria-controls="in-game-menu"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="h-6 w-6"
-                aria-hidden
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-
       {gameMenuOpen && canOpenGameMenu && (
         <div
           id="in-game-menu"
@@ -3384,6 +3373,26 @@ export default function GamePage({
                   </span>
                 </button>
 
+                <button
+                  type="button"
+                  onClick={handleToggleDebugMode}
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm text-white transition hover:bg-white/5"
+                >
+                  <span>
+                    <span className="font-medium">Debug mode</span>
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      Show the Debug button on the player card
+                    </span>
+                  </span>
+                  <span
+                    className={`text-xs font-semibold ${
+                      debugMode ? "text-emerald-300" : "text-zinc-400"
+                    }`}
+                  >
+                    {debugMode ? "On" : "Off"}
+                  </span>
+                </button>
+
                 <div className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm text-zinc-500">
                   <span>
                     <span className="font-medium text-zinc-400">Sound</span>
@@ -3402,44 +3411,46 @@ export default function GamePage({
               </div>
             </div>
 
-            <div className="px-5 py-4">
-              {!leaveConfirmOpen ? (
-                <button
-                  type="button"
-                  onClick={() => setLeaveConfirmOpen(true)}
-                  className="flex w-full items-center justify-center rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 hover:text-red-100"
-                >
-                  {multiplayer ? "Leave match" : "Leave game"}
-                </button>
-              ) : (
-                <div className="rounded-xl border border-red-400/20 bg-red-950/40 p-4">
-                  <p className="text-sm font-semibold text-red-100">
-                    {multiplayer ? "Leave this match?" : "Leave this game?"}
-                  </p>
-                  <p className="mt-1 text-xs text-red-200/70">
-                    {multiplayer
-                      ? "You will return to the main menu and will not rejoin automatically."
-                      : "Progress in this local game will not be saved."}
-                  </p>
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setLeaveConfirmOpen(false)}
-                      className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLeaveMatch}
-                      className="flex-1 rounded-xl border border-red-400/30 bg-red-500/20 px-3 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-500/30"
-                    >
-                      {multiplayer ? "Leave match" : "Leave game"}
-                    </button>
+            {canLeaveGame && (
+              <div className="px-5 py-4">
+                {!leaveConfirmOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => setLeaveConfirmOpen(true)}
+                    className="flex w-full items-center justify-center rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 hover:text-red-100"
+                  >
+                    {multiplayer ? "Leave match" : "Leave game"}
+                  </button>
+                ) : (
+                  <div className="rounded-xl border border-red-400/20 bg-red-950/40 p-4">
+                    <p className="text-sm font-semibold text-red-100">
+                      {multiplayer ? "Leave this match?" : "Leave this game?"}
+                    </p>
+                    <p className="mt-1 text-xs text-red-200/70">
+                      {multiplayer
+                        ? "You will return to the main menu and will not rejoin automatically."
+                        : "Progress in this local game will not be saved."}
+                    </p>
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLeaveConfirmOpen(false)}
+                        className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLeaveMatch}
+                        className="flex-1 rounded-xl border border-red-400/30 bg-red-500/20 px-3 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-500/30"
+                      >
+                        {multiplayer ? "Leave match" : "Leave game"}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3845,7 +3856,7 @@ export default function GamePage({
       )}
 
       {!showTurnOrder && (
-      <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden px-[4vw] py-4">
+      <div className="game-play-viewport">
         <div className="game-play-shell">
           {currentPlayer && (
             <aside className="game-inventory-sidebar">
@@ -3875,6 +3886,11 @@ export default function GamePage({
                 onOpenDice={openDiceOverlay}
                 onUseItem={handleInventoryItemAction}
                 onCancelTarget={() => setPendingInventoryItemId(null)}
+                onOpenMenu={openGameMenu}
+                menuOpen={gameMenuOpen}
+                showDebugButton={debugMode}
+                debugOpen={debugOverlayOpen}
+                onToggleDebug={toggleDebugOverlay}
               />
             </aside>
           )}
@@ -4044,13 +4060,44 @@ export default function GamePage({
                       : " · No weapon"}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className="game-inventory-mobile-bar__btn"
-                  onClick={() => setMobileInventoryOpen(true)}
-                >
-                  Loadout
-                </button>
+                <div className="game-inventory-mobile-bar__actions">
+                  <button
+                    type="button"
+                    className="game-inventory-mobile-bar__menu-btn"
+                    onClick={openGameMenu}
+                    aria-label="Game menu"
+                    aria-expanded={gameMenuOpen}
+                    aria-controls="in-game-menu"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      className="h-5 w-5"
+                      aria-hidden
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="game-inventory-mobile-bar__btn"
+                    onClick={() => setMobileInventoryOpen(true)}
+                  >
+                    Loadout
+                  </button>
+                </div>
               </div>
             )}
 
@@ -4076,7 +4123,7 @@ export default function GamePage({
                     : null
                 }
                 onTileClick={handleBoardTileClick}
-                debugClickable={debugBoardAction !== null}
+                debugClickable={debugMode && debugBoardAction !== null}
                 selectableNodeIds={pendingPathChoice?.options ?? []}
                 pathChoiceHint={
                   pendingPathChoice
@@ -4132,13 +4179,18 @@ export default function GamePage({
                 onUseItem={handleInventoryItemAction}
                 onCancelTarget={() => setPendingInventoryItemId(null)}
                 onClose={() => setMobileInventoryOpen(false)}
+                onOpenMenu={openGameMenu}
+                menuOpen={gameMenuOpen}
+                showDebugButton={debugMode}
+                debugOpen={debugOverlayOpen}
+                onToggleDebug={toggleDebugOverlay}
               />
             </div>
           </div>
         )}
       </div>
       )}
-      {DEBUG_ENABLED && debugOverlayOpen && (
+      {debugMode && debugOverlayOpen && (
         <DebugPanel
           onClose={closeDebugOverlay}
           players={playersInGame}
@@ -4193,34 +4245,6 @@ export default function GamePage({
           onTriggerShop={debugTriggerShop}
         />
       )}
-      <div className="fixed bottom-4 right-4 z-[120] flex flex-col items-end gap-2">
-        <button
-          type="button"
-          onClick={togglePerformanceMode}
-          className={`rounded-full border px-4 py-3 text-xs font-bold shadow-2xl transition hover:brightness-110 ${
-            effectivePerformanceMode
-              ? "border-emerald-400/40 bg-emerald-950/95 text-emerald-200"
-              : "border-white/15 bg-[#111827]/95 text-white"
-          }`}
-          title="Reduces animations and GPU load for streaming"
-        >
-          {effectivePerformanceMode ? "Perf mode: ON" : "Perf mode: OFF"}
-        </button>
-        {DEBUG_ENABLED && (
-          <button
-            onClick={() => {
-              if (debugOverlayOpen) {
-                closeDebugOverlay();
-              } else {
-                setDebugOverlayOpen(true);
-              }
-            }}
-            className="rounded-full border border-white/15 bg-[#111827]/95 px-4 py-3 text-xs font-bold text-white shadow-2xl transition hover:brightness-110"
-          >
-            {debugOverlayOpen ? "Close Debug" : "Debug"}
-          </button>
-        )}
-      </div>
     </div >
   );
 }
