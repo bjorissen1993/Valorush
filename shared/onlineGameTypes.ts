@@ -25,7 +25,10 @@ export type SyncedPlayerInGame = {
   position: string;
   creds: number;
   radianitePoints: number;
-  weapon: string | null;
+  primaryWeapon?: string | null;
+  secondaryWeapon?: string | null;
+  /** @deprecated Migrated to primaryWeapon. */
+  weapon?: string | null;
   shield: string | null;
   nextWeaponDiscount: number;
   items?: string[];
@@ -67,6 +70,8 @@ export type SyncedPendingEventChoice = {
   playerIndex: number;
   choiceKind: "fixed" | "pick_player" | "bet_creds";
   followUpEventId?: string;
+  /** Serializable EventChoiceSpec for guests to render the choice UI. */
+  choiceSpec?: Record<string, unknown>;
 } | null;
 
 export type OnlineDiceFlowPhase = "hidden" | "ready" | "rolling" | "revealing" | "result";
@@ -124,6 +129,13 @@ export type OnlineGameAction =
       type: "use_item";
       itemId: string;
       targetPlayerIndex?: number;
+    }
+  | { type: "finish_event" }
+  | {
+      type: "event_choice";
+      choiceId?: string;
+      targetPlayerIndex?: number;
+      betAmount?: number;
     };
 
 export type GameBeginPayload = {

@@ -102,8 +102,9 @@ export function buyWeaponForPlayer(args: {
   weapon: WeaponName;
   player: PlayerInGame;
   isOnShopTile: boolean;
+  slot?: "primary" | "secondary";
 }) {
-  const { weapon, player, isOnShopTile } = args;
+  const { weapon, player, isOnShopTile, slot = "primary" } = args;
   const finalPrice = getWeaponFinalPrice({ weapon, player, isOnShopTile });
 
   if (player.creds < finalPrice) {
@@ -114,15 +115,26 @@ export function buyWeaponForPlayer(args: {
     };
   }
 
+  const updatedPlayer: PlayerInGame =
+    slot === "secondary"
+      ? {
+          ...player,
+          creds: player.creds - finalPrice,
+          secondaryWeapon: weapon,
+          nextWeaponDiscount: 0,
+        }
+      : {
+          ...player,
+          creds: player.creds - finalPrice,
+          primaryWeapon: weapon,
+          weapon,
+          nextWeaponDiscount: 0,
+        };
+
   return {
     success: true as const,
     finalPrice,
-    updatedPlayer: {
-      ...player,
-      creds: player.creds - finalPrice,
-      weapon,
-      nextWeaponDiscount: 0,
-    },
+    updatedPlayer,
   };
 }
 

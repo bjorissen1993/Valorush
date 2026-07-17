@@ -7,8 +7,10 @@ import type {
   OnlineGameSnapshot,
   SyncedActiveStoryEvent,
   SyncedCustomMatchPhase,
+  SyncedPendingEventChoice,
   SyncedScheduledCustomMatch,
 } from "../../shared/onlineGameTypes";
+import type { EventChoiceSpec } from "../../shared/events";
 import type { DirectorPickPayload } from "../../shared/director";
 import { useOnlineGameSync } from "../hooks/useOnlineGameSync";
 import BoardMap from "./BoardMap";
@@ -46,7 +48,7 @@ import {
   applyEventChoice,
   type PendingEventChoiceState,
 } from "../game/eventChoiceHandler";
-import { computeEffectiveRoll, tickMovementModifiers } from "../game/boardEventBridge";
+import { computeEffectiveRoll, tickMovementModifiers, consumeOneShotMovementBonus, normalizePlayerLoadout } from "../game/boardEventBridge";
 import {
   customMatchRegistry,
   getCustomMatchDefinition,
@@ -356,6 +358,40 @@ function toSyncedActiveStoryEvent(
   };
 }
 
+function toSyncedPendingEventChoice(
+  pending: PendingEventChoiceState | null
+): SyncedPendingEventChoice {
+  if (!pending) return null;
+  return {
+    eventId: pending.eventId,
+    playerIndex: pending.playerIndex,
+    choiceKind: pending.choiceSpec.kind,
+    followUpEventId: pending.followUpEventId,
+    choiceSpec: pending.choiceSpec as unknown as Record<string, unknown>,
+  };
+}
+
+function fromSyncedPendingEventChoice(
+  synced: NonNullable<SyncedPendingEventChoice>
+): PendingEventChoiceState | null {
+  if (!synced.choiceSpec) {
+    const def = boardEventById.get(synced.eventId);
+    if (!def?.playerChoices) return null;
+    return {
+      eventId: synced.eventId,
+      playerIndex: synced.playerIndex,
+      choiceSpec: def.playerChoices,
+      followUpEventId: synced.followUpEventId,
+    };
+  }
+  return {
+    eventId: synced.eventId,
+    playerIndex: synced.playerIndex,
+    choiceSpec: synced.choiceSpec as unknown as EventChoiceSpec,
+    followUpEventId: synced.followUpEventId,
+  };
+}
+
 function fromSyncedActiveStoryEvent(
   synced: SyncedActiveStoryEvent
 ): {
@@ -396,7 +432,9 @@ export default function GamePage({
   const canOpenGameMenu = Boolean(multiplayer || onBackToLobby || onLeaveMatch);
   const [playersInGame, setPlayersInGame] = useState<PlayerInGame[]>(() => {
     if (initialSnapshot?.players?.length) {
-      return initialSnapshot.players as PlayerInGame[];
+      return initialSnapshot.players.map((player) =>
+        normalizePlayerLoadout(player as PlayerInGame)
+      );
     }
     return players.map((player, index): PlayerInGame => {
       const selectedAgent = agents.find(
@@ -410,6 +448,8 @@ export default function GamePage({
         position: "start",
         creds: 800,
         radianitePoints: 0,
+        primaryWeapon: null,
+        secondaryWeapon: null,
         weapon: null,
         shield: null,
         nextWeaponDiscount: 0,
@@ -478,6 +518,8 @@ export default function GamePage({
   const lastAppliedSnapshotVersionRef = useRef(initialSnapshot?.version ?? -1);
   const localSnapshotReadyRef = useRef(false);
   const onlineIntroShownRef = useRef(false);
+  const playersInGameRef = useRef(playersInGame);
+  playersInGameRef.current = playersInGame;
   const remoteActionHandlerRef = useRef<
     (fromPlayerId: string, action: OnlineGameAction) => void
   >(() => {});
@@ -489,7 +531,11 @@ export default function GamePage({
     setCurrentTurnOrderIndex(snapshot.currentTurnOrderIndex);
     setRound(snapshot.round);
     setPhase(snapshot.phase);
-    setPlayersInGame(snapshot.players as PlayerInGame[]);
+    setPlayersInGame(
+      snapshot.players.map((player) =>
+        normalizePlayerLoadout(player as PlayerInGame)
+      )
+    );
     setLastRoll(snapshot.lastRoll);
     setDiceDisplayValue(snapshot.diceDisplayValue);
     setDiceFlowPhase(snapshot.diceFlowPhase);
@@ -505,6 +551,13 @@ export default function GamePage({
       setActiveStoryEvent(
         snapshot.activeStoryEvent
           ? fromSyncedActiveStoryEvent(snapshot.activeStoryEvent)
+          : null
+      );
+    }
+    if (snapshot.pendingEventChoice !== undefined) {
+      setPendingEventChoice(
+        snapshot.pendingEventChoice
+          ? fromSyncedPendingEventChoice(snapshot.pendingEventChoice)
           : null
       );
     }
@@ -680,7 +733,11 @@ export default function GamePage({
 
   const [minigamePhase, setMinigamePhase] = useState<MinigamePhase | null>(null);
   const [pendingEventChoice, setPendingEventChoice] =
-    useState<PendingEventChoiceState | null>(null);
+    useState<PendingEventChoiceState | null>(() =>
+      initialSnapshot?.pendingEventChoice
+        ? fromSyncedPendingEventChoice(initialSnapshot.pendingEventChoice)
+        : null
+    );
   const [eventEffectsApplied, setEventEffectsApplied] = useState(false);
   const [scheduledCustomMatch, setScheduledCustomMatch] =
     useState<ScheduledCustomMatch | null>(() =>
@@ -1105,8 +1162,9 @@ export default function GamePage({
         type: "weapon",
         label: weapon,
         weaponName: weapon,
+        weaponSlot: "secondary",
         price,
-        description: "Sidearm",
+        description: "Secondary",
         image: getWeaponImage(weapon),
         disabled: player.creds < price,
       };
@@ -1124,6 +1182,7 @@ export default function GamePage({
         type: "weapon",
         label: weapon,
         weaponName: weapon,
+        weaponSlot: "primary",
         price,
         description: "Primary",
         image: getWeaponImage(weapon),
@@ -1172,6 +1231,8 @@ export default function GamePage({
 
   function completeDirectorIntro() {
     if (!activeStoryEvent) return;
+    if (isOnlineGuest) return;
+
     const def = boardEventById.get(activeStoryEvent.event.id);
     if (def?.playerChoices) {
       setPendingEventChoice({
@@ -1184,7 +1245,7 @@ export default function GamePage({
       const result = applyEventChoice({
         eventId: def.id,
         playerIndex: activeStoryEvent.playerIndex,
-        players: playersInGame,
+        players: playersInGameRef.current,
         round,
       });
       setPlayersInGame(result.players);
@@ -1195,7 +1256,7 @@ export default function GamePage({
             result.scheduleCustomMatch.matchId as CustomMatchId,
             result.scheduleCustomMatch.mapId as ValorantMapId,
             round,
-            playersInGame,
+            playersInGameRef.current,
           )
         );
       }
@@ -1577,10 +1638,20 @@ export default function GamePage({
   }) {
     if (!pendingEventChoice || !activeStoryEvent) return;
 
+    if (isOnlineGuest) {
+      sendAction({
+        type: "event_choice",
+        choiceId: args.choiceId,
+        targetPlayerIndex: args.targetPlayerIndex,
+        betAmount: args.betAmount,
+      });
+      return;
+    }
+
     const result = applyEventChoice({
       eventId: pendingEventChoice.eventId,
       playerIndex: pendingEventChoice.playerIndex,
-      players: playersInGame,
+      players: playersInGameRef.current,
       round,
       ...args,
     });
@@ -1597,7 +1668,7 @@ export default function GamePage({
           result.scheduleCustomMatch.matchId as CustomMatchId,
           result.scheduleCustomMatch.mapId as ValorantMapId,
           round,
-          playersInGame,
+          playersInGameRef.current,
         )
       );
       showAnnouncement(
@@ -1966,6 +2037,7 @@ export default function GamePage({
 
   async function advanceToNextPlayer(title?: string, subtitle?: string) {
     if (turnOrder.length === 0) return;
+    if (isOnlineGuest) return;
 
     const meta = getNextPlayerMeta({
       fromPlayerIndex: currentPlayerIndex,
@@ -1991,6 +2063,7 @@ export default function GamePage({
       setHasRolledThisTurn(false);
       setCurrentTurnOrderIndex(meta.nextOrderIndex);
       setRound(newRound);
+      setPhase("playing");
       return;
     }
 
@@ -2012,6 +2085,7 @@ export default function GamePage({
     setHasRolledThisTurn(false);
     setCurrentTurnOrderIndex(meta.nextOrderIndex);
     setRound(newRound);
+    setPhase("playing");
 
     const nextPlayerIndex = meta.nextPlayerIndex;
     setPlayersInGame((current) =>
@@ -2231,8 +2305,13 @@ export default function GamePage({
   async function finishEventStoryAndAdvance() {
     if (!activeStoryEvent) return;
 
+    if (isOnlineGuest) {
+      sendAction({ type: "finish_event" });
+      return;
+    }
+
     const { event, playerIndex } = activeStoryEvent;
-    const player = playersInGame[playerIndex];
+    const player = playersInGameRef.current[playerIndex];
 
     if (!eventEffectsApplied) {
       updatePlayer(playerIndex, (current) => applyEventEffect(current, event));
@@ -2417,8 +2496,9 @@ export default function GamePage({
     );
   }
 
-  async function beginDiceRoll() {
-    if (diceFlowPhase !== "ready" || !canInteractWithDice()) {
+  async function beginDiceRoll(fromRemote = false) {
+    const seatOk = fromRemote || isCurrentSeatActor();
+    if (diceFlowPhase !== "ready" || !isTurnInteractionClear() || !seatOk) {
       return;
     }
 
@@ -2429,10 +2509,23 @@ export default function GamePage({
     await sleep(DICE_ROLL_DURATION_MS);
 
     const rawRoll = debugForcedRoll ?? randomDiceRoll();
-    const player = playersInGame[currentPlayerIndex];
+    const player = playersInGameRef.current[currentPlayerIndex];
+    const bonus = player?.movementBonus ?? 0;
     const finalRoll = player ? computeEffectiveRoll(rawRoll, player) : rawRoll;
     setDiceDisplayValue(finalRoll);
     setLastRoll(finalRoll);
+
+    if (player && bonus > 0) {
+      updatePlayer(currentPlayerIndex, (current) =>
+        consumeOneShotMovementBonus(current)
+      );
+      if ((player.movementBonusTurns ?? 0) === 0) {
+        setStatusSubtitle(
+          `Rolled ${rawRoll} + ${bonus} bonus = ${finalRoll}`
+        );
+      }
+    }
+
     setDiceFlowPhase("revealing");
     await sleep(DICE_REVEAL_BLINK_MS);
     setHasRolledThisTurn(true);
@@ -2604,10 +2697,16 @@ export default function GamePage({
     if (!currentPlayer) return;
 
     if (offer.type === "weapon" && offer.weaponName) {
+      const slot =
+        offer.weaponSlot ??
+        (sidearmWeapons.includes(offer.weaponName as WeaponName)
+          ? "secondary"
+          : "primary");
       const result = buyWeaponForPlayer({
         weapon: offer.weaponName as WeaponName,
         player: currentPlayer,
         isOnShopTile: true,
+        slot,
       });
 
       if (!result.success) {
@@ -2674,7 +2773,7 @@ export default function GamePage({
     );
   }
 
-  function canInteractWithDice() {
+  function isTurnInteractionClear() {
     return (
       !gameFinished &&
       playersInGame.length > 0 &&
@@ -2688,14 +2787,30 @@ export default function GamePage({
       !pendingEventChoice &&
       !activeStoryEvent &&
       !spikePlantAnimation &&
-      turnBannerPlayerIndex === null &&
-      (!multiplayer || multiplayer.yourPlayerIndex === currentPlayerIndex)
+      turnBannerPlayerIndex === null
     );
+  }
+
+  function isCurrentSeatActor() {
+    return !multiplayer || multiplayer.yourPlayerIndex === currentPlayerIndex;
+  }
+
+  function canInteractWithDice() {
+    return isTurnInteractionClear() && isCurrentSeatActor();
   }
 
   function canUseInventoryActions() {
     return (
-      canInteractWithDice() &&
+      isTurnInteractionClear() &&
+      isCurrentSeatActor() &&
+      diceFlowPhase === "hidden" &&
+      !hasRolledThisTurn
+    );
+  }
+
+  function canHostApplyCurrentTurnInventory() {
+    return (
+      isTurnInteractionClear() &&
       diceFlowPhase === "hidden" &&
       !hasRolledThisTurn
     );
@@ -2703,10 +2818,14 @@ export default function GamePage({
 
   function applyInventoryItemUse(
     itemId: string,
-    targetPlayerIndex?: number
+    targetPlayerIndex?: number,
+    options?: { fromRemote?: boolean }
   ): boolean {
-    if (!canUseInventoryActions()) return false;
-    const player = playersInGame[currentPlayerIndex];
+    const allowed = options?.fromRemote
+      ? canHostApplyCurrentTurnInventory()
+      : canUseInventoryActions();
+    if (!allowed) return false;
+    const player = playersInGameRef.current[currentPlayerIndex];
     if (!player?.items.includes(itemId)) return false;
 
     const item = itemById.get(itemId);
@@ -2717,8 +2836,9 @@ export default function GamePage({
       updatePlayer(currentPlayerIndex, (current) => ({
         ...current,
         items: current.items.filter((id) => id !== itemId),
+        // One-shot: turns === 0 means consume on the next movement roll.
         movementBonus: (current.movementBonus ?? 0) + effect.amount,
-        movementBonusTurns: Math.max(current.movementBonusTurns ?? 0, 1),
+        movementBonusTurns: 0,
       }));
       setPendingInventoryItemId(null);
       setStatusTitle(`${player.name} used ${item.name}`);
@@ -2731,19 +2851,20 @@ export default function GamePage({
     }
 
     if (effect.kind === "steal_creds") {
+      const roster = playersInGameRef.current;
       if (
         targetPlayerIndex == null ||
         targetPlayerIndex === currentPlayerIndex ||
-        !playersInGame[targetPlayerIndex]
+        !roster[targetPlayerIndex]
       ) {
         setPendingInventoryItemId(itemId);
         return false;
       }
       const stolen = Math.min(
         effect.amount,
-        playersInGame[targetPlayerIndex].creds
+        roster[targetPlayerIndex].creds
       );
-      const targetName = playersInGame[targetPlayerIndex].name;
+      const targetName = roster[targetPlayerIndex].name;
       setPlayersInGame((current) =>
         current.map((entry, index) => {
           if (index === targetPlayerIndex) {
@@ -2773,17 +2894,18 @@ export default function GamePage({
     }
 
     if (effect.kind === "swap_position") {
+      const roster = playersInGameRef.current;
       if (
         targetPlayerIndex == null ||
         targetPlayerIndex === currentPlayerIndex ||
-        !playersInGame[targetPlayerIndex]
+        !roster[targetPlayerIndex]
       ) {
         setPendingInventoryItemId(itemId);
         return false;
       }
-      const selfPos = playersInGame[currentPlayerIndex].position;
-      const targetPos = playersInGame[targetPlayerIndex].position;
-      const targetName = playersInGame[targetPlayerIndex].name;
+      const selfPos = roster[currentPlayerIndex].position;
+      const targetPos = roster[targetPlayerIndex].position;
+      const targetName = roster[targetPlayerIndex].name;
       setPlayersInGame((current) =>
         current.map((entry, index) => {
           if (index === currentPlayerIndex) {
@@ -2906,6 +3028,7 @@ export default function GamePage({
       activeStoryEvent: activeStoryEvent
         ? toSyncedActiveStoryEvent(activeStoryEvent)
         : null,
+      pendingEventChoice: toSyncedPendingEventChoice(pendingEventChoice),
       scheduledCustomMatch: toSyncedScheduledCustomMatch(scheduledCustomMatch),
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
     });
@@ -2921,6 +3044,7 @@ export default function GamePage({
     lastRoll,
     movingPlayerIndex,
     multiplayer?.isHost,
+    pendingEventChoice,
     pendingPathChoice,
     phase,
     playersInGame,
@@ -2964,6 +3088,7 @@ export default function GamePage({
       activeStoryEvent: activeStoryEvent
         ? toSyncedActiveStoryEvent(activeStoryEvent)
         : null,
+      pendingEventChoice: toSyncedPendingEventChoice(pendingEventChoice),
       scheduledCustomMatch: toSyncedScheduledCustomMatch(scheduledCustomMatch),
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
     });
@@ -2980,6 +3105,7 @@ export default function GamePage({
     movingPlayerIndex,
     multiplayer,
     onLocalSnapshotChange,
+    pendingEventChoice,
     pendingPathChoice,
     phase,
     playersInGame,
@@ -3000,7 +3126,7 @@ export default function GamePage({
       switch (action.type) {
         case "open_dice":
           if (
-            !canInteractWithDice() ||
+            !isTurnInteractionClear() ||
             hasRolledThisTurn ||
             diceFlowPhase !== "hidden"
           ) {
@@ -3011,7 +3137,7 @@ export default function GamePage({
           break;
         case "roll_dice":
           if (diceFlowPhase === "ready") {
-            void beginDiceRoll();
+            void beginDiceRoll(true);
           }
           break;
         case "begin_movement":
@@ -3025,7 +3151,19 @@ export default function GamePage({
           }
           break;
         case "use_item":
-          applyInventoryItemUse(action.itemId, action.targetPlayerIndex);
+          applyInventoryItemUse(action.itemId, action.targetPlayerIndex, {
+            fromRemote: true,
+          });
+          break;
+        case "event_choice":
+          handleEventChoice({
+            choiceId: action.choiceId,
+            targetPlayerIndex: action.targetPlayerIndex,
+            betAmount: action.betAmount,
+          });
+          break;
+        case "finish_event":
+          void finishEventStoryAndAdvance();
           break;
         default:
           break;
@@ -3083,9 +3221,9 @@ export default function GamePage({
   function getAgentPortraitImage(player: PlayerInGame) {
     const agent = getAgentData(player);
     if (!agent) return null;
-    if (agent.fullPortrait) return agent.fullPortrait;
+    // Prefer local cropped portraits for the sidebar (API fullPortrait is full-body).
     if (agent.displayName) return agentPortraitPath(agent.displayName);
-    return agent.displayIcon ?? null;
+    return agent.displayIcon ?? agent.fullPortrait ?? null;
   }
 
   const rankedPlayers = rankPlayersByScore(playersInGame);
@@ -3550,7 +3688,11 @@ export default function GamePage({
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-bold text-white">{player.name}</p>
                     <p className="text-sm text-zinc-400">
-                      {player.creds} Creds · {player.weapon ?? "No weapon"}
+                      {player.creds} Creds ·{" "}
+                      {player.primaryWeapon ??
+                        player.weapon ??
+                        player.secondaryWeapon ??
+                        "No weapon"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -3597,7 +3739,9 @@ export default function GamePage({
         <DirectorPresentation
           pick={activeStoryEvent.directorPick}
           introDurationMs={activeStoryEvent.introDurationMs}
-          onComplete={completeDirectorIntro}
+          onComplete={() => {
+            if (!isOnlineGuest) completeDirectorIntro();
+          }}
         />
       )}
 
@@ -3867,8 +4011,13 @@ export default function GamePage({
                   <p>{currentPlayer.name}</p>
                   <p>
                     {getAgentName(currentPlayer)}
-                    {currentPlayer.weapon
-                      ? ` · ${currentPlayer.weapon}`
+                    {currentPlayer.primaryWeapon || currentPlayer.secondaryWeapon
+                      ? ` · ${[
+                          currentPlayer.primaryWeapon,
+                          currentPlayer.secondaryWeapon,
+                        ]
+                          .filter(Boolean)
+                          .join(" / ")}`
                       : " · No weapon"}
                   </p>
                 </div>

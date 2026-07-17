@@ -23,11 +23,20 @@ export type PlayerInGame = Player & {
   position: string;
   creds: number;
   radianitePoints: number;
-  weapon: string | null;
+  /** Primary (rifles, SMGs, snipers, etc.). */
+  primaryWeapon: string | null;
+  /** Secondary / sidearm. */
+  secondaryWeapon: string | null;
+  /**
+   * Legacy single-weapon field. Migrated to primaryWeapon when present.
+   * @deprecated Prefer primaryWeapon / secondaryWeapon.
+   */
+  weapon?: string | null;
   shield: ShieldName | null;
   nextWeaponDiscount: number;
   items: string[];
   movementBonus: number;
+  /** Turns remaining for multi-turn bonuses. 0 = one-shot (cleared after next roll). */
   movementBonusTurns: number;
   maxStepsPerTurn: number | null;
   maxStepsTurns: number;

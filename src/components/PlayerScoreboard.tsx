@@ -65,10 +65,16 @@ export default function PlayerScoreboard({
 
               <div className="rounded-xl bg-black/20 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-white/50">
-                  Weapon
+                  Loadout
                 </div>
                 <div className="truncate text-sm font-bold text-white">
-                  {player.weapon ?? "No Weapon"}
+                  {[
+                    player.primaryWeapon ?? player.weapon,
+                    player.secondaryWeapon,
+                    player.shield,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Empty"}
                 </div>
               </div>
             </div>

@@ -182,7 +182,11 @@ export default function EventOutcomeRoulette({
   const iconSize = size === "lg" ? 7 : 5.5;
 
   useEffect(() => {
-    if (!active || segments.length === 0) return;
+    if (!active) return;
+    if (segments.length === 0) {
+      onCompleteRef.current();
+      return;
+    }
 
     completedRef.current = false;
     setRotation(0);

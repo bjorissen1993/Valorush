@@ -4,6 +4,8 @@ import type { PlayerInGame } from "../types/Game";
 import { boardLayout } from "./boardLayout";
 
 export function toPlayerBoardState(player: PlayerInGame): PlayerBoardState {
+  const primary =
+    player.primaryWeapon ?? player.weapon ?? null;
   return {
     id: player.id,
     slotIndex: player.slotIndex,
@@ -11,7 +13,9 @@ export function toPlayerBoardState(player: PlayerInGame): PlayerBoardState {
     position: player.position,
     creds: player.creds,
     radianitePoints: player.radianitePoints,
-    weapon: player.weapon,
+    primaryWeapon: primary,
+    secondaryWeapon: player.secondaryWeapon ?? null,
+    weapon: primary,
     shield: player.shield,
     nextWeaponDiscount: player.nextWeaponDiscount,
     items: player.items ?? [],
@@ -26,11 +30,16 @@ export function mergeBoardStateIntoPlayer(
   player: PlayerInGame,
   board: PlayerBoardState
 ): PlayerInGame {
+  const primary =
+    board.primaryWeapon ?? board.weapon ?? player.primaryWeapon ?? null;
   return {
     ...player,
     position: board.position,
     creds: board.creds,
     radianitePoints: board.radianitePoints,
+    primaryWeapon: primary,
+    secondaryWeapon: board.secondaryWeapon ?? player.secondaryWeapon ?? null,
+    weapon: primary,
     nextWeaponDiscount: board.nextWeaponDiscount,
     items: board.items,
     movementBonus: board.movementBonus,
@@ -100,13 +109,17 @@ export function buildEventApplyContext(
   };
 }
 
-/** Decrement movement modifiers at start of a player's turn. */
+/** Decrement multi-turn movement modifiers at start of a player's turn.
+ * One-shot bonuses (movementBonusTurns === 0 with movementBonus > 0) are left alone
+ * until consumed by the next movement roll.
+ */
 export function tickMovementModifiers(player: PlayerInGame): PlayerInGame {
   let next = { ...player };
   if (next.movementBonusTurns > 0) {
     next.movementBonusTurns -= 1;
     if (next.movementBonusTurns <= 0) {
       next.movementBonus = 0;
+      next.movementBonusTurns = 0;
     }
   }
   if (next.maxStepsTurns > 0) {
@@ -127,4 +140,40 @@ export function computeEffectiveRoll(
     roll = Math.min(roll, player.maxStepsPerTurn);
   }
   return Math.max(1, roll);
+}
+
+/** Clear one-shot movement bonus after it has been applied to a roll. */
+export function consumeOneShotMovementBonus(
+  player: PlayerInGame
+): PlayerInGame {
+  if ((player.movementBonus ?? 0) <= 0) return player;
+  // Multi-turn bonuses (turns > 0) stay until tickMovementModifiers clears them.
+  if ((player.movementBonusTurns ?? 0) > 0) return player;
+  return {
+    ...player,
+    movementBonus: 0,
+    movementBonusTurns: 0,
+  };
+}
+
+/** Normalize legacy `weapon` into primary/secondary slots. */
+export function normalizePlayerLoadout<T extends {
+  weapon?: string | null;
+  primaryWeapon?: string | null;
+  secondaryWeapon?: string | null;
+  shield?: string | null;
+}>(player: T): T & {
+  primaryWeapon: string | null;
+  secondaryWeapon: string | null;
+  weapon: string | null;
+} {
+  const primary =
+    player.primaryWeapon ?? player.weapon ?? null;
+  const secondary = player.secondaryWeapon ?? null;
+  return {
+    ...player,
+    primaryWeapon: primary,
+    secondaryWeapon: secondary,
+    weapon: primary,
+  };
 }

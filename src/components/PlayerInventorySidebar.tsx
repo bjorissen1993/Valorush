@@ -102,7 +102,10 @@ export default function PlayerInventorySidebar({
   );
   const spikeItems = ownedItems.filter((item) => classifyItem(item) === "spike");
 
-  const weaponImage = getWeaponImage(player.weapon);
+  const primaryWeapon = player.primaryWeapon ?? player.weapon ?? null;
+  const secondaryWeapon = player.secondaryWeapon ?? null;
+  const primaryImage = getWeaponImage(primaryWeapon);
+  const secondaryImage = getWeaponImage(secondaryWeapon);
   const shieldImage = getShieldImage(player.shield);
   const pendingItem = pendingTargetItemId
     ? itemById.get(pendingTargetItemId)
@@ -110,10 +113,6 @@ export default function PlayerInventorySidebar({
 
   function handleItemClick(item: ItemDefinition) {
     if (!canAct || !onUseItem || !isUsableBoardItem(item)) return;
-    if (needsTarget(item)) {
-      onUseItem({ kind: "use", itemId: item.id });
-      return;
-    }
     onUseItem({ kind: "use", itemId: item.id });
   }
 
@@ -211,7 +210,9 @@ export default function PlayerInventorySidebar({
             <div className="player-inventory-panel__buff">
               +{player.movementBonus} on next movement roll
               {(player.movementBonusTurns ?? 0) > 0
-                ? ` · ${player.movementBonusTurns} turn`
+                ? ` · ${player.movementBonusTurns} turn${
+                    player.movementBonusTurns === 1 ? "" : "s"
+                  }`
                 : ""}
             </div>
           )}
@@ -305,28 +306,21 @@ export default function PlayerInventorySidebar({
         <section className="player-inventory-panel__section">
           <h3>Loadout</h3>
           <div className="player-inventory-panel__gear">
-            <div className="player-inventory-panel__gear-slot">
-              <p className="player-inventory-panel__gear-label">Weapon</p>
-              <div className="player-inventory-panel__gear-body">
-                {weaponImage ? (
-                  <img src={weaponImage} alt="" />
-                ) : (
-                  <div className="player-inventory-panel__gear-placeholder" />
-                )}
-                <span>{player.weapon ?? "None"}</span>
-              </div>
-            </div>
-            <div className="player-inventory-panel__gear-slot">
-              <p className="player-inventory-panel__gear-label">Shield</p>
-              <div className="player-inventory-panel__gear-body">
-                {shieldImage ? (
-                  <img src={shieldImage} alt="" />
-                ) : (
-                  <div className="player-inventory-panel__gear-placeholder" />
-                )}
-                <span>{player.shield ?? "None"}</span>
-              </div>
-            </div>
+            <LoadoutSlot
+              label="Primary"
+              name={primaryWeapon}
+              image={primaryImage}
+            />
+            <LoadoutSlot
+              label="Secondary"
+              name={secondaryWeapon}
+              image={secondaryImage}
+            />
+            <LoadoutSlot
+              label="Shield"
+              name={player.shield}
+              image={shieldImage}
+            />
           </div>
           {player.nextWeaponDiscount > 0 && (
             <div className="player-inventory-panel__discount">
@@ -340,6 +334,30 @@ export default function PlayerInventorySidebar({
             Viewing loadout — actions locked
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+function LoadoutSlot({
+  label,
+  name,
+  image,
+}: {
+  label: string;
+  name: string | null;
+  image?: string;
+}) {
+  return (
+    <div className="player-inventory-panel__gear-slot">
+      <p className="player-inventory-panel__gear-label">{label}</p>
+      <div className="player-inventory-panel__gear-body">
+        {image ? (
+          <img src={image} alt="" />
+        ) : (
+          <div className="player-inventory-panel__gear-placeholder" />
+        )}
+        <span>{name ?? "None"}</span>
       </div>
     </div>
   );

@@ -39,6 +39,8 @@ function toPlayersInGame(players: Player[], agents: Agent[]): PlayerInGame[] {
       creds: 800,
       radianitePoints: 0,
       weapon: null,
+      primaryWeapon: null,
+      secondaryWeapon: null,
       shield: null,
       nextWeaponDiscount: 0,
       items: [],

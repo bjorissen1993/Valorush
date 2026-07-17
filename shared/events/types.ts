@@ -54,7 +54,10 @@ export type PlayerBoardState = {
   position: string;
   creds: number;
   radianitePoints: number;
-  weapon: string | null;
+  primaryWeapon: string | null;
+  secondaryWeapon: string | null;
+  /** @deprecated Migrated to primaryWeapon. */
+  weapon?: string | null;
   shield: string | null;
   nextWeaponDiscount: number;
   items: string[];

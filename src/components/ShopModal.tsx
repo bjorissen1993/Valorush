@@ -16,6 +16,8 @@ export type ShopOffer = {
   price: number;
   description?: string;
   weaponName?: string;
+  /** Which loadout slot a weapon fills. */
+  weaponSlot?: "primary" | "secondary";
   image?: string;
   disabled?: boolean;
 };
