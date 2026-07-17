@@ -762,6 +762,27 @@ export default function GamePage({
     );
   }
 
+  const chatYourPlayerId = multiplayer
+    ? onlineChatPlayerId ?? multiplayer.yourPlayerId
+    : localChatPlayerId;
+
+  function renderGameChatWidget(className = "") {
+    return (
+      <RoomChatWidget
+        variant="embedded"
+        messages={chatMessages}
+        onSend={handleSendChatMessage}
+        yourPlayerId={chatYourPlayerId}
+        title="Chat"
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        lastReadCount={chatLastReadCount}
+        onLastReadCountChange={setChatLastReadCount}
+        className={className}
+      />
+    );
+  }
+
   useEffect(() => {
     if (!isLocalPlay || restoredLocal) return;
     seedJoinMessages(playersInGame.map((player) => player.name));
@@ -793,9 +814,24 @@ export default function GamePage({
     "plant-spike" | "teleport-player" | null
   >(null);
   const [mobileInventoryOpen, setMobileInventoryOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatLastReadCount, setChatLastReadCount] = useState(0);
+  const [isDesktopInventory, setIsDesktopInventory] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(min-width: 1024px)").matches
+      : true
+  );
   const [pendingInventoryItemId, setPendingInventoryItemId] = useState<
     string | null
   >(null);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setIsDesktopInventory(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   const boardEventsByCategory = useMemo(() => {
     const grouped = {
@@ -4012,20 +4048,6 @@ export default function GamePage({
 
       {!showTurnOrder && (
       <div className="game-play-viewport">
-        <div className="pointer-events-none absolute right-3 top-3 z-[45] h-10 w-10 sm:right-4 sm:top-4">
-          <div className="pointer-events-auto">
-            <RoomChatWidget
-              messages={chatMessages}
-              onSend={handleSendChatMessage}
-              yourPlayerId={
-                multiplayer
-                  ? onlineChatPlayerId ?? multiplayer.yourPlayerId
-                  : localChatPlayerId
-              }
-              title="Chat"
-            />
-          </div>
-        </div>
         <div className="game-play-shell">
           {currentPlayer && (
             <aside className="game-inventory-sidebar">
@@ -4057,6 +4079,9 @@ export default function GamePage({
                 onCancelTarget={() => setPendingInventoryItemId(null)}
                 onOpenMenu={openGameMenu}
                 menuOpen={gameMenuOpen}
+                chatWidget={
+                  isDesktopInventory ? renderGameChatWidget() : undefined
+                }
                 showDebugButton={debugMode}
                 debugOpen={debugOverlayOpen}
                 onToggleDebug={toggleDebugOverlay}
@@ -4230,6 +4255,9 @@ export default function GamePage({
                   </p>
                 </div>
                 <div className="game-inventory-mobile-bar__actions">
+                  {!isDesktopInventory &&
+                    !mobileInventoryOpen &&
+                    renderGameChatWidget()}
                   <button
                     type="button"
                     className="game-inventory-mobile-bar__menu-btn"
@@ -4350,6 +4378,9 @@ export default function GamePage({
                 onClose={() => setMobileInventoryOpen(false)}
                 onOpenMenu={openGameMenu}
                 menuOpen={gameMenuOpen}
+                chatWidget={
+                  !isDesktopInventory ? renderGameChatWidget() : undefined
+                }
                 showDebugButton={debugMode}
                 debugOpen={debugOverlayOpen}
                 onToggleDebug={toggleDebugOverlay}

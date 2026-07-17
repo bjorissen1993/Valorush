@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PlayerInGame } from "../types/Game";
 import { itemById, type ItemDefinition } from "../../shared/items";
 import { weaponImageMap, shieldImageMap } from "../game/data/weaponImages";
@@ -40,6 +41,8 @@ type PlayerInventorySidebarProps = {
   onClose?: () => void;
   onOpenMenu?: () => void;
   menuOpen?: boolean;
+  /** Chat trigger rendered left of the settings cog in the header. */
+  chatWidget?: ReactNode;
   showDebugButton?: boolean;
   debugOpen?: boolean;
   onToggleDebug?: () => void;
@@ -138,6 +141,7 @@ export default function PlayerInventorySidebar({
   onClose,
   onOpenMenu,
   menuOpen = false,
+  chatWidget,
   showDebugButton = false,
   debugOpen = false,
   onToggleDebug,
@@ -194,6 +198,7 @@ export default function PlayerInventorySidebar({
               <p className="player-inventory-panel__agent">{agentName}</p>
             </div>
             <div className="player-inventory-panel__header-actions">
+              {chatWidget}
               {onOpenMenu && (
                 <button
                   type="button"

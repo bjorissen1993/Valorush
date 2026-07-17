@@ -2361,6 +2361,37 @@ body {
   margin-left: auto;
 }
 
+.player-inventory-panel__chat {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 40;
+}
+
+.player-inventory-panel__chat-btn {
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(226, 232, 240, 0.85);
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.player-inventory-panel__chat-btn:hover {
+  border-color: rgba(34, 211, 238, 0.4);
+  background: rgba(34, 211, 238, 0.12);
+  color: #fff;
+}
+
+.game-inventory-mobile-bar__actions .player-inventory-panel__chat-btn {
+  height: 2.25rem;
+  width: 2.25rem;
+  border-radius: 0.75rem;
+}
+
 .player-inventory-panel__menu-btn {
   display: flex;
   height: 2rem;
