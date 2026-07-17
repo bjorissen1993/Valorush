@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { LobbyChatMessage } from "../../../shared/lobbyTypes";
+import { SYSTEM_CHAT_PLAYER_ID } from "../../../shared/lobbyTypes";
 
 type LobbyChatPanelProps = {
   open: boolean;
@@ -7,6 +8,7 @@ type LobbyChatPanelProps = {
   messages: LobbyChatMessage[];
   onSend: (text: string) => void;
   yourPlayerId: string | null;
+  title?: string;
 };
 
 function formatChatTime(sentAt: number): string {
@@ -16,12 +18,19 @@ function formatChatTime(sentAt: number): string {
   });
 }
 
+function isSystemMessage(message: LobbyChatMessage): boolean {
+  return (
+    message.kind === "system" || message.playerId === SYSTEM_CHAT_PLAYER_ID
+  );
+}
+
 function LobbyChatPanel({
   open,
   onClose,
   messages,
   onSend,
   yourPlayerId,
+  title = "Chat",
 }: LobbyChatPanelProps) {
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -50,7 +59,7 @@ function LobbyChatPanel({
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
-        <h2 className="text-sm font-semibold text-white">Lobby Chat</h2>
+        <h2 className="text-sm font-semibold text-white">{title}</h2>
         <button
           type="button"
           onClick={onClose}
@@ -71,24 +80,46 @@ function LobbyChatPanel({
               No messages yet. Say hello!
             </p>
           ) : (
-            messages.map((message) => (
-              <div key={message.id} className="text-sm leading-snug">
-                <span className="font-mono text-[10px] text-zinc-500">
-                  {formatChatTime(message.sentAt)}
-                </span>{" "}
-                <span
-                  className={
-                    message.playerId === yourPlayerId
-                      ? "font-semibold text-cyan-200"
-                      : "font-semibold text-white"
-                  }
+            messages.map((message) => {
+              const system = isSystemMessage(message);
+              return (
+                <div
+                  key={message.id}
+                  className={`text-sm leading-snug ${
+                    system ? "text-amber-200/90" : ""
+                  }`}
                 >
-                  {message.playerName}
-                </span>
-                <span className="text-zinc-400">: </span>
-                <span className="text-zinc-100">{message.text}</span>
-              </div>
-            ))
+                  <span className="font-mono text-[10px] text-zinc-500">
+                    {formatChatTime(message.sentAt)}
+                  </span>{" "}
+                  {system ? (
+                    <>
+                      <span className="font-semibold text-amber-300">
+                        System
+                      </span>
+                      <span className="text-zinc-500"> · </span>
+                      <span className="italic text-amber-100/85">
+                        {message.text}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span
+                        className={
+                          message.playerId === yourPlayerId
+                            ? "font-semibold text-cyan-200"
+                            : "font-semibold text-white"
+                        }
+                      >
+                        {message.playerName}
+                      </span>
+                      <span className="text-zinc-400">: </span>
+                      <span className="text-zinc-100">{message.text}</span>
+                    </>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>

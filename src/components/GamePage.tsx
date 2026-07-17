@@ -13,6 +13,7 @@ import type {
 import type { EventChoiceSpec } from "../../shared/events";
 import type { DirectorPickPayload } from "../../shared/director";
 import { useOnlineGameSync } from "../hooks/useOnlineGameSync";
+import { useChatGameEvents } from "../hooks/useChatGameEvents";
 import BoardMap from "./BoardMap";
 import TurnBanner from "./TurnBanner";
 import TurnOrderScreen from "./TurnOrderScreen";
@@ -29,6 +30,7 @@ import DiceRollOverlay, { type DiceOverlayPhase } from "./DiceRollOverlay";
 import { DICE_REVEAL_BLINK_MS } from "./DiceFace";
 import ValorantCrate from "./valorant/ValorantCrate";
 import { StoryArtPanel, StoryDialogueLines } from "./StoryArtPanel";
+import RoomChatWidget from "./lobby/RoomChatWidget";
 import { isEffectivePerformanceMode } from "../hooks/usePerformanceSettings";
 import type { usePerformanceSettings } from "../hooks/usePerformanceSettings";
 import { useDebugMode } from "../hooks/useDebugMode";
@@ -429,6 +431,7 @@ export default function GamePage({
   const { effectivePerformanceMode, performanceMode, togglePerformanceMode } =
     performanceSettings;
   const { debugMode, setDebugMode } = useDebugMode();
+  const { chatGameEvents, toggleChatGameEvents } = useChatGameEvents();
   const [gameMenuOpen, setGameMenuOpen] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const canLeaveGame = Boolean(multiplayer || onBackToLobby || onLeaveMatch);
@@ -597,7 +600,15 @@ export default function GamePage({
     }
   }, []);
 
-  const { publishSnapshot, sendAction, leaveMatch } = useOnlineGameSync({
+  const {
+    publishSnapshot,
+    sendAction,
+    leaveMatch,
+    chatMessages,
+    sendChatMessage,
+    sendSystemChat,
+    yourPlayerId: onlineChatPlayerId,
+  } = useOnlineGameSync({
     enabled: !!multiplayer,
     isHost: !!multiplayer?.isHost,
     resumeHostFromServer: !!multiplayer?.isHost && !!multiplayer?.resumedFromSession,
@@ -606,6 +617,19 @@ export default function GamePage({
       remoteActionHandlerRef.current(fromPlayerId, action);
     },
   });
+
+  const chatGameEventsRef = useRef(chatGameEvents);
+  chatGameEventsRef.current = chatGameEvents;
+  const sendSystemChatRef = useRef(sendSystemChat);
+  sendSystemChatRef.current = sendSystemChat;
+
+  function publishGameEventChat(text: string) {
+    if (!multiplayer?.isHost) return;
+    if (!chatGameEventsRef.current) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    sendSystemChatRef.current(trimmed);
+  }
 
   useEffect(() => {
     if (!canOpenGameMenu) return;
@@ -1864,6 +1888,17 @@ export default function GamePage({
     setStatusTitle(headline);
     setStatusSubtitle(subtitle);
     showAnnouncement(`${matchDef?.name ?? "Custom Match"} Complete`, subtitle);
+    const winCreds = matchDef?.winCreds ?? 150;
+    const winRad = matchDef?.winRadianite ?? 1;
+    const winnerNames = uniqueIndices
+      .map((index) => playersInGame[index]?.name)
+      .filter(Boolean)
+      .join(", ");
+    if (winnerNames) {
+      publishGameEventChat(
+        `${matchDef?.name ?? "Custom Match"} won by ${winnerNames} (+${winCreds} creds, +${winRad} radianite)`
+      );
+    }
 
     setCustomMatchPhase(null);
     setScheduledCustomMatch(null);
@@ -1885,6 +1920,7 @@ export default function GamePage({
       setStatusTitle("Game Over");
       setStatusSubtitle("The match has ended after 10 rounds.");
       showAnnouncement("Game Over", "Check the final standings.");
+      publishGameEventChat("Game over — check the final standings");
       return;
     }
 
@@ -1982,6 +2018,9 @@ export default function GamePage({
     );
     setLastEventTitle(minigameDef?.name ?? "Minigame");
     showAnnouncement("Minigame Won!", `${winnerName} rolled ${winner.roll}.`);
+    publishGameEventChat(
+      `${winnerName} won ${minigameDef?.name ?? "Minigame"} (+${minigameDef?.rewards.creds ?? MINIGAME_WIN_CREDS} creds, +${minigameDef?.rewards.radianite ?? MINIGAME_WIN_RADIANITE} radianite)`
+    );
   }
 
   async function finishMinigameAndAdvance() {
@@ -2059,6 +2098,9 @@ export default function GamePage({
     showAnnouncement(
       "Spike Detonated",
       `${pendingSpikeDetonationReveal.planterName} gained 1 Radianite Point.`
+    );
+    publishGameEventChat(
+      `Spike detonated — ${pendingSpikeDetonationReveal.planterName} earned +1 radianite`
     );
     setPendingSpikeDetonationReveal(null);
   }, [pendingSpikeDetonationReveal, turnBannerPlayerIndex]);
@@ -2167,6 +2209,7 @@ export default function GamePage({
       setStatusTitle("Game Over");
       setStatusSubtitle("The match has ended after 10 rounds.");
       showAnnouncement("Game Over", "Check the final standings.");
+      publishGameEventChat("Game over — check the final standings");
       return;
     }
 
@@ -2326,6 +2369,7 @@ export default function GamePage({
       setStatusTitle("Spike Defused");
       setStatusSubtitle(`${playerName} defused with ${total} vs ${difficulty}. +1 Radianite.`);
       showAnnouncement("Spike Defused", `${playerName} saved the site!`);
+      publishGameEventChat(`${playerName} defused the spike (+1 radianite)`);
     }
 
     await sleep(AUTO_ADVANCE_DELAY);
@@ -2406,6 +2450,19 @@ export default function GamePage({
       event.title,
       event.outcome?.description ?? event.description
     );
+
+    const effect = event.outcome?.effect ?? resolvedEffect;
+    if (effect?.type === "creds" && effect.amount !== 0) {
+      const sign = effect.amount > 0 ? "+" : "";
+      publishGameEventChat(
+        `${player?.name ?? "Player"} ${effect.amount > 0 ? "earned" : "lost"} ${sign}${effect.amount} creds (${event.title})`
+      );
+    } else if (effect?.type === "radianite" && effect.amount !== 0) {
+      const sign = effect.amount > 0 ? "+" : "";
+      publishGameEventChat(
+        `${player?.name ?? "Player"} ${effect.amount > 0 ? "earned" : "lost"} ${sign}${effect.amount} radianite (${event.title})`
+      );
+    }
 
     await sleep(600);
     await advanceToNextPlayer(
@@ -3432,6 +3489,30 @@ export default function GamePage({
                   </span>
                 </button>
 
+                {multiplayer && (
+                  <button
+                    type="button"
+                    onClick={toggleChatGameEvents}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm text-white transition hover:bg-white/5"
+                  >
+                    <span>
+                      <span className="font-medium">Game events in chat</span>
+                      <span className="mt-0.5 block text-xs text-zinc-500">
+                        {multiplayer.isHost
+                          ? "Post wins, creds, and radianite to the shared chat"
+                          : "Host setting — you still see events the host posts"}
+                      </span>
+                    </span>
+                    <span
+                      className={`text-xs font-semibold ${
+                        chatGameEvents ? "text-emerald-300" : "text-zinc-400"
+                      }`}
+                    >
+                      {chatGameEvents ? "On" : "Off"}
+                    </span>
+                  </button>
+                )}
+
                 <div className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm text-zinc-500">
                   <span>
                     <span className="font-medium text-zinc-400">Sound</span>
@@ -3896,6 +3977,18 @@ export default function GamePage({
 
       {!showTurnOrder && (
       <div className="game-play-viewport">
+        {multiplayer && (
+          <div className="pointer-events-none absolute right-3 top-3 z-[45] h-10 w-10 sm:right-4 sm:top-4">
+            <div className="pointer-events-auto">
+              <RoomChatWidget
+                messages={chatMessages}
+                onSend={sendChatMessage}
+                yourPlayerId={onlineChatPlayerId ?? multiplayer.yourPlayerId}
+                title="Chat"
+              />
+            </div>
+          </div>
+        )}
         <div className="game-play-shell">
           {currentPlayer && (
             <aside className="game-inventory-sidebar">
@@ -3955,7 +4048,7 @@ export default function GamePage({
                   diceFlowPhase !== "hidden" &&
                   index === currentPlayerIndex;
 
-                const cardClassName = `relative flex h-28 flex-col justify-between overflow-hidden rounded-2xl border p-3 text-left transition sm:h-32 ${
+                const cardClassName = `relative flex h-32 flex-col justify-between overflow-hidden rounded-2xl border p-3 text-left transition sm:h-36 ${
                   isCurrent
                     ? "border-cyan-400/50 bg-cyan-400/10 shadow-[0_0_28px_rgba(34,211,238,0.12)] lg:hidden"
                     : "border-white/10 bg-zinc-900/70"
@@ -3979,9 +4072,9 @@ export default function GamePage({
 
                     <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-r from-transparent via-zinc-900/40 to-zinc-900/90" />
 
-                    <div className="relative z-10 flex h-full flex-col justify-between">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5">
+                    <div className="relative z-10 flex h-full flex-col justify-between gap-1">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5 sm:h-14 sm:w-14">
                           {player.avatar ? (
                             <img
                               src={player.avatar}
@@ -3990,7 +4083,7 @@ export default function GamePage({
                             />
                           ) : (
                             <div
-                              className="flex h-full w-full items-center justify-center text-base font-bold text-white"
+                              className="flex h-full w-full items-center justify-center text-lg font-bold text-white sm:text-xl"
                               style={{
                                 backgroundColor: player.color ?? "#334155",
                               }}
@@ -4000,11 +4093,11 @@ export default function GamePage({
                           )}
                         </div>
 
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-white">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-base font-extrabold leading-tight text-white sm:text-lg">
                             {player.name}
                           </p>
-                          <p className="truncate text-[11px] text-zinc-400">
+                          <p className="truncate text-xs font-semibold text-zinc-300 sm:text-sm">
                             {getAgentName(player)}
                           </p>
                           {canOpenDice && (

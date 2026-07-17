@@ -120,6 +120,9 @@ export function useLobbyRoom({
       onChatMessage: (message) => {
         setChatMessages((prev) => [...prev, message]);
       },
+      onChatHistory: (messages) => {
+        setChatMessages(messages);
+      },
       onError: (message) => {
         const lower = message.toLowerCase();
 

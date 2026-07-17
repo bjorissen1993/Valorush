@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { LobbyChatMessage } from "../../shared/lobbyTypes";
 import type {
   OnlineGameAction,
   OnlineGameSnapshot,
@@ -31,6 +32,8 @@ export function useOnlineGameSync({
   const onRemoteActionRef = useRef(onRemoteAction);
   const onSnapshotRef = useRef(onSnapshot);
   const publishBlockedRef = useRef(Boolean(isHost && resumeHostFromServer));
+  const [chatMessages, setChatMessages] = useState<LobbyChatMessage[]>([]);
+  const [yourPlayerId, setYourPlayerId] = useState<string | null>(null);
 
   onGameBeginRef.current = onGameBegin;
   onRemoteActionRef.current = onRemoteAction;
@@ -46,8 +49,13 @@ export function useOnlineGameSync({
     const session = readLobbySession();
     if (!session) return;
 
+    setYourPlayerId(session.playerId);
+    setChatMessages([]);
+
     const client = new LobbyClient({
-      onRoomState: () => {},
+      onRoomState: (_state, playerId) => {
+        setYourPlayerId(playerId);
+      },
       onGameStarting: () => {},
       onTurnOrderRoll: () => {},
       onTurnOrderDone: () => {},
@@ -80,7 +88,12 @@ export function useOnlineGameSync({
           onRemoteActionRef.current?.(fromPlayerId, action);
         }
       },
-      onChatMessage: () => {},
+      onChatMessage: (message) => {
+        setChatMessages((prev) => [...prev, message]);
+      },
+      onChatHistory: (messages) => {
+        setChatMessages(messages);
+      },
       onError: () => {},
       onStatusChange: () => {},
     });
@@ -127,9 +140,26 @@ export function useOnlineGameSync({
     clientRef.current?.sendGameAction(action);
   }, [isHost]);
 
+  const sendChatMessage = useCallback((text: string) => {
+    clientRef.current?.sendChatMessage(text);
+  }, []);
+
+  const sendSystemChat = useCallback((text: string) => {
+    if (!isHost) return;
+    clientRef.current?.sendSystemChat(text);
+  }, [isHost]);
+
   const leaveMatch = useCallback(() => {
     clientRef.current?.leave();
   }, []);
 
-  return { publishSnapshot, sendAction, leaveMatch };
+  return {
+    publishSnapshot,
+    sendAction,
+    leaveMatch,
+    chatMessages,
+    sendChatMessage,
+    sendSystemChat,
+    yourPlayerId,
+  };
 }

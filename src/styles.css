@@ -2056,6 +2056,7 @@ body {
 
 /* In-game inventory sidebar + player strip */
 .game-play-viewport {
+  position: relative;
   display: flex;
   min-height: 0;
   width: 100%;
@@ -2118,12 +2119,12 @@ body {
   display: grid;
   flex-shrink: 0;
   gap: 0.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }
 
 @media (min-width: 1024px) {
   .game-player-strip {
-    grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   }
 }
 
@@ -2170,16 +2171,16 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.85rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 800;
   color: #fff;
 }
 
 .game-inventory-mobile-bar__meta p:last-child {
-  margin-top: 0.1rem;
-  font-size: 0.65rem;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(34, 211, 238, 0.85);
 }
@@ -2383,19 +2384,20 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 1rem;
+  font-size: 1.35rem;
   font-weight: 800;
+  line-height: 1.15;
   color: #fff;
 }
 
 .player-inventory-panel__agent {
-  margin-top: 0.1rem;
+  margin-top: 0.2rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.75rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: rgba(226, 232, 240, 0.7);
+  color: rgba(226, 232, 240, 0.78);
 }
 
 .player-inventory-panel__close {
@@ -2447,7 +2449,7 @@ body {
   width: calc(100% + 1.7rem);
   margin-left: -0.85rem;
   margin-right: -0.85rem;
-  height: 7.25rem;
+  height: 8.5rem;
   overflow: hidden;
   background: rgba(15, 23, 42, 0.45);
 }

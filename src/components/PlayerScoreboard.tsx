@@ -40,14 +40,14 @@ export default function PlayerScoreboard({
 
             <div className="flex items-center gap-3">
               <div
-                className="h-10 w-10 shrink-0 rounded-full border border-white/30"
+                className="h-12 w-12 shrink-0 rounded-full border border-white/30"
                 style={{ backgroundColor: player.color }}
               />
               <div className="min-w-0">
-                <div className="truncate text-base font-bold text-white">
+                <div className="truncate text-lg font-extrabold text-white">
                   {player.name}
                 </div>
-                <div className="truncate text-xs text-white/60">
+                <div className="truncate text-sm font-semibold text-white/70">
                   {player.selectedAgentId ?? "No agent selected"}
                 </div>
               </div>

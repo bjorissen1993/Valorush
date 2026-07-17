@@ -317,6 +317,7 @@ export type LobbyClientCallbacks = {
   onGameState: (snapshot: OnlineGameSnapshot) => void;
   onGameAction: (fromPlayerId: string, action: OnlineGameAction) => void;
   onChatMessage: (message: LobbyChatMessage) => void;
+  onChatHistory?: (messages: LobbyChatMessage[]) => void;
   onError: (message: string) => void;
   onStatusChange: (status: LobbyConnectionStatus) => void;
 };
@@ -429,6 +430,9 @@ export class LobbyClient {
       case "chat_message":
         this.callbacks.onChatMessage(message.message);
         return;
+      case "chat_history":
+        this.callbacks.onChatHistory?.(message.messages);
+        return;
       case "error":
         this.callbacks.onError(message.message);
         return;
@@ -480,6 +484,10 @@ export class LobbyClient {
 
   sendChatMessage(text: string): void {
     this.send({ type: "chat_message", text });
+  }
+
+  sendSystemChat(text: string): void {
+    this.send({ type: "system_chat", text });
   }
 
   requestTurnOrderRoll(stepIndex: number): void {

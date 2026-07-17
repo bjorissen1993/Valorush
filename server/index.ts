@@ -6,12 +6,13 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import type {
   ClientMessage,
+  LobbyChatMessage,
   LobbyPlayer,
   LobbyRoomState,
   PlayerProfile,
   ServerMessage,
 } from "../shared/lobbyTypes.js";
-import { MAX_LOBBY_PLAYERS } from "../shared/lobbyTypes.js";
+import { MAX_LOBBY_PLAYERS, SYSTEM_CHAT_PLAYER_ID } from "../shared/lobbyTypes.js";
 import type { OnlineGameSnapshot } from "../shared/onlineGameTypes.js";
 import {
   buildPlayerIndexById,
@@ -360,6 +361,9 @@ const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CODE_LENGTH = 6;
 /** Keep disconnected rooms alive so hosts/guests can rejoin after refresh. */
 const REJOIN_GRACE_MS = 10 * 60 * 1000;
+const MAX_CHAT_HISTORY = 120;
+/** Suppress disconnect/rejoin spam during page navigations (lobby → game). */
+const DISCONNECT_ANNOUNCE_DELAY_MS = 4000;
 
 type ConnectedClient = {
   ws: WebSocket;
@@ -377,6 +381,12 @@ type Room = {
   status: LobbyRoomState["status"];
   players: LobbyPlayer[];
   clients: Map<string, ConnectedClient>;
+  chatHistory: LobbyChatMessage[];
+  /** Pending disconnect announcements — cancelled if the player rejoins quickly. */
+  pendingDisconnectAnnouncements: Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >;
   turnOrder?: TurnOrderRoomState;
   gameSnapshot?: OnlineGameSnapshot;
   gameBegun?: boolean;
@@ -429,6 +439,44 @@ function broadcastRoom(room: Room, message: ServerMessage, exceptPlayerId?: stri
   }
 }
 
+function createSystemChatMessage(text: string): LobbyChatMessage {
+  return {
+    id: randomBytes(8).toString("hex"),
+    playerId: SYSTEM_CHAT_PLAYER_ID,
+    playerName: "System",
+    text,
+    sentAt: Date.now(),
+    kind: "system",
+  };
+}
+
+function appendChatMessage(room: Room, message: LobbyChatMessage): void {
+  room.chatHistory.push(message);
+  if (room.chatHistory.length > MAX_CHAT_HISTORY) {
+    room.chatHistory.splice(0, room.chatHistory.length - MAX_CHAT_HISTORY);
+  }
+}
+
+function broadcastChatMessage(room: Room, message: LobbyChatMessage): void {
+  appendChatMessage(room, message);
+  const payload: ServerMessage = { type: "chat_message", message };
+  for (const client of room.clients.values()) {
+    send(client.ws, payload);
+  }
+}
+
+function broadcastSystemChat(room: Room, text: string): void {
+  broadcastChatMessage(room, createSystemChatMessage(text));
+}
+
+function sendChatHistory(ws: WebSocket, room: Room): void {
+  if (room.chatHistory.length === 0) return;
+  send(ws, {
+    type: "chat_history",
+    messages: room.chatHistory.map((message) => ({ ...message })),
+  });
+}
+
 function pushRoomState(room: Room): void {
   for (const [playerId, client] of room.clients) {
     const player = room.players.find((entry) => entry.id === playerId);
@@ -463,6 +511,25 @@ function scheduleRoomCleanup(room: Room): void {
   }, REJOIN_GRACE_MS);
 }
 
+function clearPendingDisconnectAnnouncement(room: Room, playerId: string): boolean {
+  const timer = room.pendingDisconnectAnnouncements.get(playerId);
+  if (!timer) return false;
+  clearTimeout(timer);
+  room.pendingDisconnectAnnouncements.delete(playerId);
+  return true;
+}
+
+function scheduleDisconnectAnnouncement(room: Room, playerId: string, playerName: string): void {
+  clearPendingDisconnectAnnouncement(room, playerId);
+  const timer = setTimeout(() => {
+    room.pendingDisconnectAnnouncements.delete(playerId);
+    if (room.clients.has(playerId)) return;
+    if (!room.players.some((entry) => entry.id === playerId)) return;
+    broadcastSystemChat(room, `${playerName} disconnected`);
+  }, DISCONNECT_ANNOUNCE_DELAY_MS);
+  room.pendingDisconnectAnnouncements.set(playerId, timer);
+}
+
 /** Accidental disconnect — keep player slot and host status for rejoin. */
 function disconnectClient(ws: WebSocket, playerId: string): void {
   const roomCode = playerToRoom.get(playerId);
@@ -477,9 +544,14 @@ function disconnectClient(ws: WebSocket, playerId: string): void {
   const client = room.clients.get(playerId);
   if (!client || client.ws !== ws) return;
 
+  const player = room.players.find((entry) => entry.id === playerId);
   room.clients.delete(playerId);
   playerToRoom.delete(playerId);
   scheduleRoomCleanup(room);
+
+  if (player) {
+    scheduleDisconnectAnnouncement(room, playerId, player.name);
+  }
 }
 
 /** Earliest-joined remaining player becomes host (explicit leave only). */
@@ -518,16 +590,32 @@ function removePlayerByKick(
 
   if (targetPlayerId === hostPlayerId) return;
 
+  const target = room.players.find((player) => player.id === targetPlayerId);
+  const targetName = target?.name ?? "A player";
+
   const targetClient = room.clients.get(targetPlayerId);
   if (targetClient) {
     send(targetClient.ws, {
       type: "error",
       message: "You were removed from the lobby.",
     });
+    // Remove before close so the close handler does not treat this as a disconnect.
+    removePlayerFromRoom(targetPlayerId, {
+      transferHostOnLeave: false,
+      announceLeave: false,
+    });
     targetClient.ws.close();
+  } else {
+    removePlayerFromRoom(targetPlayerId, {
+      transferHostOnLeave: false,
+      announceLeave: false,
+    });
   }
 
-  removePlayerFromRoom(targetPlayerId, { transferHostOnLeave: false });
+  const stillExists = rooms.get(roomCode);
+  if (stillExists) {
+    broadcastSystemChat(stillExists, `${targetName} was removed from the lobby`);
+  }
 }
 
 function transferHostRole(hostPlayerId: string, targetPlayerId: string): void {
@@ -557,7 +645,7 @@ function transferHostRole(hostPlayerId: string, targetPlayerId: string): void {
 
 function removePlayerFromRoom(
   playerId: string,
-  options: { transferHostOnLeave: boolean }
+  options: { transferHostOnLeave: boolean; announceLeave?: boolean }
 ): void {
   const roomCode = playerToRoom.get(playerId);
   if (!roomCode) return;
@@ -587,6 +675,11 @@ function removePlayerFromRoom(
   if (room.players.length === 0) {
     rooms.delete(roomCode);
     return;
+  }
+
+  if (leaving && options.announceLeave !== false) {
+    const place = room.status === "waiting" ? "lobby" : "game";
+    broadcastSystemChat(room, `${leaving.name} left the ${place}`);
   }
 
   pushRoomState(room);
@@ -629,10 +722,12 @@ function forwardGameActionToHost(
   });
 }
 
-function attachClient(room: Room, ws: WebSocket, playerId: string): void {
+function attachClient(room: Room, ws: WebSocket, playerId: string): { wasPendingDisconnect: boolean } {
+  const wasPendingDisconnect = clearPendingDisconnectAnnouncement(room, playerId);
   room.clients.set(playerId, { ws, playerId, roomCode: room.code });
   playerToRoom.set(playerId, room.code);
   clearRoomCleanupTimer(room);
+  return { wasPendingDisconnect };
 }
 
 function profileFromMessage(profile: PlayerProfile): PlayerProfile {
@@ -691,6 +786,8 @@ function handleCreate(ws: WebSocket, profile: PlayerProfile): void {
     status: "waiting",
     players: [host],
     clients: new Map(),
+    chatHistory: [],
+    pendingDisconnectAnnouncements: new Map(),
   };
 
   rooms.set(code, room);
@@ -733,8 +830,11 @@ function handleJoin(ws: WebSocket, rawCode: string, profile: PlayerProfile): voi
   if (room.status !== "waiting") {
     const reconnectable = findReconnectablePlayer(room, profile);
     if (reconnectable) {
-      attachClient(room, ws, reconnectable.id);
+      const { wasPendingDisconnect } = attachClient(room, ws, reconnectable.id);
       sendRejoinState(ws, room, reconnectable.id);
+      if (!wasPendingDisconnect) {
+        broadcastSystemChat(room, `${reconnectable.name} rejoined`);
+      }
       return;
     }
 
@@ -781,6 +881,8 @@ function handleJoin(ws: WebSocket, rawCode: string, profile: PlayerProfile): voi
   room.players.push(player);
   attachClient(room, ws, playerId);
   pushRoomState(room);
+  sendChatHistory(ws, room);
+  broadcastSystemChat(room, `${player.name} joined the lobby`);
 }
 
 function sendRejoinState(ws: WebSocket, room: Room, playerId: string): void {
@@ -792,6 +894,8 @@ function sendRejoinState(ws: WebSocket, room: Room, playerId: string): void {
     yourPlayerId: playerId,
     isHost: !!player?.isHost,
   });
+
+  sendChatHistory(ws, room);
 
   if (room.status === "in_game" && room.turnOrder) {
     send(ws, {
@@ -853,11 +957,14 @@ function handleRejoin(ws: WebSocket, rawCode: string, rawPlayerId: string): void
     return;
   }
 
-  attachClient(room, ws, playerId);
+  const { wasPendingDisconnect } = attachClient(room, ws, playerId);
   if (player.isHost) {
     room.hostPlayerId = playerId;
   }
   sendRejoinState(ws, room, playerId);
+  if (!wasPendingDisconnect) {
+    broadcastSystemChat(room, `${player.name} rejoined`);
+  }
 }
 
 function getClientContext(ws: WebSocket): { room: Room; playerId: string } | null {
@@ -1106,26 +1213,35 @@ function handleMessage(ws: WebSocket, raw: string): void {
       return;
     }
     case "chat_message": {
-      if (room.status !== "waiting") return;
+      if (room.status !== "waiting" && room.status !== "in_game") return;
       const text = message.text.trim().slice(0, 500);
       if (!text) {
         send(ws, { type: "error", message: "Message cannot be empty." });
         return;
       }
-      const chatMessage = {
+      const chatMessage: LobbyChatMessage = {
         id: randomBytes(8).toString("hex"),
         playerId,
         playerName: player.name,
         text,
         sentAt: Date.now(),
+        kind: "player",
       };
-      const payload: ServerMessage = {
-        type: "chat_message",
-        message: chatMessage,
-      };
-      for (const client of room.clients.values()) {
-        send(client.ws, payload);
+      broadcastChatMessage(room, chatMessage);
+      return;
+    }
+    case "system_chat": {
+      if (room.status !== "waiting" && room.status !== "in_game") return;
+      if (playerId !== getHostPlayerId(room)) {
+        send(ws, { type: "error", message: "Only the host can publish system chat." });
+        return;
       }
+      const text = message.text.trim().slice(0, 500);
+      if (!text) {
+        send(ws, { type: "error", message: "Message cannot be empty." });
+        return;
+      }
+      broadcastSystemChat(room, text);
       return;
     }
     case "kick_player": {

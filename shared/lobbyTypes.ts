@@ -50,12 +50,17 @@ export type GameStartingPayload = {
   };
 };
 
+export const SYSTEM_CHAT_PLAYER_ID = "system";
+
+export type LobbyChatMessageKind = "player" | "system";
+
 export type LobbyChatMessage = {
   id: string;
   playerId: string;
   playerName: string;
   text: string;
   sentAt: number;
+  kind?: LobbyChatMessageKind;
 };
 
 /** Client → server */
@@ -72,6 +77,8 @@ export type ClientMessage =
   | { type: "turn_order_roll"; stepIndex: number }
   | { type: "turn_order_done" }
   | { type: "chat_message"; text: string }
+  /** Host-only: broadcast a system/game-event line into the shared room chat. */
+  | { type: "system_chat"; text: string }
   | { type: "game_state_publish"; snapshot: OnlineGameSnapshot }
   | { type: "game_action"; action: OnlineGameAction }
   | { type: "leave" }
@@ -105,6 +112,7 @@ export type ServerMessage =
       action: OnlineGameAction;
     }
   | { type: "chat_message"; message: LobbyChatMessage }
+  | { type: "chat_history"; messages: LobbyChatMessage[] }
   | { type: "error"; message: string }
   | { type: "pong" }
   | { type: "lobby_check"; code: string };
