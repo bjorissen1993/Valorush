@@ -2119,12 +2119,12 @@ body {
   display: grid;
   flex-shrink: 0;
   gap: 0.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
 }
 
 @media (min-width: 1024px) {
   .game-player-strip {
-    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr));
   }
 }
 

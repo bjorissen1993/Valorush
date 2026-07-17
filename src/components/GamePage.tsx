@@ -14,6 +14,7 @@ import type { EventChoiceSpec } from "../../shared/events";
 import type { DirectorPickPayload } from "../../shared/director";
 import { useOnlineGameSync } from "../hooks/useOnlineGameSync";
 import { useChatGameEvents } from "../hooks/useChatGameEvents";
+import { useLocalChat } from "../hooks/useLocalChat";
 import BoardMap from "./BoardMap";
 import TurnBanner from "./TurnBanner";
 import TurnOrderScreen from "./TurnOrderScreen";
@@ -604,9 +605,9 @@ export default function GamePage({
     publishSnapshot,
     sendAction,
     leaveMatch,
-    chatMessages,
-    sendChatMessage,
-    sendSystemChat,
+    chatMessages: onlineChatMessages,
+    sendChatMessage: sendOnlineChatMessage,
+    sendSystemChat: sendOnlineSystemChat,
     yourPlayerId: onlineChatPlayerId,
   } = useOnlineGameSync({
     enabled: !!multiplayer,
@@ -618,13 +619,24 @@ export default function GamePage({
     },
   });
 
+  const isLocalPlay = !multiplayer;
+  const {
+    messages: localChatMessages,
+    sendChatMessage: sendLocalChatMessage,
+    sendSystemChat: sendLocalSystemChat,
+    seedJoinMessages,
+  } = useLocalChat(isLocalPlay);
+
+  const chatMessages = multiplayer ? onlineChatMessages : localChatMessages;
   const chatGameEventsRef = useRef(chatGameEvents);
   chatGameEventsRef.current = chatGameEvents;
-  const sendSystemChatRef = useRef(sendSystemChat);
-  sendSystemChatRef.current = sendSystemChat;
+  const sendSystemChatRef = useRef(sendOnlineSystemChat);
+  sendSystemChatRef.current = multiplayer
+    ? sendOnlineSystemChat
+    : sendLocalSystemChat;
 
   function publishGameEventChat(text: string) {
-    if (!multiplayer?.isHost) return;
+    if (multiplayer && !multiplayer.isHost) return;
     if (!chatGameEventsRef.current) return;
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -735,6 +747,27 @@ export default function GamePage({
       : turnOrder[currentTurnOrderIndex] ?? 0;
 
   const currentPlayer = playersInGame[currentPlayerIndex];
+  const localChatPlayerId = currentPlayer ? String(currentPlayer.id) : null;
+
+  function handleSendChatMessage(text: string) {
+    if (multiplayer) {
+      sendOnlineChatMessage(text);
+      return;
+    }
+    const speaker = currentPlayer ?? playersInGame[0] ?? null;
+    sendLocalChatMessage(
+      text,
+      speaker ? String(speaker.id) : "local",
+      speaker?.name ?? "Player"
+    );
+  }
+
+  useEffect(() => {
+    if (!isLocalPlay || restoredLocal) return;
+    seedJoinMessages(playersInGame.map((player) => player.name));
+    // Seed once when entering a fresh local game; join flag blocks repeats.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only seed
+  }, [isLocalPlay, restoredLocal, seedJoinMessages]);
 
   const orderedPlayerIndices = useMemo(() => {
     if (turnOrder.length > 0) {
@@ -3402,6 +3435,10 @@ export default function GamePage({
       onLeaveMatch?.();
       return;
     }
+    const leaver = currentPlayer ?? playersInGame[0];
+    if (leaver) {
+      sendLocalSystemChat(`${leaver.name} left the game`);
+    }
     onBackToLobby?.();
   }
 
@@ -3489,29 +3526,27 @@ export default function GamePage({
                   </span>
                 </button>
 
-                {multiplayer && (
-                  <button
-                    type="button"
-                    onClick={toggleChatGameEvents}
-                    className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm text-white transition hover:bg-white/5"
+                <button
+                  type="button"
+                  onClick={toggleChatGameEvents}
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm text-white transition hover:bg-white/5"
+                >
+                  <span>
+                    <span className="font-medium">Game events in chat</span>
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      {multiplayer && !multiplayer.isHost
+                        ? "Host setting — you still see events the host posts"
+                        : "Post wins, creds, and radianite to chat"}
+                    </span>
+                  </span>
+                  <span
+                    className={`text-xs font-semibold ${
+                      chatGameEvents ? "text-emerald-300" : "text-zinc-400"
+                    }`}
                   >
-                    <span>
-                      <span className="font-medium">Game events in chat</span>
-                      <span className="mt-0.5 block text-xs text-zinc-500">
-                        {multiplayer.isHost
-                          ? "Post wins, creds, and radianite to the shared chat"
-                          : "Host setting — you still see events the host posts"}
-                      </span>
-                    </span>
-                    <span
-                      className={`text-xs font-semibold ${
-                        chatGameEvents ? "text-emerald-300" : "text-zinc-400"
-                      }`}
-                    >
-                      {chatGameEvents ? "On" : "Off"}
-                    </span>
-                  </button>
-                )}
+                    {chatGameEvents ? "On" : "Off"}
+                  </span>
+                </button>
 
                 <div className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm text-zinc-500">
                   <span>
@@ -3977,18 +4012,20 @@ export default function GamePage({
 
       {!showTurnOrder && (
       <div className="game-play-viewport">
-        {multiplayer && (
-          <div className="pointer-events-none absolute right-3 top-3 z-[45] h-10 w-10 sm:right-4 sm:top-4">
-            <div className="pointer-events-auto">
-              <RoomChatWidget
-                messages={chatMessages}
-                onSend={sendChatMessage}
-                yourPlayerId={onlineChatPlayerId ?? multiplayer.yourPlayerId}
-                title="Chat"
-              />
-            </div>
+        <div className="pointer-events-none absolute right-3 top-3 z-[45] h-10 w-10 sm:right-4 sm:top-4">
+          <div className="pointer-events-auto">
+            <RoomChatWidget
+              messages={chatMessages}
+              onSend={handleSendChatMessage}
+              yourPlayerId={
+                multiplayer
+                  ? onlineChatPlayerId ?? multiplayer.yourPlayerId
+                  : localChatPlayerId
+              }
+              title="Chat"
+            />
           </div>
-        )}
+        </div>
         <div className="game-play-shell">
           {currentPlayer && (
             <aside className="game-inventory-sidebar">
@@ -4048,7 +4085,7 @@ export default function GamePage({
                   diceFlowPhase !== "hidden" &&
                   index === currentPlayerIndex;
 
-                const cardClassName = `relative flex h-32 flex-col justify-between overflow-hidden rounded-2xl border p-3 text-left transition sm:h-36 ${
+                const cardClassName = `relative flex h-36 flex-col justify-between overflow-hidden rounded-2xl border p-3.5 text-left transition sm:h-40 sm:p-4 ${
                   isCurrent
                     ? "border-cyan-400/50 bg-cyan-400/10 shadow-[0_0_28px_rgba(34,211,238,0.12)] lg:hidden"
                     : "border-white/10 bg-zinc-900/70"
@@ -4072,9 +4109,9 @@ export default function GamePage({
 
                     <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-r from-transparent via-zinc-900/40 to-zinc-900/90" />
 
-                    <div className="relative z-10 flex h-full flex-col justify-between gap-1">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5 sm:h-14 sm:w-14">
+                    <div className="relative z-10 flex h-full flex-col justify-between gap-1.5">
+                      <div className="flex min-w-0 items-center gap-3.5">
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5 sm:h-16 sm:w-16">
                           {player.avatar ? (
                             <img
                               src={player.avatar}
@@ -4083,7 +4120,7 @@ export default function GamePage({
                             />
                           ) : (
                             <div
-                              className="flex h-full w-full items-center justify-center text-lg font-bold text-white sm:text-xl"
+                              className="flex h-full w-full items-center justify-center text-xl font-bold text-white sm:text-2xl"
                               style={{
                                 backgroundColor: player.color ?? "#334155",
                               }}
@@ -4094,10 +4131,10 @@ export default function GamePage({
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-base font-extrabold leading-tight text-white sm:text-lg">
+                          <p className="truncate text-lg font-extrabold leading-tight text-white sm:text-xl">
                             {player.name}
                           </p>
-                          <p className="truncate text-xs font-semibold text-zinc-300 sm:text-sm">
+                          <p className="truncate text-sm font-semibold text-zinc-300 sm:text-base">
                             {getAgentName(player)}
                           </p>
                           {canOpenDice && (

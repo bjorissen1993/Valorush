@@ -30,6 +30,7 @@ import {
   readLocalSession,
   type LocalSession,
 } from "./services/localSession";
+import { clearLocalChat } from "./services/localChatStore";
 import {
   completeTwitchOAuthIfPending,
   consumeTwitchOAuthError,
@@ -448,6 +449,7 @@ export default function App() {
 
   function leaveLocalSession() {
     clearLocalSession();
+    clearLocalChat();
     setLocalGameSnapshot(null);
     resetToHome();
     setPlayers([]);
@@ -542,6 +544,7 @@ export default function App() {
             setOauthError(null);
             setHomeJoinError(null);
             clearLobbySession();
+            clearLocalChat();
             navigateToHome("replace");
             setScreen("local_lobby");
           }}

@@ -8,6 +8,8 @@ import AgentRoster from "./lobby/AgentRoster";
 import LobbyArenaLayout from "./lobby/LobbyArenaLayout";
 import LobbyHotbar from "./lobby/LobbyHotbar";
 import LobbyPlayerCard from "./lobby/LobbyPlayerCard";
+import RoomChatWidget from "./lobby/RoomChatWidget";
+import { useLocalChat } from "../hooks/useLocalChat";
 import {
   assignRandomUniqueAgents,
   buildFixedPlayerSlots,
@@ -63,6 +65,15 @@ export default function LobbyPage({
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [activePlayerId, setActivePlayerId] = useState<number | null>(null);
   const [presetError, setPresetError] = useState<string | null>(null);
+  const { messages: chatMessages, sendChatMessage } = useLocalChat(true);
+
+  const chatSpeaker =
+    players.find((player) => player.id === activePlayerId) ?? players[0] ?? null;
+  const chatPlayerId = chatSpeaker ? String(chatSpeaker.id) : "local";
+
+  function handleSendChatMessage(text: string) {
+    sendChatMessage(text, chatPlayerId, chatSpeaker?.name ?? "Player");
+  }
 
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
@@ -343,27 +354,38 @@ export default function LobbyPage({
   return (
     <div className="flex h-dvh flex-col bg-[#070b14] text-white">
       <div className="mx-auto flex min-h-0 w-full flex-1 flex-col px-3 py-3 sm:px-5 sm:py-4 lg:px-6">
-        <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/95 shadow-lg lg:rounded-3xl">
-          <div className="shrink-0 border-b border-white/10 bg-gradient-to-r from-red-500/10 via-transparent to-cyan-400/10 px-5 py-4 sm:px-6 lg:px-8 lg:py-5">
-            <div>
-              {onBack && (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="mb-2 text-sm text-zinc-400 transition hover:text-white"
-                >
-                  ← Back to Home
-                </button>
-              )}
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-red-400 sm:text-sm">
-                Valorush
-              </p>
-              <h1 className="mt-1 text-2xl font-bold sm:mt-2 sm:text-3xl lg:text-4xl">
-                Player Setup
-              </h1>
-              <p className="mt-1 text-sm text-zinc-400 lg:mt-2">
-                Add players, then select a slot and pick agents from the center roster.
-              </p>
+        <div className="flex min-h-0 w-full flex-1 flex-col overflow-visible rounded-2xl border border-white/10 bg-zinc-900/95 shadow-lg lg:rounded-3xl">
+          <div className="relative z-20 shrink-0 overflow-visible border-b border-white/10 bg-gradient-to-r from-red-500/10 via-transparent to-cyan-400/10 px-5 py-4 sm:px-6 lg:px-8 lg:py-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                {onBack && (
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    className="mb-2 text-sm text-zinc-400 transition hover:text-white"
+                  >
+                    ← Back to Home
+                  </button>
+                )}
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-red-400 sm:text-sm">
+                  Valorush
+                </p>
+                <h1 className="mt-1 text-2xl font-bold sm:mt-2 sm:text-3xl lg:text-4xl">
+                  Player Setup
+                </h1>
+                <p className="mt-1 text-sm text-zinc-400 lg:mt-2">
+                  Add players, then select a slot and pick agents from the center roster.
+                </p>
+              </div>
+
+              <div className="relative h-10 w-10 shrink-0">
+                <RoomChatWidget
+                  messages={chatMessages}
+                  onSend={handleSendChatMessage}
+                  yourPlayerId={chatPlayerId}
+                  title="Chat"
+                />
+              </div>
             </div>
           </div>
 
