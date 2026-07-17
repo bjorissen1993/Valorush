@@ -8,6 +8,11 @@ import { LobbyClient, persistLobbySession, readLobbySession, readStoredLobbySess
 type UseOnlineGameSyncOptions = {
   enabled: boolean;
   isHost: boolean;
+  /**
+   * Host remounted into an in-progress match: apply the server-held snapshot
+   * and do not publish until it arrives (avoids wiping mid-match state).
+   */
+  resumeHostFromServer?: boolean;
   onGameBegin?: () => void;
   onRemoteAction?: (fromPlayerId: string, action: OnlineGameAction) => void;
   onSnapshot?: (snapshot: OnlineGameSnapshot) => void;
@@ -16,6 +21,7 @@ type UseOnlineGameSyncOptions = {
 export function useOnlineGameSync({
   enabled,
   isHost,
+  resumeHostFromServer = false,
   onGameBegin,
   onRemoteAction,
   onSnapshot,
@@ -24,10 +30,15 @@ export function useOnlineGameSync({
   const onGameBeginRef = useRef(onGameBegin);
   const onRemoteActionRef = useRef(onRemoteAction);
   const onSnapshotRef = useRef(onSnapshot);
+  const publishBlockedRef = useRef(Boolean(isHost && resumeHostFromServer));
 
   onGameBeginRef.current = onGameBegin;
   onRemoteActionRef.current = onRemoteAction;
   onSnapshotRef.current = onSnapshot;
+
+  useEffect(() => {
+    publishBlockedRef.current = Boolean(isHost && resumeHostFromServer);
+  }, [isHost, resumeHostFromServer]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -55,8 +66,13 @@ export function useOnlineGameSync({
         onGameBeginRef.current?.();
       },
       onGameState: (snapshot) => {
-        if (!isHost) {
+        // Guests always apply. Host applies when reconnecting mid-match so
+        // currentTurnOrderIndex / phase match the room snapshot.
+        if (!isHost || resumeHostFromServer) {
           onSnapshotRef.current?.(snapshot);
+        }
+        if (resumeHostFromServer) {
+          publishBlockedRef.current = false;
         }
       },
       onGameAction: (fromPlayerId, action) => {
@@ -84,14 +100,25 @@ export function useOnlineGameSync({
       });
     }
 
+    // If the room has no snapshot (lost / never published), unblock publish.
+    let resumeTimeout: number | undefined;
+    if (isHost && resumeHostFromServer) {
+      resumeTimeout = window.setTimeout(() => {
+        publishBlockedRef.current = false;
+      }, 2500);
+    }
+
     return () => {
+      if (resumeTimeout !== undefined) {
+        window.clearTimeout(resumeTimeout);
+      }
       client.disconnect();
       clientRef.current = null;
     };
-  }, [enabled, isHost]);
+  }, [enabled, isHost, resumeHostFromServer]);
 
   const publishSnapshot = useCallback((snapshot: OnlineGameSnapshot) => {
-    if (!isHost) return;
+    if (!isHost || publishBlockedRef.current) return;
     clientRef.current?.publishGameState(snapshot);
   }, [isHost]);
 

@@ -498,8 +498,9 @@ export default function App() {
       yourPlayerIndex: playerIndexByLobbyId[mpSession.yourPlayerId] ?? 0,
       playerIndexByLobbyId,
       initialTurnOrder: effectiveTurnOrder,
+      resumedFromSession: restoredMp?.screen === "game",
     };
-  }, [mpSession, mpTurnOrder]);
+  }, [mpSession, mpTurnOrder, restoredMp?.screen]);
 
   if (screen === "home") {
     return (

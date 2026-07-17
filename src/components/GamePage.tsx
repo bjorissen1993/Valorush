@@ -120,6 +120,8 @@ type MultiplayerGameConfig = {
   yourPlayerIndex: number;
   playerIndexByLobbyId: Record<string, number>;
   initialTurnOrder: number[];
+  /** True when GamePage remounted after refresh into an in-progress match. */
+  resumedFromSession?: boolean;
 };
 
 type GamePageProps = {
@@ -497,10 +499,15 @@ export default function GamePage({
     initialSnapshot?.hasRolledThisTurn ?? false
   );
 
+  // Mid-match restore: skip transient turn intro and resume into playing.
   const [turnBannerPlayerIndex, setTurnBannerPlayerIndex] = useState<number | null>(
-    initialSnapshot?.turnBannerPlayerIndex ?? null
+    restoredLocal ? null : (initialSnapshot?.turnBannerPlayerIndex ?? null)
   );
-  const [lastBannerPlayerIndex, setLastBannerPlayerIndex] = useState<number | null>(null);
+  const [lastBannerPlayerIndex, setLastBannerPlayerIndex] = useState<number | null>(
+    restoredLocal
+      ? (initialSnapshot?.turnOrder[initialSnapshot.currentTurnOrderIndex] ?? null)
+      : null
+  );
 
   const [statusTitle, setStatusTitle] = useState(
     initialSnapshot?.statusTitle ?? "Determine turn order"
@@ -529,6 +536,7 @@ export default function GamePage({
   const applySnapshot = useCallback((snapshot: OnlineGameSnapshot) => {
     if (snapshot.version <= lastAppliedSnapshotVersionRef.current) return;
     lastAppliedSnapshotVersionRef.current = snapshot.version;
+    snapshotVersionRef.current = Math.max(snapshotVersionRef.current, snapshot.version);
     setTurnOrder(snapshot.turnOrder);
     setCurrentTurnOrderIndex(snapshot.currentTurnOrderIndex);
     setRound(snapshot.round);
@@ -542,7 +550,16 @@ export default function GamePage({
     setDiceDisplayValue(snapshot.diceDisplayValue);
     setDiceFlowPhase(snapshot.diceFlowPhase);
     setHasRolledThisTurn(snapshot.hasRolledThisTurn);
-    setTurnBannerPlayerIndex(snapshot.turnBannerPlayerIndex);
+    // Drop stale banners that don't match the snapshot's actual current seat
+    // (e.g. host remount replayed the first-player intro).
+    {
+      const activePlayerIndex =
+        snapshot.turnOrder[snapshot.currentTurnOrderIndex] ?? 0;
+      const banner = snapshot.turnBannerPlayerIndex;
+      setTurnBannerPlayerIndex(
+        banner !== null && banner === activePlayerIndex ? banner : null
+      );
+    }
     setStatusTitle(snapshot.statusTitle);
     setStatusSubtitle(snapshot.statusSubtitle);
     setIsMoving(snapshot.isMoving);
@@ -583,6 +600,7 @@ export default function GamePage({
   const { publishSnapshot, sendAction, leaveMatch } = useOnlineGameSync({
     enabled: !!multiplayer,
     isHost: !!multiplayer?.isHost,
+    resumeHostFromServer: !!multiplayer?.isHost && !!multiplayer?.resumedFromSession,
     onSnapshot: applySnapshot,
     onRemoteAction: (fromPlayerId, action) => {
       remoteActionHandlerRef.current(fromPlayerId, action);
@@ -826,6 +844,19 @@ export default function GamePage({
 
   useEffect(() => {
     if (!hasPresetTurnOrder || onlineIntroShownRef.current) return;
+    // Local refresh restore already has the real current seat — do not replay
+    // the "first in turn order" banner (that was the Lux/Vyse-vs-Fade bug).
+    if (restoredLocal) {
+      onlineIntroShownRef.current = true;
+      return;
+    }
+    // Online refresh / guest remount: never invent seat 0. Guests get the banner
+    // from host snapshots; hosts resumed mid-match should not flash turn order[0].
+    if (isOnlineGuest || multiplayer?.resumedFromSession) {
+      onlineIntroShownRef.current = true;
+      return;
+    }
+
     onlineIntroShownRef.current = true;
 
     const firstPlayerIndex = initialTurnOrder[0] ?? 0;
@@ -838,7 +869,14 @@ export default function GamePage({
       `${firstPlayer?.name ?? "First player"} starts the match.`,
       2400
     );
-  }, [hasPresetTurnOrder, initialTurnOrder, playersInGame]);
+  }, [
+    hasPresetTurnOrder,
+    initialTurnOrder,
+    playersInGame,
+    restoredLocal,
+    isOnlineGuest,
+    multiplayer?.resumedFromSession,
+  ]);
 
   function getAgentName(player: Player) {
     const agent = agents.find((a) => a.uuid === player.selectedAgentId);
@@ -3107,7 +3145,8 @@ export default function GamePage({
       diceDisplayValue,
       diceFlowPhase,
       hasRolledThisTurn,
-      turnBannerPlayerIndex,
+      // Never persist the turn intro — refresh should resume ready-to-play.
+      turnBannerPlayerIndex: null,
       statusTitle,
       statusSubtitle,
       isMoving,
