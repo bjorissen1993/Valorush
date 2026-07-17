@@ -75,7 +75,7 @@ export default function LobbyIdentityPage({
   }, [joinCode, mode]);
 
   function getOAuthReturnPath() {
-    return mode === "join" && joinCode ? `?join=${joinCode}` : "?create=1";
+    return mode === "join" && joinCode ? `/lobby/${joinCode}` : "/?create=1";
   }
 
   function handleTwitchLogin() {

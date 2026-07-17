@@ -8,7 +8,15 @@ import MultiplayerLobbyPage from "./components/MultiplayerLobbyPage";
 import MultiplayerTurnOrderPage from "./components/MultiplayerTurnOrderPage";
 import { usePerformanceSettings } from "./hooks/usePerformanceSettings";
 import { useAgents } from "./hooks/useLobbyRoom";
-import { clearJoinCodeFromUrl, clearLobbySession, readJoinCodeFromUrl, readStoredLobbySession, validateLobbyCode } from "./services/lobbyClient";
+import {
+  canonicalizeLobbyUrl,
+  clearLobbySession,
+  navigateToHome,
+  readJoinCodeFromUrl,
+  readStoredLobbySession,
+  syncLobbyUrl,
+  validateLobbyCode,
+} from "./services/lobbyClient";
 import {
   completeTwitchOAuthIfPending,
   consumeTwitchOAuthError,
@@ -43,11 +51,24 @@ type RestoredMultiplayerState = {
   players: ReturnType<typeof lobbyPlayersToLocalIds>;
 };
 
+function parseLobbyCodeFromReturnPath(returnPath: string): string {
+  const pathMatch = returnPath.match(/\/lobby\/([A-Z0-9]+)/i);
+  if (pathMatch?.[1]) return pathMatch[1].toUpperCase();
+  const queryMatch = returnPath.match(/[?&]join=([A-Z0-9]+)/i);
+  return queryMatch?.[1]?.toUpperCase() ?? "";
+}
+
+/**
+ * Restore multiplayer UI from localStorage.
+ * Priority #1 fix: do not require a preflight validateLobbyCode (that used to
+ * wipe the session on transient WS errors and drop users on the home screen).
+ */
 function restoreMultiplayerFromSession(): RestoredMultiplayerState | null {
   const stored = readStoredLobbySession();
-  if (!stored?.profile) return null;
+  if (!stored?.profile || !stored.playerId || !stored.code) return null;
 
   const urlCode = readJoinCodeFromUrl();
+  // Opened a different lobby link than the stored session — let URL join win.
   if (urlCode && urlCode !== stored.code) return null;
 
   const players = stored.gameStarting
@@ -79,13 +100,12 @@ function restoreMultiplayerFromSession(): RestoredMultiplayerState | null {
 }
 
 export default function App() {
-  const restored = useMemo(() => restoreMultiplayerFromSession(), []);
-  const needsJoinSessionValidation =
-    restored?.screen === "mp_lobby" && restored.mpMode === "join";
+  const restored = useMemo(() => {
+    canonicalizeLobbyUrl();
+    return restoreMultiplayerFromSession();
+  }, []);
   const performanceSettings = usePerformanceSettings();
-  const [screen, setScreen] = useState<Screen>(
-    needsJoinSessionValidation ? "home" : restored?.screen ?? "home"
-  );
+  const [screen, setScreen] = useState<Screen>(restored?.screen ?? "home");
   const [mpMode, setMpMode] = useState<"create" | "join">(restored?.mpMode ?? "create");
   const [joinCode, setJoinCode] = useState(restored?.joinCode ?? "");
   const [lobbyProfile, setLobbyProfile] = useState<PlayerProfile | null>(
@@ -107,14 +127,22 @@ export default function App() {
   const { agents: loadedAgents } = useAgents();
   const agents = localAgents.length > 0 ? localAgents : loadedAgents;
 
+  // Ensure lobby code is in the URL after a localStorage restore.
+  useEffect(() => {
+    if (restored?.joinCode) {
+      syncLobbyUrl(restored.joinCode);
+    }
+  }, [restored]);
+
   const handleOAuthProfile = useCallback((profile: PlayerProfile, returnPath: string) => {
     setLobbyProfile(profile);
 
-    if (returnPath.includes("join=")) {
-      const match = returnPath.match(/join=([A-Z0-9]+)/i);
-      const code = match?.[1]?.toUpperCase() ?? readJoinCodeFromUrl() ?? "";
+    const lobbyFromReturn = parseLobbyCodeFromReturnPath(returnPath);
+    if (lobbyFromReturn || returnPath.includes("join=")) {
+      const code = lobbyFromReturn || readJoinCodeFromUrl() || "";
       setJoinCode(code);
       setMpMode("join");
+      if (code) syncLobbyUrl(code);
       setScreen("identity_join");
       return;
     }
@@ -148,33 +176,7 @@ export default function App() {
     void handleOAuthCallback();
   }, [handleOAuthProfile]);
 
-  useEffect(() => {
-    if (!needsJoinSessionValidation || !restored) return;
-
-    let cancelled = false;
-
-    void validateLobbyCode(restored.joinCode)
-      .then(() => {
-        if (cancelled) return;
-        setScreen("mp_lobby");
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        clearLobbySession();
-        setJoinCode("");
-        setLobbyProfile(null);
-        setHomeJoinError(
-          error instanceof Error
-            ? error.message
-            : "Lobby not found. Check the join code."
-        );
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [needsJoinSessionValidation, restored]);
-
+  // Cold load with /lobby/:code (or ?join=) and no matching session → identity join.
   useEffect(() => {
     if (restored) return;
     const codeFromUrl = readJoinCodeFromUrl();
@@ -189,11 +191,12 @@ export default function App() {
       .then(() => {
         if (cancelled) return;
         setJoinCode(codeFromUrl);
+        syncLobbyUrl(codeFromUrl);
         setScreen("identity_join");
       })
       .catch((error) => {
         if (cancelled) return;
-        clearJoinCodeFromUrl();
+        navigateToHome("replace");
         setHomeJoinError(
           error instanceof Error
             ? error.message
@@ -209,8 +212,60 @@ export default function App() {
     };
   }, [restored, screen]);
 
+  // Browser back/forward: keep screen in sync with the URL.
+  useEffect(() => {
+    function onPopState() {
+      const code = readJoinCodeFromUrl();
+      if (!code) {
+        clearLobbySession();
+        setLobbyProfile(null);
+        setJoinCode("");
+        setMpSession(null);
+        setMpTurnOrder([]);
+        setPlayers([]);
+        setHomeJoinError(null);
+        setScreen("home");
+        return;
+      }
+
+      const stored = readStoredLobbySession();
+      if (stored?.code === code && stored.profile) {
+        setJoinCode(code);
+        setLobbyProfile(stored.profile);
+        setMpMode(stored.isHost ? "create" : "join");
+
+        const nextSession = stored.gameStarting
+          ? {
+              payload: stored.gameStarting,
+              isHost: stored.isHost ?? false,
+              yourPlayerId: stored.playerId,
+            }
+          : null;
+        setMpSession(nextSession);
+        setMpTurnOrder(stored.turnOrder ?? []);
+        setPlayers(
+          stored.gameStarting
+            ? lobbyPlayersToLocalIds(stored.gameStarting.players)
+            : []
+        );
+
+        if (stored.phase === "in_game" && nextSession) setScreen("game");
+        else if (stored.phase === "turn_order" && nextSession) setScreen("mp_turn_order");
+        else setScreen("mp_lobby");
+        return;
+      }
+
+      setJoinCode(code);
+      setMpMode("join");
+      setScreen("identity_join");
+    }
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
   function resetToHome() {
-    clearJoinCodeFromUrl();
+    navigateToHome();
     setLobbyProfile(null);
     setJoinCode("");
     setMpSession(null);
@@ -290,7 +345,7 @@ export default function App() {
               onClick={() => setOauthError(null)}
               className="ml-3 underline hover:text-white"
             >
-              Sluiten
+              Close
             </button>
           </div>
         )}
@@ -306,7 +361,9 @@ export default function App() {
             setOauthError(null);
             setHomeJoinError(null);
             if (code) {
-              setJoinCode(code.toUpperCase());
+              const normalized = code.toUpperCase();
+              setJoinCode(normalized);
+              syncLobbyUrl(normalized, "push");
             }
             setScreen("identity_join");
           }}
@@ -339,7 +396,10 @@ export default function App() {
       <LobbyIdentityPage
         mode="join"
         joinCode={joinCode || undefined}
-        onBack={resetToHome}
+        onBack={() => {
+          clearLobbySession();
+          resetToHome();
+        }}
         onReady={async (profile) => {
           if (joinCode) {
             try {
@@ -350,13 +410,14 @@ export default function App() {
                   ? error.message
                   : "Lobby not found. Check the join code."
               );
+              clearLobbySession();
               resetToHome();
               return;
             }
+            syncLobbyUrl(joinCode);
           }
           setLobbyProfile(profile);
           setMpMode("join");
-          clearJoinCodeFromUrl();
           setScreen("mp_lobby");
         }}
       />
@@ -369,9 +430,13 @@ export default function App() {
         mode={mpMode}
         profile={stableLobbyProfile}
         joinCode={mpMode === "join" ? joinCode : undefined}
-        onBack={resetToHome}
+        onBack={() => {
+          clearLobbySession();
+          resetToHome();
+        }}
         onJoinFailed={(message) => {
           setHomeJoinError(message);
+          clearLobbySession();
           resetToHome();
         }}
         onGameStarting={handleGameStarting}

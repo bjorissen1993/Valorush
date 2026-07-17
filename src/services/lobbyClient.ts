@@ -195,6 +195,7 @@ export function persistLobbySession(
   writePersistedItem(SESSION_ROOM_CODE, code);
   writePersistedItem(SESSION_PLAYER_ID, playerId);
   writePersistedItem(SESSION_PHASE, phase);
+  syncLobbyUrl(code);
 
   if (extras?.profile) {
     writePersistedItem(SESSION_PROFILE, JSON.stringify(extras.profile));
@@ -520,29 +521,87 @@ export class LobbyClient {
   }
 }
 
-export function buildJoinUrl(code: string): string {
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("join", code);
-  return url.toString();
-}
-
-export function readJoinCodeFromUrl(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  const join = params.get("join")?.trim();
-  return join ? join.toUpperCase() : null;
-}
-
-export function clearJoinCodeFromUrl(): void {
-  const url = new URL(window.location.href);
-  if (!url.searchParams.has("join")) return;
-  url.searchParams.delete("join");
-  window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-}
+const LOBBY_PATH_RE = /^\/lobby\/([A-Za-z0-9]+)\/?$/i;
 
 function normalizeLobbyCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+export function buildLobbyPath(code: string): string {
+  return `/lobby/${normalizeLobbyCode(code)}`;
+}
+
+export function buildJoinUrl(code: string): string {
+  const url = new URL(window.location.href);
+  url.pathname = buildLobbyPath(code);
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+/** Reads `/lobby/:code` first, then legacy `?join=CODE`. */
+export function readJoinCodeFromUrl(): string | null {
+  const pathMatch = window.location.pathname.match(LOBBY_PATH_RE);
+  if (pathMatch?.[1]) {
+    const fromPath = normalizeLobbyCode(pathMatch[1]);
+    return fromPath || null;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const join = params.get("join")?.trim();
+  return join ? normalizeLobbyCode(join) : null;
+}
+
+function writeHistoryUrl(path: string, mode: "replace" | "push"): void {
+  const write =
+    mode === "push" ? window.history.pushState : window.history.replaceState;
+  write.call(window.history, {}, "", path);
+}
+
+/** Keep the address bar on `/lobby/:CODE` while in a multiplayer session. */
+export function syncLobbyUrl(
+  code: string,
+  mode: "replace" | "push" = "replace"
+): void {
+  const normalized = normalizeLobbyCode(code);
+  if (!normalized) return;
+
+  const target = buildLobbyPath(normalized);
+  const path = window.location.pathname.replace(/\/$/, "") || "/";
+  const targetPath = target.replace(/\/$/, "");
+  const hasJoinQuery = new URLSearchParams(window.location.search).has("join");
+
+  if (path === targetPath && !hasJoinQuery && !window.location.hash) return;
+  writeHistoryUrl(target, mode);
+}
+
+export function navigateToHome(mode: "replace" | "push" = "push"): void {
+  const path = window.location.pathname.replace(/\/$/, "") || "/";
+  const atHome = path === "/" && !window.location.search && !window.location.hash;
+  if (atHome) return;
+  writeHistoryUrl("/", mode);
+}
+
+/** @deprecated Prefer navigateToHome — kept for call sites that clear invite URLs. */
+export function clearJoinCodeFromUrl(): void {
+  navigateToHome("replace");
+}
+
+/**
+ * Migrate legacy `?join=CODE` to `/lobby/CODE`.
+ * Skips Twitch OAuth callback URLs (`?code=&state=`).
+ */
+export function canonicalizeLobbyUrl(): void {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("code") && params.has("state")) return;
+
+  const join = params.get("join")?.trim();
+  if (!join) return;
+
+  const code = normalizeLobbyCode(join);
+  if (!code) return;
+
+  writeHistoryUrl(buildLobbyPath(code), "replace");
 }
 
 const LOBBY_CHECK_TIMEOUT_MS = 10_000;
