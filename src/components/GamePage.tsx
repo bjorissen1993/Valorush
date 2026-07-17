@@ -813,6 +813,18 @@ export default function GamePage({
   const [debugBoardAction, setDebugBoardAction] = useState<
     "plant-spike" | "teleport-player" | null
   >(null);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const directorIntroLockRef = useRef(false);
+
+  function pushDebugLog(message: string) {
+    const stamp = new Date().toLocaleTimeString("en-GB", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    setDebugLogs((current) => [`[${stamp}] ${message}`, ...current].slice(0, 80));
+  }
   const [mobileInventoryOpen, setMobileInventoryOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatLastReadCount, setChatLastReadCount] = useState(0);
@@ -1367,44 +1379,64 @@ export default function GamePage({
   }
 
   function completeDirectorIntro() {
-    if (!activeStoryEvent) return;
+    if (!activeStoryEvent?.showDirectorIntro) return;
     if (isOnlineGuest) return;
+    if (directorIntroLockRef.current) return;
+    directorIntroLockRef.current = true;
 
-    const def = boardEventById.get(activeStoryEvent.event.id);
-    if (def?.playerChoices) {
-      setPendingEventChoice({
-        eventId: def.id,
-        playerIndex: activeStoryEvent.playerIndex,
-        choiceSpec: def.playerChoices,
-      });
-      setEventEffectsApplied(false);
-    } else if (def) {
-      const result = applyEventChoice({
-        eventId: def.id,
-        playerIndex: activeStoryEvent.playerIndex,
-        players: playersInGameRef.current,
-        round,
-      });
-      setPlayersInGame(result.players);
-      setEventEffectsApplied(true);
-      if (result.scheduleCustomMatch) {
-        setScheduledCustomMatch(
-          buildScheduledCustomMatch(
-            result.scheduleCustomMatch.matchId as CustomMatchId,
-            result.scheduleCustomMatch.mapId as ValorantMapId,
-            round,
-            playersInGameRef.current,
-          )
+    const eventId = activeStoryEvent.event.id;
+    const def = boardEventById.get(eventId);
+
+    try {
+      if (def?.playerChoices) {
+        setPendingEventChoice({
+          eventId: def.id,
+          playerIndex: activeStoryEvent.playerIndex,
+          choiceSpec: def.playerChoices,
+        });
+        setEventEffectsApplied(false);
+        pushDebugLog(`Event choice ready: ${def.name} (${def.id})`);
+      } else if (def) {
+        const result = applyEventChoice({
+          eventId: def.id,
+          playerIndex: activeStoryEvent.playerIndex,
+          players: playersInGameRef.current,
+          round,
+        });
+        setPlayersInGame(result.players);
+        setEventEffectsApplied(true);
+        if (result.scheduleCustomMatch) {
+          setScheduledCustomMatch(
+            buildScheduledCustomMatch(
+              result.scheduleCustomMatch.matchId as CustomMatchId,
+              result.scheduleCustomMatch.mapId as ValorantMapId,
+              round,
+              playersInGameRef.current,
+            )
+          );
+        }
+        setActiveStoryEvent((current) =>
+          current
+            ? { ...current, event: result.gameEvent, showDirectorIntro: false }
+            : null
         );
+        pushDebugLog(`Event effects applied: ${def.name} (${def.id})`);
+        return;
+      } else {
+        pushDebugLog(`Director intro done without registry def: ${eventId}`);
       }
       setActiveStoryEvent((current) =>
-        current ? { ...current, event: result.gameEvent, showDirectorIntro: false } : null
+        current ? { ...current, showDirectorIntro: false } : null
       );
-      return;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      pushDebugLog(`Event intro failed: ${eventId} — ${detail}`);
+      setPendingEventChoice(null);
+      setEventEffectsApplied(false);
+      setActiveStoryEvent(null);
+      setPhase("playing");
+      showAnnouncement("Event failed", detail);
     }
-    setActiveStoryEvent((current) =>
-      current ? { ...current, showDirectorIntro: false } : null
-    );
   }
 
   function isEventPipelineBusy() {
@@ -1417,18 +1449,26 @@ export default function GamePage({
 
   function beginBoardEventFlow(playerIndex: number, eventId: string): boolean {
     if (isEventPipelineBusy()) {
+      pushDebugLog(`Event blocked (pipeline busy): ${eventId}`);
       showAnnouncement("Event in progress", "Finish the current event before triggering another.");
       return false;
     }
 
     const definition = boardEventById.get(eventId);
-    if (!definition) return false;
+    if (!definition) {
+      pushDebugLog(`Event failed: unknown id ${eventId}`);
+      return false;
+    }
 
     const player = playersInGame[playerIndex];
-    if (!player) return false;
+    if (!player) {
+      pushDebugLog(`Event failed: missing player index ${playerIndex}`);
+      return false;
+    }
 
     setPendingEventChoice(null);
     setEventEffectsApplied(false);
+    directorIntroLockRef.current = false;
 
     const context = {
       triggerPlayer: player,
@@ -1436,7 +1476,16 @@ export default function GamePage({
       playersInGame,
       agents,
     };
-    const directorResult = buildDirectorPickForEventId(eventPool, eventId, context);
+
+    let directorResult;
+    try {
+      directorResult = buildDirectorPickForEventId(eventPool, eventId, context);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      pushDebugLog(`Event start failed: ${eventId} — ${detail}`);
+      showAnnouncement("Event failed", detail);
+      return false;
+    }
 
     setPhase("resolving-event");
     setActiveStoryEvent({
@@ -1455,6 +1504,9 @@ export default function GamePage({
       `${player.name} triggered ${directorResult.event.title}`,
       directorResult.event.outcome?.headline ?? directorResult.event.story.headline
     );
+    pushDebugLog(
+      `Event started: ${directorResult.event.title} (${eventId}) for ${player.name}`
+    );
     return true;
   }
 
@@ -1463,6 +1515,7 @@ export default function GamePage({
     options?: { forceKingdom?: boolean; forceAgent?: string }
   ): boolean {
     if (isEventPipelineBusy()) {
+      pushDebugLog("Director blocked (pipeline busy)");
       showAnnouncement("Event in progress", "Finish the current event before triggering another.");
       return false;
     }
@@ -1472,6 +1525,7 @@ export default function GamePage({
 
     setPendingEventChoice(null);
     setEventEffectsApplied(false);
+    directorIntroLockRef.current = false;
 
     const context = {
       triggerPlayer: player,
@@ -1499,6 +1553,9 @@ export default function GamePage({
         ? "Kingdom Protocol"
         : `Director: ${directorResult.event.title}`,
       directorResult.event.outcome?.headline ?? directorResult.event.story.headline
+    );
+    pushDebugLog(
+      `Director started: ${directorResult.event.title} (${directorResult.event.id}) for ${player.name}`
     );
     return true;
   }
@@ -1605,6 +1662,7 @@ export default function GamePage({
     setPendingEventChoice(null);
     setEventEffectsApplied(false);
     setActiveStoryEvent(null);
+    directorIntroLockRef.current = false;
     setLastRoll(null);
     setDiceDisplayValue(null);
     setDiceFlowPhase("hidden");
@@ -1850,6 +1908,9 @@ export default function GamePage({
       current ? { ...current, event: result.gameEvent } : null
     );
     setStatusSubtitle(result.gameEvent.outcome?.description ?? result.gameEvent.description);
+    pushDebugLog(
+      `Event choice resolved: ${result.gameEvent.title} (${pendingEventChoice.eventId})`
+    );
   }
 
   function beginCustomMatchFlow(match: ScheduledCustomMatch) {
@@ -2492,6 +2553,7 @@ export default function GamePage({
 
     const { event, playerIndex } = activeStoryEvent;
     const player = playersInGameRef.current[playerIndex];
+    pushDebugLog(`Event completing: ${event.title} (${event.id})`);
 
     if (!eventEffectsApplied) {
       updatePlayer(playerIndex, (current) => applyEventEffect(current, event));
@@ -2511,6 +2573,7 @@ export default function GamePage({
     setActiveStoryEvent(null);
     setPendingEventChoice(null);
     setEventEffectsApplied(false);
+    directorIntroLockRef.current = false;
     setPhase("playing");
     setLastEventTitle(event.title);
     setStatusTitle(`${player?.name ?? "Player"} , ${event.title}`);
@@ -2534,6 +2597,7 @@ export default function GamePage({
     }
 
     await sleep(600);
+    pushDebugLog(`Event complete — advancing turn after ${event.title}`);
     await advanceToNextPlayer(
       `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
       `${getResolvedNextPlayerName(playerIndex)} is now up`
@@ -2569,6 +2633,9 @@ export default function GamePage({
 
     if (resolution.kind === "event") {
       if (isEventPipelineBusy()) {
+        pushDebugLog(
+          `Tile event skipped (pipeline busy) for ${player.name} on ${finalNodeId}`
+        );
         await advanceToNextPlayer(
           `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
           `${getResolvedNextPlayerName(playerIndex)} is now up`
@@ -2586,6 +2653,7 @@ export default function GamePage({
 
       setPendingEventChoice(null);
       setEventEffectsApplied(false);
+      directorIntroLockRef.current = false;
       setPhase("resolving-event");
       setLastEventTitle(gameEvent.title);
       setStatusTitle(`${player.name} triggered ${gameEvent.title}`);
@@ -2603,6 +2671,9 @@ export default function GamePage({
         showDirectorIntro: true,
       });
       setEventEffectsApplied(false);
+      pushDebugLog(
+        `Tile event started: ${gameEvent.title} (${gameEvent.id}) for ${player.name}`
+      );
       return;
     }
 
@@ -3953,9 +4024,7 @@ export default function GamePage({
         <DirectorPresentation
           pick={activeStoryEvent.directorPick}
           introDurationMs={activeStoryEvent.introDurationMs}
-          onComplete={() => {
-            if (!isOnlineGuest) completeDirectorIntro();
-          }}
+          onComplete={completeDirectorIntro}
         />
       )}
 
@@ -4443,6 +4512,8 @@ export default function GamePage({
           onTriggerMinigame={debugTriggerMinigameById}
           onLandOnTile={debugLandOnTile}
           onTriggerShop={debugTriggerShop}
+          logs={debugLogs}
+          onClearLogs={() => setDebugLogs([])}
         />
       )}
     </div >

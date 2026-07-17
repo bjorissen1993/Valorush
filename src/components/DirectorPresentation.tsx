@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DirectorPickPayload, EventWeight } from "../../shared/director";
 import {
   pointsIconPath,
@@ -181,16 +181,26 @@ export default function DirectorPresentation({
   const [revealed, setRevealed] = useState(false);
   const style = weightStyles[pick.weight];
   const isKingdom = pick.mode === "kingdom";
+  // Keep a stable callback ref so parent re-renders (announcements, snapshots,
+  // chat) do not reset the intro timer and leave the event pipeline stuck.
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  const completedRef = useRef(false);
 
   useEffect(() => {
+    completedRef.current = false;
     setRevealed(false);
     const revealTimer = window.setTimeout(() => setRevealed(true), 120);
-    const completeTimer = window.setTimeout(onComplete, introDurationMs);
+    const completeTimer = window.setTimeout(() => {
+      if (completedRef.current) return;
+      completedRef.current = true;
+      onCompleteRef.current();
+    }, introDurationMs);
     return () => {
       window.clearTimeout(revealTimer);
       window.clearTimeout(completeTimer);
     };
-  }, [pick.agentName, pick.protocolId, pick.quote, introDurationMs, onComplete]);
+  }, [pick.agentName, pick.protocolId, pick.quote, introDurationMs]);
 
   return (
     <div
