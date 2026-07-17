@@ -4,6 +4,7 @@ import type { ActiveSpike } from "../game/systems/spikeSystem";
 import type { TileType } from "../game/boardLayout";
 import type { BoardEventDefinition } from "../../shared/events";
 import type { MinigameId } from "../../shared/minigames/types";
+import HoverTooltip from "./HoverTooltip";
 
 type DebugBoardAction = "plant-spike" | "teleport-player" | null;
 
@@ -84,24 +85,37 @@ function DebugButton({
   active,
   className = "",
   disabled = false,
+  tooltip,
 }: {
   onClick: () => void;
   children: ReactNode;
   active?: boolean;
   className?: string;
   disabled?: boolean;
+  tooltip: string;
 }) {
+  const layoutClasses = [
+    "hover-tooltip--block",
+    "hover-tooltip--fill",
+    className.includes("debug-panel__span-2") ? "debug-panel__span-2" : "",
+    className.includes("debug-panel__full") ? "debug-panel__full" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`debug-panel__btn ${active ? "debug-panel__btn--active" : ""} ${
-        disabled ? "debug-panel__btn--disabled" : ""
-      } ${className}`}
-    >
-      {children}
-    </button>
+    <HoverTooltip content={tooltip} className={layoutClasses}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={`debug-panel__btn ${active ? "debug-panel__btn--active" : ""} ${
+          disabled ? "debug-panel__btn--disabled" : ""
+        } ${className}`}
+      >
+        {children}
+      </button>
+    </HoverTooltip>
   );
 }
 
@@ -146,6 +160,8 @@ export default function DebugPanel({
   logs = [],
   onClearLogs,
 }: DebugPanelProps) {
+  const selectedPlayerName = players[selectedPlayerIndex]?.name ?? "player";
+
   return (
     <div className="debug-panel-overlay" role="dialog" aria-label="Debug Panel">
       <button
@@ -161,9 +177,11 @@ export default function DebugPanel({
             <p className="debug-panel__eyebrow">Developer Tools</p>
             <h2 className="debug-panel__title">Debug Console</h2>
           </div>
-          <button type="button" onClick={onClose} className="debug-panel__close">
-            Close
-          </button>
+          <HoverTooltip content="Close the debug console overlay.">
+            <button type="button" onClick={onClose} className="debug-panel__close">
+              Close
+            </button>
+          </HoverTooltip>
         </header>
 
         <div className="debug-panel__body valorant-scrollbar">
@@ -175,14 +193,16 @@ export default function DebugPanel({
                   : `${logs.length} action${logs.length === 1 ? "" : "s"} logged`}
               </p>
               {onClearLogs && (
-                <button
-                  type="button"
-                  onClick={onClearLogs}
-                  className="debug-panel__log-clear"
-                  disabled={logs.length === 0}
-                >
-                  Clear
-                </button>
+                <HoverTooltip content="Clear all entries from the debug action log.">
+                  <button
+                    type="button"
+                    onClick={onClearLogs}
+                    className="debug-panel__log-clear"
+                    disabled={logs.length === 0}
+                  >
+                    Clear
+                  </button>
+                </HoverTooltip>
               )}
             </div>
             <div className="debug-panel__log valorant-scrollbar">
@@ -203,55 +223,74 @@ export default function DebugPanel({
           <DebugSection title="Selected Player">
             <div className="debug-panel__chip-row">
               {players.map((player, index) => (
-                <button
+                <HoverTooltip
                   key={player.id}
-                  type="button"
-                  onClick={() => onSelectPlayer(index)}
-                  className={`debug-panel__player-chip ${
-                    selectedPlayerIndex === index
-                      ? "debug-panel__player-chip--active"
-                      : ""
-                  }`}
+                  content={`Select ${player.name} as the target for economy, items, skip, and teleport actions.`}
                 >
-                  <div className="debug-panel__player-avatar">
-                    {player.avatar ? (
-                      <img src={player.avatar} alt={player.name} />
-                    ) : (
-                      <div
-                        className="debug-panel__player-fallback"
-                        style={{ backgroundColor: player.color ?? "#334155" }}
-                      >
-                        {(player.name.trim().charAt(0) || "?").toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-                  <span>{player.name}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectPlayer(index)}
+                    className={`debug-panel__player-chip ${
+                      selectedPlayerIndex === index
+                        ? "debug-panel__player-chip--active"
+                        : ""
+                    }`}
+                  >
+                    <div className="debug-panel__player-avatar">
+                      {player.avatar ? (
+                        <img src={player.avatar} alt={player.name} />
+                      ) : (
+                        <div
+                          className="debug-panel__player-fallback"
+                          style={{ backgroundColor: player.color ?? "#334155" }}
+                        >
+                          {(player.name.trim().charAt(0) || "?").toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <span>{player.name}</span>
+                  </button>
+                </HoverTooltip>
               ))}
             </div>
           </DebugSection>
 
           <DebugSection title="Turn Control">
             <div className="debug-panel__grid-2">
-              <DebugButton onClick={onForceNextTurn}>Next turn</DebugButton>
-              <DebugButton onClick={onEndRound}>End round</DebugButton>
+              <DebugButton
+                onClick={onForceNextTurn}
+                tooltip="Advance immediately to the next player's turn, skipping remaining turn flow."
+              >
+                Next turn
+              </DebugButton>
+              <DebugButton
+                onClick={onEndRound}
+                tooltip="Force the current round to end and run round-end resolution."
+              >
+                End round
+              </DebugButton>
               <DebugButton
                 onClick={() => onSkipToPlayer(selectedPlayerIndex)}
                 className="debug-panel__span-2"
+                tooltip={`Jump turn ownership to ${selectedPlayerName} without playing intermediate turns.`}
               >
-                Skip to {players[selectedPlayerIndex]?.name ?? "player"}
+                Skip to {selectedPlayerName}
               </DebugButton>
             </div>
             <div className="debug-panel__chip-row debug-panel__chip-row--tight">
               {players.map((player, index) => (
-                <button
+                <HoverTooltip
                   key={`skip-${player.id}`}
-                  type="button"
-                  onClick={() => onSkipToPlayer(index)}
-                  className="debug-panel__mini-chip"
+                  content={`Skip ahead so it becomes ${player.name}'s turn.`}
                 >
-                  {player.name}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onSkipToPlayer(index)}
+                    className="debug-panel__mini-chip"
+                  >
+                    {player.name}
+                  </button>
+                </HoverTooltip>
               ))}
             </div>
           </DebugSection>
@@ -271,6 +310,11 @@ export default function DebugPanel({
                       onClick={() => onTriggerEvent(event.id)}
                       className="debug-panel__full"
                       disabled={eventPipelineBusy}
+                      tooltip={
+                        eventPipelineBusy
+                          ? "Event pipeline is busy — wait for the current event to finish."
+                          : `Force-trigger board event “${event.name}” (${event.id}) for the selected player.`
+                      }
                     >
                       <span className="debug-panel__btn-main">{event.name}</span>
                       <span className="debug-panel__btn-meta">{event.id}</span>
@@ -292,6 +336,7 @@ export default function DebugPanel({
                 onClick={() => onTriggerDirector()}
                 className="debug-panel__full"
                 disabled={eventPipelineBusy}
+                tooltip="Trigger a director sequence with a randomly chosen agent."
               >
                 Random agent director
               </DebugButton>
@@ -299,6 +344,7 @@ export default function DebugPanel({
                 onClick={onTriggerKingdomProtocol}
                 className="debug-panel__full"
                 disabled={eventPipelineBusy}
+                tooltip="Force the Kingdom Protocol director presentation and effects."
               >
                 Kingdom protocol
               </DebugButton>
@@ -309,6 +355,7 @@ export default function DebugPanel({
                     onClick={() => onTriggerDirector(agent.agentName)}
                     className="debug-panel__full"
                     disabled={eventPipelineBusy}
+                    tooltip={`Trigger the director sequence as ${agent.agentName}.`}
                   >
                     {agent.agentName}
                   </DebugButton>
@@ -319,22 +366,48 @@ export default function DebugPanel({
 
           <DebugSection title="Spike">
             <div className="debug-panel__grid-2">
-              <DebugButton onClick={onPlantSpike}>Plant spike</DebugButton>
-              <DebugButton onClick={onOpenDefusePrompt}>Defuse modal</DebugButton>
-              <DebugButton onClick={onHalfDefuseSpike}>Half-defused</DebugButton>
-              <DebugButton onClick={onForceDefuseSpike}>Force defused</DebugButton>
-              <DebugButton onClick={onDetonateSpike} className="debug-panel__span-2">
+              <DebugButton
+                onClick={onPlantSpike}
+                tooltip="Plant the spike at the selected player's current tile."
+              >
+                Plant spike
+              </DebugButton>
+              <DebugButton
+                onClick={onOpenDefusePrompt}
+                tooltip="Open the spike defuse modal as if a player started defusing."
+              >
+                Defuse modal
+              </DebugButton>
+              <DebugButton
+                onClick={onHalfDefuseSpike}
+                tooltip="Mark the active spike as half-defused (partial progress)."
+              >
+                Half-defused
+              </DebugButton>
+              <DebugButton
+                onClick={onForceDefuseSpike}
+                tooltip="Instantly complete a successful spike defuse."
+              >
+                Force defused
+              </DebugButton>
+              <DebugButton
+                onClick={onDetonateSpike}
+                className="debug-panel__span-2"
+                tooltip="Detonate the active spike immediately and apply explosion effects."
+              >
                 Detonate now
               </DebugButton>
               <DebugButton
                 onClick={() => onSetBoardAction("plant-spike")}
                 active={boardAction === "plant-spike"}
+                tooltip="Enable board click mode: next tile click plants the spike there."
               >
                 Plant on tile click
               </DebugButton>
               <DebugButton
                 onClick={() => onSetBoardAction("teleport-player")}
                 active={boardAction === "teleport-player"}
+                tooltip="Enable board click mode: next tile click teleports the selected player."
               >
                 Teleport on click
               </DebugButton>
@@ -354,10 +427,16 @@ export default function DebugPanel({
             <div className="debug-panel__stack">
               {customMatches.map((match) => (
                 <div key={match.id} className="debug-panel__grid-2">
-                  <DebugButton onClick={() => onScheduleCustomMatch(match.id)}>
+                  <DebugButton
+                    onClick={() => onScheduleCustomMatch(match.id)}
+                    tooltip={`Queue “${match.name}” to play after the current round ends.`}
+                  >
                     Schedule {match.name}
                   </DebugButton>
-                  <DebugButton onClick={() => onPlayCustomMatch(match.id)}>
+                  <DebugButton
+                    onClick={() => onPlayCustomMatch(match.id)}
+                    tooltip={`Start “${match.name}” immediately, skipping the schedule wait.`}
+                  >
                     Play {match.name}
                   </DebugButton>
                 </div>
@@ -372,6 +451,7 @@ export default function DebugPanel({
                   key={minigame.id}
                   onClick={() => onTriggerMinigame(minigame.id)}
                   className="debug-panel__full"
+                  tooltip={`Launch the “${minigame.name}” minigame for the selected player.`}
                 >
                   {minigame.name}
                 </DebugButton>
@@ -381,13 +461,23 @@ export default function DebugPanel({
 
           <DebugSection title="Round End">
             <div className="debug-panel__grid-2">
-              <DebugButton onClick={onForceRoundComplete}>
+              <DebugButton
+                onClick={onForceRoundComplete}
+                tooltip="Mark the round as complete and jump into round-end flow."
+              >
                 Force round complete
               </DebugButton>
-              <DebugButton onClick={onTriggerScheduledMatch}>
+              <DebugButton
+                onClick={onTriggerScheduledMatch}
+                tooltip="Start whatever custom match is currently scheduled, if any."
+              >
                 Play scheduled match
               </DebugButton>
-              <DebugButton onClick={onTriggerMapReveal} className="debug-panel__span-2">
+              <DebugButton
+                onClick={onTriggerMapReveal}
+                className="debug-panel__span-2"
+                tooltip="Play the map reveal presentation used at round / match transitions."
+              >
                 Map reveal presentation
               </DebugButton>
             </div>
@@ -395,12 +485,28 @@ export default function DebugPanel({
 
           <DebugSection title="Economy & Items">
             <div className="debug-panel__grid-2">
-              <DebugButton onClick={() => onAdjustCreds(500)}>+500 Creds</DebugButton>
-              <DebugButton onClick={() => onAdjustCreds(-500)}>-500 Creds</DebugButton>
-              <DebugButton onClick={() => onAdjustRadianite(1)}>
+              <DebugButton
+                onClick={() => onAdjustCreds(500)}
+                tooltip={`Add 500 creds to ${selectedPlayerName}.`}
+              >
+                +500 Creds
+              </DebugButton>
+              <DebugButton
+                onClick={() => onAdjustCreds(-500)}
+                tooltip={`Remove 500 creds from ${selectedPlayerName}.`}
+              >
+                -500 Creds
+              </DebugButton>
+              <DebugButton
+                onClick={() => onAdjustRadianite(1)}
+                tooltip={`Add 1 radianite to ${selectedPlayerName}.`}
+              >
                 +1 Radianite
               </DebugButton>
-              <DebugButton onClick={() => onAdjustRadianite(-1)}>
+              <DebugButton
+                onClick={() => onAdjustRadianite(-1)}
+                tooltip={`Remove 1 radianite from ${selectedPlayerName}.`}
+              >
                 -1 Radianite
               </DebugButton>
             </div>
@@ -410,6 +516,7 @@ export default function DebugPanel({
                   key={item.id}
                   onClick={() => onGiveItem(item.id)}
                   className="debug-panel__full"
+                  tooltip={`Give “${item.name}” to ${selectedPlayerName}'s inventory.`}
                 >
                   Give {item.name}
                 </DebugButton>
@@ -420,39 +527,65 @@ export default function DebugPanel({
           <DebugSection title="Dice">
             <div className="debug-panel__dice-grid">
               {[1, 2, 3, 4, 5, 6].map((value) => (
-                <button
+                <HoverTooltip
                   key={value}
-                  type="button"
-                  onClick={() => onSetForcedRoll(value)}
-                  className={`debug-panel__dice ${
-                    forcedRoll === value ? "debug-panel__dice--active" : ""
-                  }`}
+                  content={`Force the next dice roll to land on ${value}.`}
+                  className="hover-tooltip--block hover-tooltip--fill"
                 >
-                  {value}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onSetForcedRoll(value)}
+                    className={`debug-panel__dice ${
+                      forcedRoll === value ? "debug-panel__dice--active" : ""
+                    }`}
+                  >
+                    {value}
+                  </button>
+                </HoverTooltip>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => onSetForcedRoll(null)}
-              className="debug-panel__btn debug-panel__full"
+            <HoverTooltip
+              content="Clear the forced roll so the next dice result is random again."
+              className="hover-tooltip--block hover-tooltip--fill"
             >
-              Reset dice (random)
-            </button>
+              <button
+                type="button"
+                onClick={() => onSetForcedRoll(null)}
+                className="debug-panel__btn debug-panel__full"
+              >
+                Reset dice (random)
+              </button>
+            </HoverTooltip>
           </DebugSection>
 
           <DebugSection title="Tiles">
             <div className="debug-panel__grid-2">
-              <DebugButton onClick={() => onLandOnTile("spike")}>
+              <DebugButton
+                onClick={() => onLandOnTile("spike")}
+                tooltip="Simulate the selected player landing on a spike tile."
+              >
                 Land on spike
               </DebugButton>
-              <DebugButton onClick={onTriggerShop}>Land on shop</DebugButton>
-              <DebugButton onClick={() => onLandOnTile("minigame")}>
+              <DebugButton
+                onClick={onTriggerShop}
+                tooltip="Simulate landing on a shop tile and open the shop."
+              >
+                Land on shop
+              </DebugButton>
+              <DebugButton
+                onClick={() => onLandOnTile("minigame")}
+                tooltip="Simulate landing on a minigame tile."
+              >
                 Land on minigame
               </DebugButton>
               <DebugButton
                 onClick={() => onLandOnTile("event")}
                 disabled={eventPipelineBusy}
+                tooltip={
+                  eventPipelineBusy
+                    ? "Event pipeline is busy — wait before forcing an event tile."
+                    : "Simulate landing on an event tile and trigger its event."
+                }
               >
                 Land on event
               </DebugButton>

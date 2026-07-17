@@ -1404,6 +1404,59 @@ body {
 }
 
 /* Debug console overlay */
+/* Delayed hover tooltip — dark Valorant aesthetic */
+.hover-tooltip {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: top;
+}
+
+.hover-tooltip--block {
+  display: flex;
+  width: 100%;
+}
+
+.hover-tooltip--fill > .debug-panel__btn,
+.hover-tooltip--fill > button {
+  width: 100%;
+}
+
+.hover-tooltip__bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.45rem);
+  z-index: 40;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(240px, 70vw);
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  background: linear-gradient(180deg, #0f1a2a 0%, #070d16 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 10px 28px rgba(0, 0, 0, 0.55);
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  text-align: left;
+  pointer-events: none;
+  white-space: normal;
+}
+
+.hover-tooltip__bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: rgba(34, 211, 238, 0.45);
+}
+
 .debug-panel-overlay {
   position: fixed;
   inset: 0;
