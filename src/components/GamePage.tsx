@@ -3222,11 +3222,19 @@ export default function GamePage({
     return agentBackgroundPath(agent.displayName);
   }
 
-  function getAgentPortraitImage(player: PlayerInGame) {
+  /** Large full-body art for the next-turn banner only — keep separate from sidebar. */
+  function getAgentTurnBannerImage(player: PlayerInGame) {
     const agent = getAgentData(player);
     if (!agent) return null;
-    // Head-only: local bust portrait or API displayIcon — never fullPortrait body art.
+    if (agent.fullPortrait) return agent.fullPortrait;
     if (agent.displayName) return agentPortraitPath(agent.displayName);
+    return agent.displayIcon ?? null;
+  }
+
+  /** Lobby roster-style icon for inventory sidebar (same as AgentRoster tiles). */
+  function getAgentRosterImage(player: PlayerInGame) {
+    const agent = getAgentData(player);
+    if (!agent) return null;
     return agent.displayIcon ?? null;
   }
 
@@ -3780,7 +3788,7 @@ export default function GamePage({
           playerName={playersInGame[turnBannerPlayerIndex].name}
           playerAvatar={playersInGame[turnBannerPlayerIndex].avatar}
           agentName={getAgentName(playersInGame[turnBannerPlayerIndex])}
-          agentImage={getAgentPortraitImage(playersInGame[turnBannerPlayerIndex])}
+          agentImage={getAgentTurnBannerImage(playersInGame[turnBannerPlayerIndex])}
           agentBackgroundImage={getAgentBackgroundImage(
             playersInGame[turnBannerPlayerIndex]
           )}
@@ -3845,7 +3853,7 @@ export default function GamePage({
                 player={currentPlayer}
                 agentName={getAgentName(currentPlayer)}
                 agentBackgroundImage={getAgentBackgroundImage(currentPlayer)}
-                agentPortraitImage={getAgentPortraitImage(currentPlayer)}
+                agentPortraitImage={getAgentRosterImage(currentPlayer)}
                 isCurrentTurn={!gameFinished && phase !== "roll-for-order"}
                 canAct={inventoryCanAct}
                 canOpenDice={activeCanOpenDice}
@@ -4098,7 +4106,7 @@ export default function GamePage({
                 player={currentPlayer}
                 agentName={getAgentName(currentPlayer)}
                 agentBackgroundImage={getAgentBackgroundImage(currentPlayer)}
-                agentPortraitImage={getAgentPortraitImage(currentPlayer)}
+                agentPortraitImage={getAgentRosterImage(currentPlayer)}
                 isCurrentTurn={!gameFinished && phase !== "roll-for-order"}
                 canAct={inventoryCanAct}
                 canOpenDice={activeCanOpenDice}

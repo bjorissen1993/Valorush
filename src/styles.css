@@ -56,9 +56,9 @@ body {
   .turn-banner-content--active,
   .turn-banner-agent--active,
   .turn-banner-info--active,
-  .turn-banner-band-track--active-1,
-  .turn-banner-band-track--active-2,
-  .turn-banner-band-track--active-3,
+  .turn-banner-band-track--active-main,
+  .turn-banner-band-track--active-edge-left,
+  .turn-banner-band-track--active-edge-right,
   .turn-order-title-banner--active,
   .turn-order-column--fall,
   .dice-roll-stage--bounce .dice-roll-face,
@@ -70,6 +70,14 @@ body {
 
   .turn-order-column--fall,
   .turn-order-begin--hidden {
+    opacity: 1;
+    transform: none;
+  }
+
+  .turn-banner-backdrop--active,
+  .turn-banner-content--active,
+  .turn-banner-agent--active,
+  .turn-banner-info--active {
     opacity: 1;
     transform: none;
   }
@@ -2313,15 +2321,6 @@ body {
   color: rgba(226, 232, 240, 0.7);
 }
 
-.player-inventory-panel__turn-tag {
-  margin-top: 0.25rem;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #67e8f9;
-}
-
 .player-inventory-panel__close {
   margin-left: auto;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -2332,7 +2331,7 @@ body {
   color: rgba(226, 232, 240, 0.8);
 }
 
-.player-inventory-panel__headshot-wrap {
+.player-inventory-panel__roster-wrap {
   position: relative;
   width: calc(100% + 1.7rem);
   margin-left: -0.85rem;
@@ -2342,12 +2341,12 @@ body {
   background: rgba(15, 23, 42, 0.45);
 }
 
-.player-inventory-panel__headshot {
+.player-inventory-panel__roster {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: center 18%;
+  object-fit: contain;
+  object-position: center center;
 }
 
 .player-inventory-panel__economy {
@@ -2583,7 +2582,7 @@ body {
 }
 
 .player-inventory-panel__gear-slot {
-  padding: 0.35rem 0.15rem;
+  padding: 0.35rem 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -2592,7 +2591,7 @@ body {
 }
 
 .player-inventory-panel__gear-slot--empty {
-  opacity: 0.55;
+  opacity: 1;
 }
 
 .player-inventory-panel__gear-label {
@@ -2601,10 +2600,6 @@ body {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(148, 163, 184, 0.75);
-}
-
-.player-inventory-panel__gear-slot--empty .player-inventory-panel__gear-label {
-  color: rgba(148, 163, 184, 0.55);
 }
 
 .player-inventory-panel__gear-body {
@@ -2622,12 +2617,19 @@ body {
 }
 
 .player-inventory-panel__gear-placeholder {
-  height: 1.65rem;
-  width: 2.75rem;
-  flex-shrink: 0;
-  border-radius: 0.35rem;
-  background: rgba(148, 163, 184, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+  display: flex;
+  width: 100%;
+  min-height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+  background: rgba(148, 163, 184, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.75);
 }
 
 .player-inventory-panel__gear-body span {
@@ -2637,11 +2639,6 @@ body {
   font-size: 0.8rem;
   font-weight: 700;
   color: #fff;
-}
-
-.player-inventory-panel__gear-slot--empty .player-inventory-panel__gear-body span {
-  font-weight: 600;
-  color: rgba(148, 163, 184, 0.7);
 }
 
 .player-inventory-panel__spike-planted {

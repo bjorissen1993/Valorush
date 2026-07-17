@@ -125,7 +125,7 @@ export default function PlayerInventorySidebar({
   const pendingItem = pendingTargetItemId
     ? itemById.get(pendingTargetItemId)
     : null;
-  const headshotImage = agentPortraitImage;
+  const rosterImage = agentPortraitImage;
 
   function handleItemClick(item: ItemDefinition) {
     if (!canAct || !onUseItem || !isUsableBoardItem(item)) return;
@@ -157,9 +157,6 @@ export default function PlayerInventorySidebar({
             <div className="min-w-0 flex-1">
               <p className="player-inventory-panel__name">{player.name}</p>
               <p className="player-inventory-panel__agent">{agentName}</p>
-              {isCurrentTurn && (
-                <p className="player-inventory-panel__turn-tag">Active turn</p>
-              )}
             </div>
             {onClose && (
               <button
@@ -173,12 +170,12 @@ export default function PlayerInventorySidebar({
             )}
           </div>
 
-          {headshotImage && (
-            <div className="player-inventory-panel__headshot-wrap">
+          {rosterImage && (
+            <div className="player-inventory-panel__roster-wrap">
               <img
-                src={headshotImage}
+                src={rosterImage}
                 alt={agentName}
-                className="player-inventory-panel__headshot"
+                className="player-inventory-panel__roster"
               />
             </div>
           )}
@@ -387,15 +384,17 @@ function LoadoutSlot({
         equipped ? "" : "player-inventory-panel__gear-slot--empty"
       }`}
     >
-      <p className="player-inventory-panel__gear-label">{label}</p>
-      <div className="player-inventory-panel__gear-body">
-        {equipped && image ? (
-          <img src={image} alt="" />
-        ) : (
-          <div className="player-inventory-panel__gear-placeholder" aria-hidden />
-        )}
-        <span>{equipped ? name : label}</span>
-      </div>
+      {equipped ? (
+        <>
+          <p className="player-inventory-panel__gear-label">{label}</p>
+          <div className="player-inventory-panel__gear-body">
+            {image ? <img src={image} alt="" /> : null}
+            <span>{name}</span>
+          </div>
+        </>
+      ) : (
+        <div className="player-inventory-panel__gear-placeholder">{label}</div>
+      )}
     </div>
   );
 }
