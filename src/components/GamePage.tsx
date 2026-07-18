@@ -75,6 +75,7 @@ import {
   applyJettPassToll,
   buildBoardAdjacency,
   canActivateUltimate,
+  clampOrbs,
   emptyBoardUltimateState,
   gainOrb,
   getArmedTrapAt,
@@ -1319,6 +1320,20 @@ export default function GamePage({
         );
       }, 900);
     }
+  }
+
+  function debugAdjustUltimateOrbs(playerIndex: number, amount: number) {
+    updatePlayer(playerIndex, (player) => ({
+      ...player,
+      ultimateOrbs: gainOrb(player.ultimateOrbs ?? 0, amount),
+    }));
+  }
+
+  function debugSetUltimateOrbs(playerIndex: number, orbs: number) {
+    updatePlayer(playerIndex, (player) => ({
+      ...player,
+      ultimateOrbs: clampOrbs(orbs),
+    }));
   }
 
 
@@ -5178,6 +5193,12 @@ export default function GamePage({
           onAdjustCreds={(amount) => debugAdjustCreds(debugSelectedPlayerIndex, amount)}
           onAdjustRadianite={(amount) =>
             debugAdjustRadianite(debugSelectedPlayerIndex, amount)
+          }
+          onAdjustUltimateOrbs={(amount) =>
+            debugAdjustUltimateOrbs(debugSelectedPlayerIndex, amount)
+          }
+          onSetUltimateOrbs={(orbs) =>
+            debugSetUltimateOrbs(debugSelectedPlayerIndex, orbs)
           }
           onGiveItem={debugGiveItem}
           onTriggerMinigame={debugTriggerMinigameById}

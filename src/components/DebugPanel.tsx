@@ -62,6 +62,8 @@ type DebugPanelProps = {
   onTriggerMapReveal: () => void;
   onAdjustCreds: (amount: number) => void;
   onAdjustRadianite: (amount: number) => void;
+  onAdjustUltimateOrbs: (amount: number) => void;
+  onSetUltimateOrbs: (orbs: number) => void;
   onGiveItem: (itemId: string) => void;
   onTriggerMinigame: (minigameId: MinigameId) => void;
   onLandOnTile: (tileType: TileType) => void;
@@ -153,6 +155,8 @@ export default function DebugPanel({
   onTriggerMapReveal,
   onAdjustCreds,
   onAdjustRadianite,
+  onAdjustUltimateOrbs,
+  onSetUltimateOrbs,
   onGiveItem,
   onTriggerMinigame,
   onLandOnTile,
@@ -160,7 +164,9 @@ export default function DebugPanel({
   logs = [],
   onClearLogs,
 }: DebugPanelProps) {
-  const selectedPlayerName = players[selectedPlayerIndex]?.name ?? "player";
+  const selectedPlayer = players[selectedPlayerIndex];
+  const selectedPlayerName = selectedPlayer?.name ?? "player";
+  const selectedOrbs = selectedPlayer?.ultimateOrbs ?? 0;
 
   return (
     <div className="debug-panel-overlay" role="dialog" aria-label="Debug Panel">
@@ -521,6 +527,39 @@ export default function DebugPanel({
                   Give {item.name}
                 </DebugButton>
               ))}
+            </div>
+          </DebugSection>
+
+          <DebugSection title="Ultimate Orbs">
+            <p className="debug-panel__hint">
+              {selectedPlayerName}: {selectedOrbs}/3 orbs
+              {selectedOrbs >= 3 ? " — ULT READY" : ""}
+            </p>
+            <div className="debug-panel__grid-2">
+              <DebugButton
+                onClick={() => onAdjustUltimateOrbs(1)}
+                tooltip={`Give ${selectedPlayerName} +1 ultimate orb (capped at 3).`}
+              >
+                +1 Ultimate Orb
+              </DebugButton>
+              <DebugButton
+                onClick={() => onAdjustUltimateOrbs(2)}
+                tooltip={`Give ${selectedPlayerName} +2 ultimate orbs (capped at 3).`}
+              >
+                +2 Orbs
+              </DebugButton>
+              <DebugButton
+                onClick={() => onSetUltimateOrbs(3)}
+                tooltip={`Set ${selectedPlayerName}'s ultimate to full (3/3) — ULT READY.`}
+              >
+                Full Ultimate (3/3)
+              </DebugButton>
+              <DebugButton
+                onClick={() => onSetUltimateOrbs(0)}
+                tooltip={`Clear ${selectedPlayerName}'s ultimate orbs to 0.`}
+              >
+                Clear orbs
+              </DebugButton>
             </div>
           </DebugSection>
 

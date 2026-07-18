@@ -5,9 +5,14 @@ import { pointsIconPath } from "../game/assetPaths";
 type WheelSegment = {
   id: string;
   amount: string;
-  tone: "win" | "lose";
+  tone: "win" | "lose" | "empty";
   icon: "creds" | "radianite";
 };
+
+function toneFromAmount(amount: number): WheelSegment["tone"] {
+  if (amount === 0) return "empty";
+  return amount > 0 ? "win" : "lose";
+}
 
 type Props = {
   event: GameEvent;
@@ -36,32 +41,32 @@ function segmentFromEffect(effect: FlatEventEffect, id: string): WheelSegment {
       return {
         id,
         amount: effect.amount >= 0 ? `+${effect.amount}` : `${effect.amount}`,
-        tone: effect.amount >= 0 ? "win" : "lose",
+        tone: toneFromAmount(effect.amount),
         icon: "creds",
       };
     case "radianite":
       return {
         id,
         amount: effect.amount >= 0 ? `+${effect.amount}` : `${effect.amount}`,
-        tone: effect.amount >= 0 ? "win" : "lose",
+        tone: toneFromAmount(effect.amount),
         icon: "radianite",
       };
     case "discount":
       return {
         id,
         amount: `+${effect.amount}`,
-        tone: "win",
+        tone: toneFromAmount(effect.amount),
         icon: "creds",
       };
     default:
-      return { id, amount: "+0", tone: "win", icon: "creds" };
+      return { id, amount: "+0", tone: "empty", icon: "creds" };
   }
 }
 
 function toneColors(tone: WheelSegment["tone"]) {
-  return tone === "win"
-    ? { fill: "#065f46", stroke: "#34d399" }
-    : { fill: "#7f1d1d", stroke: "#f87171" };
+  if (tone === "win") return { fill: "#065f46", stroke: "#34d399" };
+  if (tone === "lose") return { fill: "#7f1d1d", stroke: "#f87171" };
+  return { fill: "#3f3f46", stroke: "#a1a1aa" };
 }
 
 function buildGambleWheel(event: GameEvent): {
@@ -102,7 +107,7 @@ function buildFixedWheel(event: GameEvent): {
 } {
   const result = event.outcome
     ? segmentFromEffect(event.outcome.effect, "result")
-    : { id: "result", amount: "+0", tone: "win" as const, icon: "creds" as const };
+    : { id: "result", amount: "+0", tone: "empty" as const, icon: "creds" as const };
 
   const pool: WheelSegment[] = [result, ...DECOY_SEGMENTS];
   const segments: WheelSegment[] = [];
