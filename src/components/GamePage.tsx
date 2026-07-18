@@ -816,9 +816,6 @@ export default function GamePage({
   >(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const directorIntroLockRef = useRef(false);
-  const pendingBoardMovesRef = useRef<
-    { playerIndex: number; fromNodeId: string; toNodeId: string }[]
-  >([]);
 
   // Keep debug "Selected player" synced to the active turn seat.
   useEffect(() => {
@@ -1076,8 +1073,11 @@ export default function GamePage({
     }));
   }
 
-  /** Apply event roster updates but hold board tokens at old tiles until animation plays. */
-  function applyEventPlayersWithDeferredMoves(
+  /**
+   * Apply event roster updates immediately. Position swaps/teleports animate right away
+   * (e.g. Omen's Shadows) instead of waiting for Continue.
+   */
+  function applyEventPlayersWithImmediateMoves(
     previousPlayers: PlayerInGame[],
     nextPlayers: PlayerInGame[]
   ) {
@@ -1089,13 +1089,12 @@ export default function GamePage({
       }))
       .filter((move) => move.fromNodeId !== move.toNodeId);
 
-    pendingBoardMovesRef.current = moves;
-
     if (moves.length === 0) {
       setPlayersInGame(nextPlayers);
       return;
     }
 
+    // Hold tokens on old tiles briefly so teleport animation has a from→to path.
     setPlayersInGame(
       nextPlayers.map((player, index) => {
         const previous = previousPlayers[index];
@@ -1103,30 +1102,8 @@ export default function GamePage({
         return { ...player, position: previous.position };
       })
     );
-  }
 
-  async function playPendingBoardMoveAnimations() {
-    const moves = pendingBoardMovesRef.current;
-    pendingBoardMovesRef.current = [];
-    if (moves.length === 0) return;
-
-    setIsMoving(true);
-    for (const move of moves) {
-      setMovingPlayerIndex(move.playerIndex);
-      const animated = await animateTeleport(
-        move.playerIndex,
-        move.fromNodeId,
-        move.toNodeId,
-        setAnimatedToken
-      );
-      updatePlayerPosition(move.playerIndex, move.toNodeId);
-      if (animated) {
-        await sleep(90);
-      }
-    }
-    setAnimatedToken(null);
-    setIsMoving(false);
-    setMovingPlayerIndex(null);
+    void animatePlayersToPositions(moves);
   }
 
   async function animatePlayersToPositions(
@@ -1406,7 +1383,7 @@ export default function GamePage({
         weaponName: weapon,
         weaponSlot: "secondary",
         price,
-        description: "Secondary",
+        description: "Sidearm",
         image: getWeaponImage(weapon),
         disabled: player.creds < price,
       };
@@ -1497,7 +1474,7 @@ export default function GamePage({
           players: previousPlayers,
           round,
         });
-        applyEventPlayersWithDeferredMoves(previousPlayers, result.players);
+        applyEventPlayersWithImmediateMoves(previousPlayers, result.players);
         setEventEffectsApplied(true);
         if (result.scheduleCustomMatch) {
           setScheduledCustomMatch(
@@ -1757,7 +1734,6 @@ export default function GamePage({
     setEventEffectsApplied(false);
     setActiveStoryEvent(null);
     directorIntroLockRef.current = false;
-    pendingBoardMovesRef.current = [];
     setLastRoll(null);
     setDiceDisplayValue(null);
     setDiceFlowPhase("hidden");
@@ -1973,7 +1949,7 @@ export default function GamePage({
       ...args,
     });
 
-    applyEventPlayersWithDeferredMoves(previousPlayers, result.players);
+    applyEventPlayersWithImmediateMoves(previousPlayers, result.players);
     setEventEffectsApplied(true);
 
     if (result.scheduleCustomMatch) {
@@ -2708,7 +2684,6 @@ export default function GamePage({
 
     await sleep(600);
     pushDebugLog(`Event complete — advancing turn after ${event.title}`);
-    await playPendingBoardMoveAnimations();
     await advanceToNextPlayer(
       `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
       `${getResolvedNextPlayerName(playerIndex)} is now up`

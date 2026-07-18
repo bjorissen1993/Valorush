@@ -63,8 +63,15 @@ export default function ShopModal({
 
   const shopLocationLabel = getShopLocationLabel(keeperName);
 
-  const sidearmOffers = shopOffers.filter((o) => o.description === "Sidearm");
-  const primaryOffers = shopOffers.filter((o) => o.description === "Primary");
+  const sidearmOffers = shopOffers.filter(
+    (o) =>
+      o.weaponSlot === "secondary" ||
+      o.description === "Sidearm" ||
+      o.description === "Secondary"
+  );
+  const primaryOffers = shopOffers.filter(
+    (o) => o.weaponSlot === "primary" || o.description === "Primary"
+  );
   const shieldOffers = shopOffers.filter((o) => o.type === "shield");
   const offerRowCount = Math.max(
     sidearmOffers.length,
