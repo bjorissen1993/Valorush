@@ -1,6 +1,10 @@
 /** Serializable online game sync types — shared by server and browser client. */
 
 import type { DirectorPickPayload } from "./director/types";
+import type {
+  BoardUltimateState,
+  PlayerUltimateStatus,
+} from "./ultimates";
 
 export type SyncedActiveStoryEvent = {
   playerIndex: number;
@@ -36,6 +40,8 @@ export type SyncedPlayerInGame = {
   movementBonusTurns?: number;
   maxStepsPerTurn?: number | null;
   maxStepsTurns?: number;
+  ultimateOrbs?: number;
+  ultimateStatus?: PlayerUltimateStatus;
 };
 
 export type SyncedCustomMatchStatus =
@@ -118,6 +124,8 @@ export type OnlineGameSnapshot = {
   scheduledCustomMatch?: SyncedScheduledCustomMatch | null;
   customMatchPhase?: SyncedCustomMatchPhase;
   pendingEventChoice?: SyncedPendingEventChoice;
+  /** Board-level ultimate hazards (poison / Astra wall / Vyse traps). */
+  boardUltimateState?: BoardUltimateState;
 };
 
 export type OnlineGameAction =
@@ -129,6 +137,17 @@ export type OnlineGameAction =
       type: "use_item";
       itemId: string;
       targetPlayerIndex?: number;
+    }
+  | {
+      type: "use_ultimate";
+      targetPlayerIndex?: number;
+      targetNodeId?: string;
+      targetNodeId2?: string;
+      choiceId?: string;
+      opponentChoices?: Record<number, "pay" | "skip">;
+      razeMode?: "creds" | "spaces";
+      stealFromPlayerIndex?: number;
+      diceRolls?: number[];
     }
   | { type: "finish_event" }
   | {

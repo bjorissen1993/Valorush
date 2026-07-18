@@ -53,7 +53,7 @@ import {
   applyEventChoice,
   type PendingEventChoiceState,
 } from "../game/eventChoiceHandler";
-import { computeEffectiveRoll, tickMovementModifiers, consumeOneShotMovementBonus, normalizePlayerLoadout } from "../game/boardEventBridge";
+import { computeEffectiveRoll, tickMovementModifiers, consumeOneShotMovementBonus, normalizePlayerLoadout, getBoardNodeIds } from "../game/boardEventBridge";
 import {
   customMatchRegistry,
   getCustomMatchDefinition,
@@ -64,6 +64,33 @@ import { minigameById, minigameRegistry } from "../../shared/minigames";
 import { boardEventRegistry } from "../../shared/events";
 import { agentDirectorRegistry } from "../../shared/director";
 import { itemById, itemRegistry } from "../../shared/items";
+import {
+  ULTIMATE_BOARD_PATHS,
+  createEmptyPlayerUltimateStatus,
+  getUltimateForAgent,
+  type BoardUltimateState,
+} from "../../shared/ultimates";
+import {
+  applyUltimate,
+  applyJettPassToll,
+  buildBoardAdjacency,
+  canActivateUltimate,
+  emptyBoardUltimateState,
+  gainOrb,
+  getArmedTrapAt,
+  isEdgeBlockedByWall,
+  isInPoisonCloud,
+  listConnectedEdges,
+  mergeUltimatePlayers,
+  tickBoardUltimateState,
+  tickPlayerUltimateStatus,
+  toUltimatePlayerState,
+  withDefaultUltimateFields,
+} from "../game/ultimates";
+import UltimateMeter from "./UltimateMeter";
+import UltimateTargetModal, {
+  type UltimateTargetSelection,
+} from "./UltimateTargetModal";
 import PlayerInventorySidebar, {
   rotatePlayersToActive,
   type InventoryItemAction,
@@ -109,7 +136,6 @@ import {
 import {
   rollForAllPlayers,
   findMinigameWinner,
-  applyMinigameWinReward,
   MINIGAME_WIN_CREDS,
   MINIGAME_WIN_RADIANITE,
   type MinigameRollResult,
@@ -442,7 +468,7 @@ export default function GamePage({
   const [playersInGame, setPlayersInGame] = useState<PlayerInGame[]>(() => {
     if (initialSnapshot?.players?.length) {
       return initialSnapshot.players.map((player) =>
-        normalizePlayerLoadout(player as PlayerInGame)
+        withDefaultUltimateFields(normalizePlayerLoadout(player as PlayerInGame))
       );
     }
     return players.map((player, index): PlayerInGame => {
@@ -467,9 +493,23 @@ export default function GamePage({
         movementBonusTurns: 0,
         maxStepsPerTurn: null,
         maxStepsTurns: 0,
+        ultimateOrbs: 0,
+        ultimateStatus: createEmptyPlayerUltimateStatus(),
       };
     });
   });
+
+  const [boardUltimateState, setBoardUltimateState] = useState<BoardUltimateState>(
+    () => initialSnapshot?.boardUltimateState ?? emptyBoardUltimateState()
+  );
+  const [ultimateModalOpen, setUltimateModalOpen] = useState(false);
+  const [phoenixChoiceOpen, setPhoenixChoiceOpen] = useState(false);
+  const [pendingOmenMiniMove, setPendingOmenMiniMove] = useState<{
+    steps: number;
+    fromNodeId: string;
+  } | null>(null);
+  const boardUltimateStateRef = useRef(boardUltimateState);
+  boardUltimateStateRef.current = boardUltimateState;
 
   const [phase, setPhase] = useState<TurnPhase>(
     initialSnapshot?.phase ??
@@ -548,9 +588,12 @@ export default function GamePage({
     setPhase(snapshot.phase);
     setPlayersInGame(
       snapshot.players.map((player) =>
-        normalizePlayerLoadout(player as PlayerInGame)
+        withDefaultUltimateFields(normalizePlayerLoadout(player as PlayerInGame))
       )
     );
+    if (snapshot.boardUltimateState) {
+      setBoardUltimateState(snapshot.boardUltimateState);
+    }
     setLastRoll(snapshot.lastRoll);
     setDiceDisplayValue(snapshot.diceDisplayValue);
     setDiceFlowPhase(snapshot.diceFlowPhase);
@@ -2234,12 +2277,16 @@ export default function GamePage({
     const { winnerIndex, triggeredByIndex, minigameId } = minigamePhase;
     const minigameDef = minigameById.get(minigameId);
 
-    updatePlayer(winnerIndex, (p) => ({
-      ...p,
-      creds: p.creds + (minigameDef?.rewards.creds ?? MINIGAME_WIN_CREDS),
-      radianitePoints:
-        p.radianitePoints + (minigameDef?.rewards.radianite ?? MINIGAME_WIN_RADIANITE),
-    }));
+    updatePlayer(winnerIndex, (p) => {
+      const baseCreds = minigameDef?.rewards.creds ?? MINIGAME_WIN_CREDS;
+      const baseRad = minigameDef?.rewards.radianite ?? MINIGAME_WIN_RADIANITE;
+      const mult = (p.ultimateStatus?.reynaBuffRounds ?? 0) > 0 ? 2 : 1;
+      return {
+        ...p,
+        creds: p.creds + baseCreds * mult,
+        radianitePoints: p.radianitePoints + baseRad * mult,
+      };
+    });
     setRadianiteGainFxPlayerIndex(winnerIndex);
     window.setTimeout(() => {
       setRadianiteGainFxPlayerIndex((c) => (c === winnerIndex ? null : c));
@@ -2364,14 +2411,110 @@ export default function GamePage({
       ? (turnOrder[fromOrderIndex] ?? currentPlayerIndex)
       : currentPlayerIndex;
 
+    const finishingPlayer = playersInGameRef.current[fromPlayerIndex];
+
+    // Phoenix Run It Back — resolve before leaving the turn.
+    if (
+      finishingPlayer?.ultimateStatus?.phoenixRunItBack &&
+      !options?.forceRoundWrap
+    ) {
+      setPhoenixChoiceOpen(true);
+      return;
+    }
+
+    // Sage extra turn — stay on the same seat (still earns +1 orb).
+    if (
+      finishingPlayer?.ultimateStatus?.extraTurnPending &&
+      !options?.forceRoundWrap
+    ) {
+      setPlayersInGame((current) =>
+        current.map((player, index) => {
+          if (index !== fromPlayerIndex) return player;
+          return {
+            ...player,
+            ultimateOrbs: gainOrb(player.ultimateOrbs ?? 0, 1),
+            ultimateStatus: {
+              ...createEmptyPlayerUltimateStatus(),
+              ...player.ultimateStatus,
+              extraTurnPending: false,
+              turnStartPosition: player.position,
+              inViperPit: isInPoisonCloud(
+                boardUltimateStateRef.current,
+                player.position
+              ),
+            },
+          };
+        })
+      );
+      setIsMoving(false);
+      setMovingPlayerIndex(null);
+      setAnimatedToken(null);
+      setPendingPathChoice(null);
+      setCanBuyAfterLanding(false);
+      setDefusePrompt(null);
+      setLastRoll(null);
+      setDiceDisplayValue(null);
+      setDiceFlowPhase("hidden");
+      setHasRolledThisTurn(false);
+      setPhase("playing");
+      showTurnBannerFor(fromPlayerIndex);
+      const name = finishingPlayer.name;
+      setStatusTitle(`${name} — Extra Turn`);
+      setStatusSubtitle("Resurrection grants another turn.");
+      showAnnouncement(`${name} — Extra Turn`, "Resurrection grants another turn.");
+      return;
+    }
+
     const meta = getNextPlayerMeta({
       fromPlayerIndex,
       turnOrder,
       currentTurnOrderIndex: fromOrderIndex,
     });
-    const newRound = meta.wrapsRound ? round + 1 : round;
+    let newRound = meta.wrapsRound ? round + 1 : round;
+    let nextOrderIndex = meta.nextOrderIndex;
+    let nextPlayerIndex = meta.nextPlayerIndex;
+    let wrapsRound = meta.wrapsRound;
 
-    if (meta.wrapsRound && scheduledCustomMatch && !customMatchPhase) {
+    // Grant +1 orb to the finishing player; skip seats with skipNextTurn.
+    const latestPlayers = playersInGameRef.current.map((p, i) =>
+      i === fromPlayerIndex
+        ? { ...p, ultimateOrbs: gainOrb(p.ultimateOrbs ?? 0, 1) }
+        : { ...p }
+    );
+    {
+      let guard = 0;
+      while (guard < turnOrder.length) {
+        const candidate = latestPlayers[nextPlayerIndex];
+        if (!candidate?.ultimateStatus?.skipNextTurn) break;
+        latestPlayers[nextPlayerIndex] = {
+          ...candidate,
+          ultimateStatus: {
+            ...createEmptyPlayerUltimateStatus(),
+            ...candidate.ultimateStatus,
+            skipNextTurn: false,
+          },
+        };
+        const skipMeta = getNextPlayerMeta({
+          fromPlayerIndex: nextPlayerIndex,
+          turnOrder,
+          currentTurnOrderIndex: nextOrderIndex,
+        });
+        nextOrderIndex = skipMeta.nextOrderIndex;
+        nextPlayerIndex = skipMeta.nextPlayerIndex;
+        if (skipMeta.wrapsRound) {
+          wrapsRound = true;
+          newRound = round + 1;
+        }
+        guard += 1;
+      }
+    }
+
+    if (wrapsRound) {
+      setBoardUltimateState((board) => tickBoardUltimateState(board));
+    }
+
+    if (wrapsRound && scheduledCustomMatch && !customMatchPhase) {
+      setPlayersInGame(latestPlayers);
       setPendingRoundWrap({ title, subtitle });
       beginCustomMatchFlow(scheduledCustomMatch);
       setIsMoving(false);
@@ -2386,7 +2529,7 @@ export default function GamePage({
       setDiceDisplayValue(null);
       setDiceFlowPhase("hidden");
       setHasRolledThisTurn(false);
-      setCurrentTurnOrderIndex(meta.nextOrderIndex);
+      setCurrentTurnOrderIndex(nextOrderIndex);
       setRound(newRound);
       setPhase("playing");
       return;
@@ -2408,16 +2551,27 @@ export default function GamePage({
     setDiceDisplayValue(null);
     setDiceFlowPhase("hidden");
     setHasRolledThisTurn(false);
-    setCurrentTurnOrderIndex(meta.nextOrderIndex);
+    setCurrentTurnOrderIndex(nextOrderIndex);
     setRound(newRound);
     setPhase("playing");
 
-    const nextPlayerIndex = meta.nextPlayerIndex;
-    setPlayersInGame((current) =>
-      current.map((player, index) =>
-        index === nextPlayerIndex ? tickMovementModifiers(player) : player
-      )
-    );
+    {
+      const nextPlayer = latestPlayers[nextPlayerIndex];
+      if (nextPlayer) {
+        const afterMoveTick = tickMovementModifiers(nextPlayer);
+        latestPlayers[nextPlayerIndex] = {
+          ...afterMoveTick,
+          ultimateStatus: tickPlayerUltimateStatus(
+            afterMoveTick.ultimateStatus ?? createEmptyPlayerUltimateStatus(),
+            afterMoveTick.position,
+            wrapsRound
+              ? tickBoardUltimateState(boardUltimateStateRef.current)
+              : boardUltimateStateRef.current
+          ),
+        };
+      }
+      setPlayersInGame(latestPlayers);
+    }
 
     if (newRound > MAX_ROUNDS) {
       setPhase("game-over");
@@ -2429,13 +2583,13 @@ export default function GamePage({
       return;
     }
 
-    showTurnBannerFor(meta.nextPlayerIndex);
+    showTurnBannerFor(nextPlayerIndex);
 
     const resolvedTitle =
-      title ?? `Next player: ${playersInGame[meta.nextPlayerIndex]?.name ?? "Player"}`;
+      title ?? `Next player: ${playersInGame[nextPlayerIndex]?.name ?? "Player"}`;
     const resolvedSubtitle =
       subtitle ??
-      `${playersInGame[meta.nextPlayerIndex]?.name ?? "Player"} is now up`;
+      `${playersInGame[nextPlayerIndex]?.name ?? "Player"} is now up`;
 
     setStatusTitle(resolvedTitle);
     setStatusSubtitle(resolvedSubtitle);
@@ -2860,20 +3014,62 @@ export default function GamePage({
 
     const rawRoll = debugForcedRoll ?? randomDiceRoll();
     const player = playersInGameRef.current[currentPlayerIndex];
-    const bonus = player?.movementBonus ?? 0;
-    const finalRoll = player ? computeEffectiveRoll(rawRoll, player) : rawRoll;
+    // Sync Viper pit flag from board before computing roll.
+    if (player) {
+      const inPit = isInPoisonCloud(
+        boardUltimateStateRef.current,
+        player.position
+      );
+      if ((player.ultimateStatus?.inViperPit ?? false) !== inPit) {
+        updatePlayer(currentPlayerIndex, (p) => ({
+          ...p,
+          ultimateStatus: {
+            ...createEmptyPlayerUltimateStatus(),
+            ...p.ultimateStatus,
+            inViperPit: inPit,
+          },
+        }));
+      }
+    }
+    const syncedPlayer = playersInGameRef.current[currentPlayerIndex];
+    const bonus = syncedPlayer?.movementBonus ?? 0;
+    const finalRoll = syncedPlayer
+      ? computeEffectiveRoll(rawRoll, {
+          ...syncedPlayer,
+          ultimateStatus: {
+            ...createEmptyPlayerUltimateStatus(),
+            ...syncedPlayer.ultimateStatus,
+            inViperPit: isInPoisonCloud(
+              boardUltimateStateRef.current,
+              syncedPlayer.position
+            ),
+          },
+        })
+      : rawRoll;
     setDiceDisplayValue(finalRoll);
     setLastRoll(finalRoll);
 
-    if (player && bonus > 0) {
+    if (syncedPlayer && bonus > 0) {
       updatePlayer(currentPlayerIndex, (current) =>
         consumeOneShotMovementBonus(current)
       );
-      if ((player.movementBonusTurns ?? 0) === 0) {
+      if ((syncedPlayer.movementBonusTurns ?? 0) === 0) {
         setStatusSubtitle(
           `Rolled ${rawRoll} + ${bonus} bonus = ${finalRoll}`
         );
       }
+    }
+
+    // Consume Neon Overdrive after it has been applied to this roll.
+    if (syncedPlayer?.ultimateStatus?.neonOverdrive) {
+      updatePlayer(currentPlayerIndex, (current) => ({
+        ...current,
+        ultimateStatus: {
+          ...createEmptyPlayerUltimateStatus(),
+          ...current.ultimateStatus,
+          neonOverdrive: false,
+        },
+      }));
     }
 
     setDiceFlowPhase("revealing");
@@ -2894,6 +3090,9 @@ export default function GamePage({
     setMovingPlayerIndex(currentPlayerIndex);
 
     const startPosition = playersInGame[currentPlayerIndex]?.position ?? "start";
+    const yoruIgnore =
+      (playersInGame[currentPlayerIndex]?.ultimateStatus?.yoruDriftRounds ?? 0) >
+      0;
 
     const result = (await traverseMovement({
       playerIndex: currentPlayerIndex,
@@ -2903,6 +3102,27 @@ export default function GamePage({
       updatePlayerPosition,
       onPassOverSpike: (nodeId, playerIdx) =>
         handlePassOverSpike(nodeId, playerIdx),
+      isEdgeBlocked: (from, to) =>
+        !yoruIgnore &&
+        isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
+      onEnterNode: (nodeId, playerIdx) => {
+        const trap = getArmedTrapAt(boardUltimateStateRef.current, nodeId);
+        if (!trap || trap.ownerPlayerIndex === playerIdx) return false;
+        if (
+          (playersInGameRef.current[playerIdx]?.ultimateStatus?.yoruDriftRounds ??
+            0) > 0
+        ) {
+          return false;
+        }
+        setBoardUltimateState((board) => ({
+          ...board,
+          traps: board.traps.map((t) =>
+            t.nodeId === nodeId ? { ...t, armed: false } : t
+          ),
+        }));
+        showAnnouncement("Steel Garden", "Trap sprung — movement ended.");
+        return true;
+      },
     })) as MovementResult;
 
     if (result.blockedBySplit) {
@@ -3177,6 +3397,11 @@ export default function GamePage({
     if (!allowed) return false;
     const player = playersInGameRef.current[currentPlayerIndex];
     if (!player?.items.includes(itemId)) return false;
+    if ((player.ultimateStatus?.itemsLockedTurns ?? 0) > 0) {
+      setStatusTitle("Items locked");
+      setStatusSubtitle("NULL/CMD prevents item use this turn.");
+      return false;
+    }
 
     const item = itemById.get(itemId);
     const effect = item?.boardEffect;
@@ -3336,6 +3561,246 @@ export default function GamePage({
     applyInventoryItemUse(action.itemId, action.targetPlayerIndex);
   }
 
+  function openUltimateModal() {
+    if (!canUseInventoryActions()) return;
+    const agentName = getAgentName(playersInGame[currentPlayerIndex] ?? playersInGame[0]!);
+    const def = getUltimateForAgent(agentName);
+    if (!def || def.implementation !== "full") return;
+    const player = playersInGame[currentPlayerIndex];
+    if (!player || !canActivateUltimate(player.ultimateOrbs ?? 0)) return;
+
+    if (isOnlineGuest) {
+      if (multiplayer?.yourPlayerIndex !== currentPlayerIndex) return;
+      if (def.targetKind === "none") {
+        sendAction({ type: "use_ultimate" });
+        return;
+      }
+      setUltimateModalOpen(true);
+      return;
+    }
+
+    if (def.targetKind === "none") {
+      void resolveUltimateUse({});
+      return;
+    }
+    setUltimateModalOpen(true);
+  }
+
+  async function resolveUltimateUse(
+    selection: UltimateTargetSelection,
+    options?: { fromRemote?: boolean }
+  ) {
+    if (!options?.fromRemote && isOnlineGuest) {
+      sendAction({
+        type: "use_ultimate",
+        targetPlayerIndex: selection.targetPlayerIndex,
+        targetNodeId: selection.targetNodeId,
+        targetNodeId2: selection.targetNodeId2,
+        choiceId: selection.choiceId,
+        opponentChoices: selection.opponentChoices,
+        razeMode: selection.razeMode,
+        stealFromPlayerIndex: selection.stealFromPlayerIndex,
+      });
+      setUltimateModalOpen(false);
+      return;
+    }
+
+    const casterIndex = currentPlayerIndex;
+    const caster = playersInGameRef.current[casterIndex];
+    if (!caster) return;
+    const agentName = getAgentName(caster);
+    const def = getUltimateForAgent(agentName);
+    if (!def) return;
+
+    const result = applyUltimate({
+      casterPlayerIndex: casterIndex,
+      agentName,
+      players: playersInGameRef.current.map(toUltimatePlayerState),
+      board: boardUltimateStateRef.current,
+      boardNodeIds: getBoardNodeIds(),
+      adjacency: buildBoardAdjacency(),
+      paths: ULTIMATE_BOARD_PATHS,
+      currentRound: round,
+      targetPlayerIndex: selection.targetPlayerIndex,
+      targetNodeId: selection.targetNodeId,
+      targetNodeId2: selection.targetNodeId2,
+      choiceId: selection.choiceId,
+      opponentChoices: selection.opponentChoices,
+      razeMode: selection.razeMode,
+      stealFromPlayerIndex: selection.stealFromPlayerIndex,
+    });
+
+    setUltimateModalOpen(false);
+    setPlayersInGame(mergeUltimatePlayers(playersInGameRef.current, result.players));
+    setBoardUltimateState(result.board);
+    setStatusTitle(result.headline);
+    setStatusSubtitle(result.description);
+    showAnnouncement(result.headline, result.description);
+    publishGameEventChat(`${caster.name} used ${result.headline}: ${result.description}`);
+
+    for (const change of result.positionChanges) {
+      await animateTeleport(
+        change.playerIndex,
+        change.fromNodeId,
+        change.toNodeId,
+        setAnimatedToken
+      );
+    }
+    setAnimatedToken(null);
+
+    if (result.omenMiniMoveSteps != null) {
+      setPendingOmenMiniMove({
+        steps: result.omenMiniMoveSteps,
+        fromNodeId:
+          result.players[casterIndex]?.position ??
+          caster.position,
+      });
+    }
+
+    if (result.jettMoveSteps != null) {
+      void runJettBladeStormMove(result.jettMoveSteps);
+    }
+  }
+
+  async function runJettBladeStormMove(steps: number) {
+    const playerIndex = currentPlayerIndex;
+    const startPosition =
+      playersInGameRef.current[playerIndex]?.position ?? "start";
+    const passed: number[] = [];
+    setIsMoving(true);
+    setMovingPlayerIndex(playerIndex);
+    setHasRolledThisTurn(true);
+    setDiceFlowPhase("hidden");
+
+    const yoruIgnore =
+      (playersInGameRef.current[playerIndex]?.ultimateStatus?.yoruDriftRounds ??
+        0) > 0;
+
+    const result = await traverseMovement({
+      playerIndex,
+      startNodeId: startPosition,
+      steps,
+      setAnimatedToken,
+      updatePlayerPosition: (idx, nodeId) => {
+        updatePlayerPosition(idx, nodeId);
+        for (let i = 0; i < playersInGameRef.current.length; i += 1) {
+          if (i === idx) continue;
+          if (playersInGameRef.current[i]?.position === nodeId) {
+            passed.push(i);
+          }
+        }
+      },
+      onPassOverSpike: (nodeId, playerIdx) =>
+        handlePassOverSpike(nodeId, playerIdx),
+      isEdgeBlocked: (from, to) =>
+        !yoruIgnore &&
+        isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
+      onEnterNode: (nodeId, playerIdx) => {
+        const trap = getArmedTrapAt(boardUltimateStateRef.current, nodeId);
+        if (!trap || trap.ownerPlayerIndex === playerIdx) return false;
+        setBoardUltimateState((board) => ({
+          ...board,
+          traps: board.traps.map((t) =>
+            t.nodeId === nodeId ? { ...t, armed: false } : t
+          ),
+        }));
+        showAnnouncement("Steel Garden", "Trap sprung — movement ended.");
+        return true;
+      },
+    });
+
+    setIsMoving(false);
+    setMovingPlayerIndex(null);
+    setAnimatedToken(null);
+
+    const toll = applyJettPassToll(
+      playersInGameRef.current.map(toUltimatePlayerState),
+      playerIndex,
+      passed
+    );
+    setPlayersInGame(
+      mergeUltimatePlayers(playersInGameRef.current, toll.players)
+    );
+    if (toll.description) {
+      setStatusSubtitle(toll.description);
+      showAnnouncement("Blade Storm", toll.description);
+    }
+
+    if (result.blockedBySplit) {
+      setPendingPathChoice({
+        playerIndex,
+        atNodeId: result.finalNodeId,
+        remainingSteps: result.remainingSteps ?? 1,
+        options: result.splitOptions ?? [],
+      });
+      return;
+    }
+
+    await resolveLanding(playerIndex, result.finalNodeId, steps);
+  }
+
+  async function resolvePhoenixChoice(keepEndPosition: boolean) {
+    const idx = currentPlayerIndex;
+    const player = playersInGameRef.current[idx];
+    if (!player) return;
+    setPhoenixChoiceOpen(false);
+
+    if (!keepEndPosition && player.ultimateStatus?.turnStartPosition) {
+      const from = player.position;
+      const to = player.ultimateStatus.turnStartPosition;
+      updatePlayer(idx, (p) => ({
+        ...p,
+        position: to,
+        ultimateStatus: {
+          ...createEmptyPlayerUltimateStatus(),
+          ...p.ultimateStatus,
+          phoenixRunItBack: false,
+          turnStartPosition: null,
+        },
+      }));
+      await animateTeleport(idx, from, to, setAnimatedToken);
+      setAnimatedToken(null);
+    } else {
+      updatePlayer(idx, (p) => ({
+        ...p,
+        ultimateStatus: {
+          ...createEmptyPlayerUltimateStatus(),
+          ...p.ultimateStatus,
+          phoenixRunItBack: false,
+          turnStartPosition: null,
+        },
+      }));
+    }
+
+    await advanceToNextPlayer();
+  }
+
+  async function resolveOmenMiniMove(steps: number) {
+    const pending = pendingOmenMiniMove;
+    setPendingOmenMiniMove(null);
+    if (!pending || steps <= 0) return;
+    const playerIndex = currentPlayerIndex;
+    const yoruIgnore =
+      (playersInGameRef.current[playerIndex]?.ultimateStatus?.yoruDriftRounds ??
+        0) > 0;
+    setIsMoving(true);
+    setMovingPlayerIndex(playerIndex);
+    await traverseMovement({
+      playerIndex,
+      startNodeId:
+        playersInGameRef.current[playerIndex]?.position ?? pending.fromNodeId,
+      steps,
+      setAnimatedToken,
+      updatePlayerPosition,
+      isEdgeBlocked: (from, to) =>
+        !yoruIgnore &&
+        isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
+    });
+    setIsMoving(false);
+    setMovingPlayerIndex(null);
+    setAnimatedToken(null);
+  }
+
   function openDiceOverlay() {
     if (isOnlineGuest) {
       if (
@@ -3386,10 +3851,12 @@ export default function GamePage({
       pendingEventChoice: toSyncedPendingEventChoice(pendingEventChoice),
       scheduledCustomMatch: toSyncedScheduledCustomMatch(scheduledCustomMatch),
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
+      boardUltimateState,
     });
   }, [
     activeStoryEvent,
     animatedToken,
+    boardUltimateState,
     customMatchPhase,
     currentTurnOrderIndex,
     diceDisplayValue,
@@ -3447,10 +3914,12 @@ export default function GamePage({
       pendingEventChoice: toSyncedPendingEventChoice(pendingEventChoice),
       scheduledCustomMatch: toSyncedScheduledCustomMatch(scheduledCustomMatch),
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
+      boardUltimateState,
     });
   }, [
     activeStoryEvent,
     animatedToken,
+    boardUltimateState,
     customMatchPhase,
     currentTurnOrderIndex,
     diceDisplayValue,
@@ -3510,6 +3979,20 @@ export default function GamePage({
           applyInventoryItemUse(action.itemId, action.targetPlayerIndex, {
             fromRemote: true,
           });
+          break;
+        case "use_ultimate":
+          void resolveUltimateUse(
+            {
+              targetPlayerIndex: action.targetPlayerIndex,
+              targetNodeId: action.targetNodeId,
+              targetNodeId2: action.targetNodeId2,
+              choiceId: action.choiceId,
+              opponentChoices: action.opponentChoices,
+              razeMode: action.razeMode,
+              stealFromPlayerIndex: action.stealFromPlayerIndex,
+            },
+            { fromRemote: true }
+          );
           break;
         case "event_choice":
           handleEventChoice({
@@ -4237,6 +4720,7 @@ export default function GamePage({
                 onOpenDice={openDiceOverlay}
                 onUseItem={handleInventoryItemAction}
                 onCancelTarget={() => setPendingInventoryItemId(null)}
+                onActivateUltimate={openUltimateModal}
                 onOpenMenu={openGameMenu}
                 menuOpen={gameMenuOpen}
                 chatWidget={
@@ -4340,28 +4824,35 @@ export default function GamePage({
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <img
-                            src="/points/Credits_icon.png"
-                            alt="Credits"
-                            className="h-5 w-5 object-contain"
-                          />
-                          <span className="flex h-6 items-center text-xl font-bold leading-none text-white">
-                            <AnimatedNumber value={player.creds} />
-                          </span>
-                        </div>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <img
+                              src="/points/Credits_icon.png"
+                              alt="Credits"
+                              className="h-5 w-5 object-contain"
+                            />
+                            <span className="flex h-6 items-center text-xl font-bold leading-none text-white">
+                              <AnimatedNumber value={player.creds} />
+                            </span>
+                          </div>
 
-                        <div className="flex items-center gap-1.5">
-                          <img
-                            src="/points/Radianite_Points.png"
-                            alt="Radianite"
-                            className="h-6 w-6 object-contain"
-                          />
-                          <span className="flex h-6 items-center text-xl font-bold leading-none text-cyan-300">
-                            <AnimatedNumber value={player.radianitePoints} />
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <img
+                              src="/points/Radianite_Points.png"
+                              alt="Radianite"
+                              className="h-6 w-6 object-contain"
+                            />
+                            <span className="flex h-6 items-center text-xl font-bold leading-none text-cyan-300">
+                              <AnimatedNumber value={player.radianitePoints} />
+                            </span>
+                          </div>
                         </div>
+                        <UltimateMeter
+                          orbs={player.ultimateOrbs ?? 0}
+                          compact
+                          showReadyLabel
+                        />
                       </div>
                     </div>
                   </>
@@ -4535,6 +5026,7 @@ export default function GamePage({
                 }}
                 onUseItem={handleInventoryItemAction}
                 onCancelTarget={() => setPendingInventoryItemId(null)}
+                onActivateUltimate={openUltimateModal}
                 onClose={() => setMobileInventoryOpen(false)}
                 onOpenMenu={openGameMenu}
                 menuOpen={gameMenuOpen}
@@ -4550,6 +5042,94 @@ export default function GamePage({
         )}
       </div>
       )}
+      {(() => {
+        const agentName = currentPlayer ? getAgentName(currentPlayer) : "";
+        const ultDef = getUltimateForAgent(agentName);
+        if (!ultDef) return null;
+        return (
+          <UltimateTargetModal
+            open={ultimateModalOpen}
+            ultimate={ultDef}
+            casterName={currentPlayer?.name ?? "Player"}
+            otherPlayers={playersInGame
+              .map((p, index) => ({
+                index,
+                name: p.name,
+                creds: p.creds,
+                items: p.items ?? [],
+                ultimateOrbs: p.ultimateOrbs ?? 0,
+              }))
+              .filter((p) => p.index !== currentPlayerIndex)}
+            boardNodeIds={getBoardNodeIds()}
+            paths={ULTIMATE_BOARD_PATHS}
+            edges={listConnectedEdges()}
+            onConfirm={(selection) => void resolveUltimateUse(selection)}
+            onCancel={() => setUltimateModalOpen(false)}
+          />
+        );
+      })()}
+
+      {phoenixChoiceOpen && (
+        <div className="fixed inset-0 z-[86] flex animate-fadeIn items-center justify-center bg-black/60 p-4">
+          <div className="ultimate-modal">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-300">
+              Run It Back
+            </p>
+            <h2 className="mt-2 text-2xl font-bold text-white">Keep or rewind?</h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Stay at your end position or return to where this turn started.
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                className="ultimate-modal__btn ultimate-modal__btn--primary"
+                onClick={() => void resolvePhoenixChoice(true)}
+              >
+                Keep end position
+              </button>
+              <button
+                type="button"
+                className="ultimate-modal__btn"
+                onClick={() => void resolvePhoenixChoice(false)}
+              >
+                Return to turn start
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingOmenMiniMove && (
+        <div className="fixed inset-0 z-[86] flex animate-fadeIn items-center justify-center bg-black/60 p-4">
+          <div className="ultimate-modal">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-purple-300">
+              From The Shadows
+            </p>
+            <h2 className="mt-2 text-2xl font-bold text-white">Mini-move</h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Take up to {pendingOmenMiniMove.steps} more spaces (or stay put).
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {Array.from(
+                { length: pendingOmenMiniMove.steps + 1 },
+                (_, steps) => (
+                  <button
+                    key={steps}
+                    type="button"
+                    className="ultimate-modal__btn ultimate-modal__btn--primary"
+                    onClick={() => void resolveOmenMiniMove(steps)}
+                  >
+                    {steps === 0
+                      ? "Stay"
+                      : `${steps} space${steps === 1 ? "" : "s"}`}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {debugMode && debugOverlayOpen && (
         <DebugPanel
           onClose={closeDebugOverlay}

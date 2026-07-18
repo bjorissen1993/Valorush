@@ -40,6 +40,13 @@ type TraverseOptions = {
     nodeId: string,
     playerIndex: number
   ) => boolean | Promise<boolean>;
+  /** Return true if the directed edge is blocked (Astra ultimate wall). */
+  isEdgeBlocked?: (fromNodeId: string, toNodeId: string) => boolean;
+  /** Return true to end movement after entering this node (Vyse trap). */
+  onEnterNode?: (
+    nodeId: string,
+    playerIndex: number
+  ) => boolean | Promise<boolean>;
 };
 
 export function sleep(ms: number) {
@@ -142,6 +149,8 @@ export async function traverseMovement({
   setAnimatedToken,
   updatePlayerPosition,
   onPassOverSpike,
+  isEdgeBlocked,
+  onEnterNode,
 }: TraverseOptions): Promise<MovementResult> {
   let currentNodeId = startNodeId;
   let remainingSteps = steps;
@@ -161,6 +170,14 @@ export async function traverseMovement({
     }
 
     const nextNodeId = node.next[0];
+    if (isEdgeBlocked?.(currentNodeId, nextNodeId)) {
+      return {
+        blockedBySplit: false,
+        finalNodeId: currentNodeId,
+        remainingSteps,
+      };
+    }
+
     const fromCoords = getNodeCoords(currentNodeId);
     const toCoords = getNodeCoords(nextNodeId);
 
@@ -176,6 +193,16 @@ export async function traverseMovement({
     }
 
     updatePlayerPosition(playerIndex, nextNodeId);
+
+    if (onEnterNode) {
+      const trapStop = await onEnterNode(nextNodeId, playerIndex);
+      if (trapStop) {
+        return {
+          blockedBySplit: false,
+          finalNodeId: nextNodeId,
+        };
+      }
+    }
 
     if (onPassOverSpike) {
       const shouldStop = await onPassOverSpike(nextNodeId, playerIndex);

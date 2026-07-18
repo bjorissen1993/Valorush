@@ -13,6 +13,33 @@ Phase 1 delivered the architecture and playable foundations below. This document
 | Duel tiles | — | **Removed** — replaced by events/minigames/custom matches |
 | Spike defuse | `src/game/systems/spikeSystem.ts` | 2-dice + difficulty + item hooks |
 | Director wiring | `shared/director/` | Agent/Kingdom bindings updated |
+| **Ultimate Orb System** | `shared/ultimates/` + `src/game/ultimates/` | Meter 0–3, per-agent ultimates, board hazards, online sync |
+
+## Ultimate Orb System
+
+### Architecture
+
+```
+shared/ultimates/     — types, registry (one entry per agent), path defs
+src/game/ultimates/   — applyUltimate(), orb helpers, board helpers, ticks
+PlayerInGame          — ultimateOrbs + ultimateStatus
+OnlineGameSnapshot    — boardUltimateState + player orbs/status
+OnlineGameAction      — use_ultimate (host-authoritative)
+```
+
+- **Orbs:** start 0; +1 after completing a turn (cap 3); activate at 3/3 → spend all → 0.
+- **Hooks:** `grantUltimateOrbs()` / `minigameOrbReward()` / `SHOP_ULTIMATE_ORB_STUB` for events, minigames, shop.
+- **Board hazards:** Viper pit, Astra ultimate wall (separate from director Cosmic Divide event), Vyse trap.
+- **UI:** meter on sidebar + top strip; **ULT READY** + Activate when full; target modal for tile/player/path/edge/choice.
+
+### Adding a new ultimate
+
+1. Add an `UltimateDefinition` to `shared/ultimates/registry.ts` (`implementation: "full"` or `"stub"`).
+2. If playable, add a `case` in `src/game/ultimates/applyUltimate.ts` matching `def.id`.
+3. If new status fields are needed, extend `PlayerUltimateStatus` / `BoardUltimateState` in `shared/ultimates/types.ts` and tick them in `tickStatus.ts`.
+4. Activate UI appears automatically for roster agents whose ultimate is `implementation: "full"`.
+
+Director event **Cosmic Divide** (`astra-cosmic-divide`) stays a separate board event — do not conflate with Astra's ultimate wall (`cosmic-divide-ult`).
 
 ## Phase 2 — Items & Shop
 
@@ -103,6 +130,7 @@ shared/
   items/           — Collectible/buyable items
   minigames/       — Register-only minigame defs
   director/        — Agent + Kingdom narration bindings
+  ultimates/       — Agent ultimate defs + orb/status types
 ```
 
 ## Adding a new board event
@@ -110,3 +138,9 @@ shared/
 1. Add `BoardEventDefinition` to `shared/events/registry.ts`
 2. Bind agent in `shared/director/agentRegistry.ts` (optional)
 3. No GamePage changes required if using existing choice kinds
+
+## Adding a new ultimate
+
+1. Add `UltimateDefinition` to `shared/ultimates/registry.ts`
+2. Implement `case` in `src/game/ultimates/applyUltimate.ts` (or leave `implementation: "stub"`)
+3. Extend status types/ticks only if the ability needs new buffs or board hazards

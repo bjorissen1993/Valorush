@@ -23,6 +23,8 @@ export function toPlayerBoardState(player: PlayerInGame): PlayerBoardState {
     movementBonusTurns: player.movementBonusTurns ?? 0,
     maxStepsPerTurn: player.maxStepsPerTurn ?? null,
     maxStepsTurns: player.maxStepsTurns ?? 0,
+    ultimateOrbs: player.ultimateOrbs ?? 0,
+    ultimateStatus: player.ultimateStatus,
   };
 }
 
@@ -46,6 +48,8 @@ export function mergeBoardStateIntoPlayer(
     movementBonusTurns: board.movementBonusTurns,
     maxStepsPerTurn: board.maxStepsPerTurn,
     maxStepsTurns: board.maxStepsTurns,
+    ultimateOrbs: board.ultimateOrbs ?? player.ultimateOrbs ?? 0,
+    ultimateStatus: board.ultimateStatus ?? player.ultimateStatus,
   };
 }
 
@@ -136,6 +140,16 @@ export function computeEffectiveRoll(
   player: PlayerInGame
 ): number {
   let roll = baseRoll + (player.movementBonus ?? 0);
+  const penalty = player.ultimateStatus?.movementPenalty ?? 0;
+  if (penalty > 0) {
+    roll -= penalty;
+  }
+  if (player.ultimateStatus?.neonOverdrive) {
+    roll *= 2;
+  }
+  if (player.ultimateStatus?.inViperPit) {
+    roll = Math.floor(roll / 2);
+  }
   if (player.maxStepsPerTurn != null) {
     roll = Math.min(roll, player.maxStepsPerTurn);
   }

@@ -1,6 +1,7 @@
 /** Board event system — extensible registry with player choices. */
 
 import type { EventWeight } from "../director/types";
+import type { PlayerUltimateStatus } from "../ultimates";
 
 export type EventCategory =
   | "teleport"
@@ -65,6 +66,8 @@ export type PlayerBoardState = {
   movementBonusTurns: number;
   maxStepsPerTurn: number | null;
   maxStepsTurns: number;
+  ultimateOrbs?: number;
+  ultimateStatus?: PlayerUltimateStatus;
 };
 
 export type EventApplyContext = {

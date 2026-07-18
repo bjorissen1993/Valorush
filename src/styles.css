@@ -3329,3 +3329,181 @@ body {
   animation: none;
 }
 
+/* ── Ultimate Orb System ───────────────────────────────────────── */
+.ultimate-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.ultimate-meter__orbs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.ultimate-meter__orb {
+  display: inline-block;
+  height: 0.7rem;
+  width: 0.7rem;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(248, 113, 113, 0.55);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.ultimate-meter__orb--filled {
+  border-color: rgba(252, 165, 165, 0.95);
+  background: radial-gradient(circle at 35% 30%, #fecaca, #ef4444 55%, #991b1b);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.55);
+}
+
+.ultimate-meter--compact .ultimate-meter__orb {
+  height: 0.55rem;
+  width: 0.55rem;
+}
+
+.ultimate-meter__ready {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #fecaca;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.45);
+  animation: ult-ready-pulse 1.6s ease-in-out infinite;
+}
+
+.ultimate-meter--ready .ultimate-meter__orbs {
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.35));
+}
+
+@keyframes ult-ready-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.player-inventory-panel__ultimate {
+  margin-bottom: 0.65rem;
+  border: 1px solid rgba(248, 113, 113, 0.22);
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, rgba(127, 29, 29, 0.25), rgba(0, 0, 0, 0.35));
+  padding: 0.55rem 0.65rem;
+}
+
+.player-inventory-panel__ultimate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.player-inventory-panel__ultimate-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(254, 202, 202, 0.85);
+}
+
+.player-inventory-panel__ultimate-name {
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.player-inventory-panel__ult-btn {
+  margin-top: 0.45rem;
+  width: 100%;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.45), rgba(127, 29, 29, 0.65));
+  padding: 0.45rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  transition: filter 0.15s ease, border-color 0.15s ease;
+}
+
+.player-inventory-panel__ult-btn:hover {
+  filter: brightness(1.12);
+  border-color: rgba(252, 165, 165, 0.85);
+}
+
+.ultimate-modal {
+  width: 100%;
+  max-width: 28rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  background: linear-gradient(160deg, rgba(24, 10, 14, 0.98), rgba(8, 10, 18, 0.98));
+  padding: 1.5rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.ultimate-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.ultimate-modal__option {
+  border-radius: 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.28);
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+  color: #fff;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ultimate-modal__option:hover {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.ultimate-modal__option--compact {
+  padding: 0.55rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ultimate-modal__btn {
+  border-radius: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #e4e4e7;
+}
+
+.ultimate-modal__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ultimate-modal__btn--primary {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(239, 68, 68, 0.28);
+  color: #fecaca;
+}
+
+.ultimate-modal__cancel {
+  margin-top: 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(161, 161, 170, 0.9);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+

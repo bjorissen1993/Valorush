@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 import type { PlayerInGame } from "../types/Game";
 import { itemById, type ItemDefinition } from "../../shared/items";
+import { getUltimateForAgent } from "../../shared/ultimates";
 import { weaponImageMap, shieldImageMap } from "../game/data/weaponImages";
 import type { WeaponName } from "../game/systems/shopSystem";
+import UltimateMeter from "./UltimateMeter";
+import { canActivateUltimate } from "../game/ultimates";
 
 const SPIKE_ONLY_ITEM_IDS = new Set([
   "wire-cutter",
@@ -38,6 +41,8 @@ type PlayerInventorySidebarProps = {
   onOpenDice?: () => void;
   onUseItem?: (action: InventoryItemAction) => void;
   onCancelTarget?: () => void;
+  /** Activate ultimate when meter is full (current turn + canAct). */
+  onActivateUltimate?: () => void;
   onClose?: () => void;
   onOpenMenu?: () => void;
   menuOpen?: boolean;
@@ -138,6 +143,7 @@ export default function PlayerInventorySidebar({
   onOpenDice,
   onUseItem,
   onCancelTarget,
+  onActivateUltimate,
   onClose,
   onOpenMenu,
   menuOpen = false,
@@ -165,9 +171,21 @@ export default function PlayerInventorySidebar({
     ? itemById.get(pendingTargetItemId)
     : null;
   const rosterImage = agentPortraitImage;
+  const ultimateDef = getUltimateForAgent(agentName);
+  const orbs = player.ultimateOrbs ?? 0;
+  const ultReady = canActivateUltimate(orbs);
+  const itemsLocked = (player.ultimateStatus?.itemsLockedTurns ?? 0) > 0;
+  const canShowUltActivate =
+    Boolean(ultimateDef) &&
+    ultimateDef?.implementation === "full" &&
+    isCurrentTurn &&
+    canAct &&
+    ultReady &&
+    Boolean(onActivateUltimate);
 
   function handleItemClick(item: ItemDefinition) {
     if (!canAct || !onUseItem || !isUsableBoardItem(item)) return;
+    if (itemsLocked) return;
     onUseItem({ kind: "use", itemId: item.id });
   }
 
@@ -244,6 +262,45 @@ export default function PlayerInventorySidebar({
             <img src="/points/Radianite_Points.png" alt="" />
             <span>{player.radianitePoints}</span>
           </div>
+        </div>
+
+        <div className="player-inventory-panel__ultimate">
+          <div className="player-inventory-panel__ultimate-row">
+            <span className="player-inventory-panel__ultimate-label">Ultimate</span>
+            <UltimateMeter orbs={orbs} />
+          </div>
+          {ultimateDef && (
+            <p className="player-inventory-panel__ultimate-name">
+              {ultimateDef.name}
+            </p>
+          )}
+          {canShowUltActivate && (
+            <button
+              type="button"
+              className="player-inventory-panel__ult-btn"
+              onClick={onActivateUltimate}
+            >
+              Activate Ultimate
+            </button>
+          )}
+          {player.ultimateStatus?.cloveShield && (
+            <p className="player-inventory-panel__buff">Not Dead Yet — shield ready</p>
+          )}
+          {(player.ultimateStatus?.yoruDriftRounds ?? 0) > 0 && (
+            <p className="player-inventory-panel__buff">
+              Dimensional Drift · {player.ultimateStatus?.yoruDriftRounds} round
+              {(player.ultimateStatus?.yoruDriftRounds ?? 0) === 1 ? "" : "s"}
+            </p>
+          )}
+          {(player.ultimateStatus?.reynaBuffRounds ?? 0) > 0 && (
+            <p className="player-inventory-panel__buff">
+              Empress · {player.ultimateStatus?.reynaBuffRounds} round
+              {(player.ultimateStatus?.reynaBuffRounds ?? 0) === 1 ? "" : "s"}
+            </p>
+          )}
+          {itemsLocked && (
+            <p className="player-inventory-panel__hint">Items locked (NULL/CMD)</p>
+          )}
         </div>
 
         {canOpenDice && onOpenDice && (

@@ -25,6 +25,21 @@ function basePlayer(overrides: Partial<PlayerInGame> = {}): PlayerInGame {
     movementBonusTurns: 0,
     maxStepsPerTurn: null,
     maxStepsTurns: 0,
+    ultimateOrbs: 0,
+    ultimateStatus: {
+      reynaBuffRounds: 0,
+      yoruDriftRounds: 0,
+      cloveShield: false,
+      movementPenalty: 0,
+      movementPenaltyTurns: 0,
+      neonOverdrive: false,
+      phoenixRunItBack: false,
+      turnStartPosition: null,
+      itemsLockedTurns: 0,
+      skipNextTurn: false,
+      extraTurnPending: false,
+      inViperPit: false,
+    },
     ...overrides,
   };
 }

@@ -4,6 +4,7 @@ import type { TurnOrderDiceSequence } from "../../shared/turnOrderDiceSystem";
 import type { Player } from "../types/Player";
 import type { Agent } from "../types/Agent";
 import type { PlayerInGame } from "../types/Game";
+import { createEmptyPlayerUltimateStatus } from "../../shared/ultimates";
 import {
   LobbyClient,
   persistLobbySession,
@@ -48,6 +49,8 @@ function toPlayersInGame(players: Player[], agents: Agent[]): PlayerInGame[] {
       movementBonusTurns: 0,
       maxStepsPerTurn: null,
       maxStepsTurns: 0,
+      ultimateOrbs: 0,
+      ultimateStatus: createEmptyPlayerUltimateStatus(),
     };
   });
 }

@@ -1,4 +1,5 @@
 import type { Player } from "./Player";
+import type { PlayerUltimateStatus } from "../../shared/ultimates";
 
 export type WeaponName =
   | "Classic"
@@ -40,6 +41,10 @@ export type PlayerInGame = Player & {
   movementBonusTurns: number;
   maxStepsPerTurn: number | null;
   maxStepsTurns: number;
+  /** Ultimate meter 0–3. Full meter enables the agent's ultimate. */
+  ultimateOrbs: number;
+  /** Buffs / debuffs from ultimates. */
+  ultimateStatus: PlayerUltimateStatus;
 };
 
 export type TurnPhase =
