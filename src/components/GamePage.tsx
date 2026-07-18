@@ -39,6 +39,7 @@ import {
   traverseMovement,
   sleep,
   animateJump,
+  animateTeleport,
   getNodeCoords,
   MOVE_STEP_DELAY,
 } from "../game/systems/movementSystem";
@@ -815,6 +816,14 @@ export default function GamePage({
   >(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const directorIntroLockRef = useRef(false);
+  const pendingBoardMovesRef = useRef<
+    { playerIndex: number; fromNodeId: string; toNodeId: string }[]
+  >([]);
+
+  // Keep debug "Selected player" synced to the active turn seat.
+  useEffect(() => {
+    setDebugSelectedPlayerIndex(currentPlayerIndex);
+  }, [currentPlayerIndex]);
 
   function pushDebugLog(message: string) {
     const stamp = new Date().toLocaleTimeString("en-GB", {
@@ -1067,11 +1076,95 @@ export default function GamePage({
     }));
   }
 
-  function teleportPlayerToNode(playerIndex: number, nodeId: string) {
-    updatePlayer(playerIndex, (player) => ({
-      ...player,
-      position: nodeId,
-    }));
+  /** Apply event roster updates but hold board tokens at old tiles until animation plays. */
+  function applyEventPlayersWithDeferredMoves(
+    previousPlayers: PlayerInGame[],
+    nextPlayers: PlayerInGame[]
+  ) {
+    const moves = nextPlayers
+      .map((player, index) => ({
+        playerIndex: index,
+        fromNodeId: previousPlayers[index]?.position ?? player.position,
+        toNodeId: player.position,
+      }))
+      .filter((move) => move.fromNodeId !== move.toNodeId);
+
+    pendingBoardMovesRef.current = moves;
+
+    if (moves.length === 0) {
+      setPlayersInGame(nextPlayers);
+      return;
+    }
+
+    setPlayersInGame(
+      nextPlayers.map((player, index) => {
+        const previous = previousPlayers[index];
+        if (!previous || previous.position === player.position) return player;
+        return { ...player, position: previous.position };
+      })
+    );
+  }
+
+  async function playPendingBoardMoveAnimations() {
+    const moves = pendingBoardMovesRef.current;
+    pendingBoardMovesRef.current = [];
+    if (moves.length === 0) return;
+
+    setIsMoving(true);
+    for (const move of moves) {
+      setMovingPlayerIndex(move.playerIndex);
+      const animated = await animateTeleport(
+        move.playerIndex,
+        move.fromNodeId,
+        move.toNodeId,
+        setAnimatedToken
+      );
+      updatePlayerPosition(move.playerIndex, move.toNodeId);
+      if (animated) {
+        await sleep(90);
+      }
+    }
+    setAnimatedToken(null);
+    setIsMoving(false);
+    setMovingPlayerIndex(null);
+  }
+
+  async function animatePlayersToPositions(
+    moves: { playerIndex: number; fromNodeId: string; toNodeId: string }[]
+  ) {
+    if (moves.length === 0) return;
+    setIsMoving(true);
+    for (const move of moves) {
+      setMovingPlayerIndex(move.playerIndex);
+      const animated = await animateTeleport(
+        move.playerIndex,
+        move.fromNodeId,
+        move.toNodeId,
+        setAnimatedToken
+      );
+      updatePlayerPosition(move.playerIndex, move.toNodeId);
+      if (animated) {
+        await sleep(90);
+      }
+    }
+    setAnimatedToken(null);
+    setIsMoving(false);
+    setMovingPlayerIndex(null);
+  }
+
+  async function teleportPlayerToNode(playerIndex: number, nodeId: string) {
+    const fromNodeId = playersInGameRef.current[playerIndex]?.position;
+    if (!fromNodeId || fromNodeId === nodeId) {
+      updatePlayer(playerIndex, (player) => ({
+        ...player,
+        position: nodeId,
+      }));
+      return;
+    }
+
+    await animatePlayersToPositions([
+      { playerIndex, fromNodeId, toNodeId: nodeId },
+    ]);
   }
 
   function debugPlantSpikeOnNode(nodeId: string) {
@@ -1397,13 +1490,14 @@ export default function GamePage({
         setEventEffectsApplied(false);
         pushDebugLog(`Event choice ready: ${def.name} (${def.id})`);
       } else if (def) {
+        const previousPlayers = playersInGameRef.current;
         const result = applyEventChoice({
           eventId: def.id,
           playerIndex: activeStoryEvent.playerIndex,
-          players: playersInGameRef.current,
+          players: previousPlayers,
           round,
         });
-        setPlayersInGame(result.players);
+        applyEventPlayersWithDeferredMoves(previousPlayers, result.players);
         setEventEffectsApplied(true);
         if (result.scheduleCustomMatch) {
           setScheduledCustomMatch(
@@ -1608,7 +1702,7 @@ export default function GamePage({
     }
 
     if (debugBoardAction === "teleport-player") {
-      teleportPlayerToNode(debugSelectedPlayerIndex, nodeId);
+      void teleportPlayerToNode(debugSelectedPlayerIndex, nodeId);
       setStatusTitle("Debug Teleport");
       setStatusSubtitle(
         `${playersInGame[debugSelectedPlayerIndex]?.name ?? "Player"} moved to ${nodeId}.`
@@ -1663,6 +1757,7 @@ export default function GamePage({
     setEventEffectsApplied(false);
     setActiveStoryEvent(null);
     directorIntroLockRef.current = false;
+    pendingBoardMovesRef.current = [];
     setLastRoll(null);
     setDiceDisplayValue(null);
     setDiceFlowPhase("hidden");
@@ -1670,6 +1765,7 @@ export default function GamePage({
   }
 
   function debugForceNextTurn() {
+    resetTurnFlowState();
     void advanceToNextPlayer("Debug: Next Turn", "Forced turn advance.");
   }
 
@@ -1690,8 +1786,10 @@ export default function GamePage({
 
   function debugEndRound() {
     if (turnOrder.length === 0) return;
-    setCurrentTurnOrderIndex(turnOrder.length - 1);
-    void advanceToNextPlayer("Debug: Round End", "Forced round wrap.");
+    resetTurnFlowState();
+    void advanceToNextPlayer("Debug: Round End", "Forced round wrap.", {
+      forceRoundWrap: true,
+    });
   }
 
   function debugTriggerBoardEventById(eventId: string) {
@@ -1793,7 +1891,7 @@ export default function GamePage({
     );
   }
 
-  function debugLandOnTile(tileType: TileType) {
+  async function debugLandOnTile(tileType: TileType) {
     if (isEventPipelineBusy()) {
       showAnnouncement("Event in progress", "Finish the current event before landing on a tile.");
       return;
@@ -1802,7 +1900,7 @@ export default function GamePage({
     const node = boardLayout.find((entry) => entry.type === tileType);
     if (!node) return;
 
-    teleportPlayerToNode(debugSelectedPlayerIndex, node.id);
+    await teleportPlayerToNode(debugSelectedPlayerIndex, node.id);
     void resolveLanding(debugSelectedPlayerIndex, node.id, 1);
   }
 
@@ -1866,15 +1964,16 @@ export default function GamePage({
       return;
     }
 
+    const previousPlayers = playersInGameRef.current;
     const result = applyEventChoice({
       eventId: pendingEventChoice.eventId,
       playerIndex: pendingEventChoice.playerIndex,
-      players: playersInGameRef.current,
+      players: previousPlayers,
       round,
       ...args,
     });
 
-    setPlayersInGame(result.players);
+    applyEventPlayersWithDeferredMoves(previousPlayers, result.players);
     setEventEffectsApplied(true);
 
     if (result.scheduleCustomMatch) {
@@ -2274,14 +2373,25 @@ export default function GamePage({
     spikePlantAnimation,
   ]);
 
-  async function advanceToNextPlayer(title?: string, subtitle?: string) {
+  async function advanceToNextPlayer(
+    title?: string,
+    subtitle?: string,
+    options?: { forceRoundWrap?: boolean }
+  ) {
     if (turnOrder.length === 0) return;
     if (isOnlineGuest) return;
 
+    const fromOrderIndex = options?.forceRoundWrap
+      ? turnOrder.length - 1
+      : currentTurnOrderIndex;
+    const fromPlayerIndex = options?.forceRoundWrap
+      ? (turnOrder[fromOrderIndex] ?? currentPlayerIndex)
+      : currentPlayerIndex;
+
     const meta = getNextPlayerMeta({
-      fromPlayerIndex: currentPlayerIndex,
+      fromPlayerIndex,
       turnOrder,
-      currentTurnOrderIndex,
+      currentTurnOrderIndex: fromOrderIndex,
     });
     const newRound = meta.wrapsRound ? round + 1 : round;
 
@@ -2598,6 +2708,7 @@ export default function GamePage({
 
     await sleep(600);
     pushDebugLog(`Event complete — advancing turn after ${event.title}`);
+    await playPendingBoardMoveAnimations();
     await advanceToNextPlayer(
       `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
       `${getResolvedNextPlayerName(playerIndex)} is now up`
@@ -3176,13 +3287,6 @@ export default function GamePage({
             return {
               ...entry,
               items: entry.items.filter((id) => id !== itemId),
-              position: targetPos,
-            };
-          }
-          if (index === targetPlayerIndex) {
-            return {
-              ...entry,
-              position: selfPos,
             };
           }
           return entry;
@@ -3195,6 +3299,18 @@ export default function GamePage({
         `${player.name} used ${item.name}`,
         `Swapped positions with ${targetName}.`
       );
+      void animatePlayersToPositions([
+        {
+          playerIndex: currentPlayerIndex,
+          fromNodeId: selfPos,
+          toNodeId: targetPos,
+        },
+        {
+          playerIndex: targetPlayerIndex,
+          fromNodeId: targetPos,
+          toNodeId: selfPos,
+        },
+      ]);
       return true;
     }
 

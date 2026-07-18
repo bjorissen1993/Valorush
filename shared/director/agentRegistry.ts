@@ -178,10 +178,10 @@ const agentDirectorRegistryRaw: AgentDirectorDefinition[] = [
     agentId: "KAY/O",
     agentName: "KAY/O",
     role: "Combat Machine",
-    quote: "Threat detected. Memory core online.",
+    quote: "Threat detected. Suppress and advance.",
     personality: "Suppression, war machine, radianite fragments",
     events: [
-      { eventId: "astra-cosmic-divide", weight: "common", theme: "Memory Core" },
+      { eventId: "breach-shockwave", weight: "common", theme: "Suppression Pulse" },
     ],
   },
   {
@@ -201,6 +201,7 @@ const agentDirectorRegistryRaw: AgentDirectorDefinition[] = [
     quote: "Reality's thin here. Hold on.",
     personality: "Cosmic, dimensional glitches, map anomalies",
     events: [
+      { eventId: "astra-cosmic-divide", weight: "common", theme: "Cosmic Divide" },
       { eventId: "lotus-rotating-doors", weight: "epic", theme: "Dimensional Glitch" },
     ],
   },

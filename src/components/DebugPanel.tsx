@@ -259,13 +259,13 @@ export default function DebugPanel({
             <div className="debug-panel__grid-2">
               <DebugButton
                 onClick={onForceNextTurn}
-                tooltip="Advance immediately to the next player's turn, skipping remaining turn flow."
+                tooltip="Advance one seat in turn order only. Does not end the round or start a custom match."
               >
                 Next turn
               </DebugButton>
               <DebugButton
                 onClick={onEndRound}
-                tooltip="Force the current round to end and run round-end resolution."
+                tooltip="Force the round to complete as if every seat has acted — triggers round wrap and any scheduled custom match."
               >
                 End round
               </DebugButton>

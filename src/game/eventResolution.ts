@@ -1,5 +1,5 @@
 import type { GameEvent, GameEventStory } from "../types/Game";
-import { agentHasNpcModel, resolveAgentStoryArt } from "./assetPaths";
+import { agentHasNpcModel, resolveAgentPortraitImage } from "./assetPaths";
 
 function extractQuote(paragraphs: string[]): string | undefined {
   return paragraphs
@@ -25,7 +25,7 @@ export function resolveEventOutcome(event: GameEvent): GameEvent {
     presentation,
     characterImage:
       presentation === "agent"
-        ? resolveAgentStoryArt(event.story.narrator).src
+        ? resolveAgentPortraitImage(event.story.narrator)
         : undefined,
   };
 

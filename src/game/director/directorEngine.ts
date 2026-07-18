@@ -162,6 +162,24 @@ function pickKingdomDirector(
  * Build a director intro for one exact board event id — used by debug and forced triggers.
  * Matches production director presentation without re-rolling the event pool.
  */
+function buildAgentDirectorPick(
+  director: AgentDirectorDefinition,
+  baseEvent: GameEvent,
+  context: NarrativeContext,
+  weight: EventWeight,
+  quote?: string
+): DirectorPickResult {
+  return {
+    mode: "agent",
+    weight,
+    quote: quote ?? director.quote,
+    agentName: director.agentName,
+    agentRole: director.role,
+    event: resolveDirectorEvent(baseEvent, context),
+    introDurationMs: WEIGHT_PRESENTATION_MS[weight],
+  };
+}
+
 export function buildDirectorPickForEventId(
   pool: GameEvent[],
   eventId: string,
@@ -173,19 +191,40 @@ export function buildDirectorPickForEventId(
   }
 
   const definition = boardEventById.get(eventId);
+  const preferredAgent =
+    definition?.sourceAgent ??
+    (isEventEligibleAgent(definition?.story.narrator ?? "")
+      ? definition?.story.narrator
+      : undefined);
+
+  // Prefer the event's source/narrator agent so Cosmic Divide always shows Astra, etc.
+  if (preferredAgent && !definition?.sourceKingdom) {
+    const preferredDirector = agentDirectorRegistry.find(
+      (entry) =>
+        entry.agentId === preferredAgent || entry.agentName === preferredAgent
+    );
+    if (preferredDirector) {
+      const binding = preferredDirector.events.find(
+        (entry) => entry.eventId === eventId
+      );
+      return buildAgentDirectorPick(
+        preferredDirector,
+        baseEvent,
+        context,
+        binding?.weight ?? definition?.weight ?? "common"
+      );
+    }
+  }
 
   for (const director of agentDirectorRegistry) {
     const binding = director.events.find((entry) => entry.eventId === eventId);
     if (binding) {
-      return {
-        mode: "agent",
-        weight: binding.weight,
-        quote: director.quote,
-        agentName: director.agentName,
-        agentRole: director.role,
-        event: resolveDirectorEvent(baseEvent, context),
-        introDurationMs: WEIGHT_PRESENTATION_MS[binding.weight],
-      };
+      return buildAgentDirectorPick(
+        director,
+        baseEvent,
+        context,
+        binding.weight
+      );
     }
   }
 
@@ -205,12 +244,7 @@ export function buildDirectorPickForEventId(
   }
 
   const narrator =
-    definition?.sourceAgent ??
-    (isEventEligibleAgent(definition?.story.narrator ?? "")
-      ? definition?.story.narrator
-      : undefined) ??
-    agentDirectorRegistry[0]?.agentName ??
-    "Brimstone";
+    preferredAgent ?? agentDirectorRegistry[0]?.agentName ?? "Brimstone";
 
   const weight: EventWeight = definition?.weight ?? "common";
 

@@ -3,7 +3,6 @@ import type { DirectorPickPayload, EventWeight } from "../../shared/director";
 import {
   pointsIconPath,
   resolveAgentPortraitImage,
-  resolveAgentStoryArt,
 } from "../game/assetPaths";
 
 type DirectorPresentationProps = {
@@ -81,7 +80,6 @@ function AgentDirectorPanel({
   style: (typeof weightStyles)[EventWeight];
 }) {
   const agentName = pick.agentName ?? "Agent";
-  const art = resolveAgentStoryArt(agentName);
   const portrait = resolveAgentPortraitImage(agentName);
 
   return (
@@ -100,14 +98,6 @@ function AgentDirectorPanel({
             className={`absolute inset-0 bg-gradient-to-t ${style.glow} via-transparent to-transparent`}
           />
         </div>
-        {art.variant === "npc" && (
-          <img
-            src={art.src}
-            alt=""
-            aria-hidden
-            className="pointer-events-none absolute -bottom-4 left-1/2 z-10 h-[140%] w-auto max-w-none -translate-x-1/2 object-contain object-bottom opacity-0 md:opacity-100"
-          />
-        )}
       </div>
 
       <div className="mt-6 text-center">

@@ -5,6 +5,7 @@ import {
   agentBackgroundPath,
   agentNpcPath,
   agentHasNpcModel,
+  resolveAgentPortraitImage,
   resolveAgentStoryArt,
 } from "./assetPaths";
 import { resolveEventOutcome } from "./eventResolution";
@@ -244,7 +245,7 @@ export function buildSoloSpikeStory(args: {
 }
 
 export function getAgentCharacterImage(agentName: string): string {
-  return resolveAgentStoryArt(agentName).src;
+  return resolveAgentPortraitImage(agentName);
 }
 
 export function getAgentStoryImages(agentName: string) {
@@ -326,7 +327,7 @@ export function personalizeEventStory(
       dialogues,
       characterImage:
         presentation === "agent"
-          ? resolveAgentStoryArt(event.story.narrator).src
+          ? resolveAgentPortraitImage(event.story.narrator)
           : undefined,
     },
   };

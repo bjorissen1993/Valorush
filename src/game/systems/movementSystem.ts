@@ -3,6 +3,8 @@ import { getNodeById } from "../boardLayout";
 
 export const MOVE_STEP_DELAY = 120;
 export const JUMP_DURATION = 280;
+export const TELEPORT_DURATION = 480;
+export const TELEPORT_JUMP_HEIGHT = 42;
 
 export type AnimatedTokenState = {
   playerIndex: number;
@@ -69,7 +71,8 @@ export async function animateJump(
   toX: number,
   toY: number,
   setAnimatedToken: SetAnimatedToken,
-  duration = JUMP_DURATION
+  duration = JUMP_DURATION,
+  jumpHeight = 26
 ) {
   return new Promise<void>((resolve) => {
     const startTime = performance.now();
@@ -80,7 +83,7 @@ export async function animateJump(
 
       const x = lerp(fromX, toX, eased);
       const y = lerp(fromY, toY, eased);
-      const jumpOffset = Math.sin(rawProgress * Math.PI) * 26;
+      const jumpOffset = Math.sin(rawProgress * Math.PI) * jumpHeight;
 
       setAnimatedToken({
         playerIndex,
@@ -104,6 +107,32 @@ export async function animateJump(
 
     requestAnimationFrame(frame);
   });
+}
+
+/** Animate a token from one board node to another (teleport / swap / event move). */
+export async function animateTeleport(
+  playerIndex: number,
+  fromNodeId: string,
+  toNodeId: string,
+  setAnimatedToken: SetAnimatedToken,
+  duration = TELEPORT_DURATION
+): Promise<boolean> {
+  if (fromNodeId === toNodeId) return false;
+  const fromCoords = getNodeCoords(fromNodeId);
+  const toCoords = getNodeCoords(toNodeId);
+  if (!fromCoords || !toCoords) return false;
+
+  await animateJump(
+    playerIndex,
+    fromCoords.x,
+    fromCoords.y,
+    toCoords.x,
+    toCoords.y,
+    setAnimatedToken,
+    duration,
+    TELEPORT_JUMP_HEIGHT
+  );
+  return true;
 }
 
 export async function traverseMovement({

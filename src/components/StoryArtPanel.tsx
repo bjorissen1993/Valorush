@@ -29,7 +29,7 @@ export function StoryArtPanel({
 }: StoryArtPanelProps) {
   const art = resolveAgentStoryArt(agentName);
   const src = imageSrc ?? art.src;
-  const isNpc = art.variant === "npc" || src.includes("/npc/");
+  const isNpc = src.includes("/npc/");
 
   return (
     <div
