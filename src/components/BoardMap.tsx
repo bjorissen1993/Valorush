@@ -31,6 +31,7 @@ export type BoardHazardState = {
   poisonClouds: { nodeId: string; roundsLeft: number }[];
   walls: { fromNodeId: string; toNodeId: string; roundsLeft: number }[];
   traps: { nodeId: string; armed: boolean }[];
+  detainZones?: { nodeId: string; armed: boolean }[];
 };
 
 type Props = {
@@ -214,6 +215,9 @@ function BoardMap({
   const trapNodeSet = new Set(
     (hazards?.traps ?? []).filter((t) => t.armed).map((t) => t.nodeId)
   );
+  const detainNodeSet = new Set(
+    (hazards?.detainZones ?? []).filter((z) => z.armed).map((z) => z.nodeId)
+  );
   const wallEdgeSet = new Set(
     (hazards?.walls ?? [])
       .filter((w) => w.roundsLeft > 0)
@@ -350,6 +354,7 @@ function BoardMap({
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
         className="board-map-paths absolute inset-0 z-[1] h-full w-full"
+        style={{ pointerEvents: "none" }}
         aria-hidden="true"
       >
         <defs>
@@ -503,7 +508,7 @@ function BoardMap({
                   x2={x2}
                   y2={y2}
                   stroke="transparent"
-                  strokeWidth="8"
+                  strokeWidth="16"
                   strokeLinecap="round"
                   className="cursor-pointer"
                   style={{ pointerEvents: "stroke" }}
@@ -539,6 +544,7 @@ function BoardMap({
         const isCastFxTile = castFxNodeSet.has(node.id);
         const isPoisonTile = poisonNodeSet.has(node.id);
         const isTrapTile = trapNodeSet.has(node.id);
+        const isDetainTile = detainNodeSet.has(node.id);
         const isCurrentPlayerTile =
           highlightCurrentPlayer && currentPlayerNodeId === node.id;
         const isDimmed =
@@ -598,6 +604,8 @@ function BoardMap({
             } ${
               isTrapTile ? "board-hazard-tile board-hazard-tile--trap" : ""
             } ${
+              isDetainTile ? "board-hazard-tile board-hazard-tile--detain" : ""
+            } ${
               isDimmed ? "pointer-events-none opacity-35 saturate-50" : ""
             } ${
               debugClickable && !isPathChoiceOption
@@ -627,6 +635,19 @@ function BoardMap({
                   src="/abilities/vyse/Steel_Garden.png"
                   alt=""
                   className="board-hazard-trap__icon"
+                />
+              </div>
+            )}
+            {isDetainTile && (
+              <div
+                className="board-hazard-detain"
+                aria-label="Thrash detain zone"
+                title="Thrash detain zone"
+              >
+                <img
+                  src="/abilities/gekko/Thrash.png"
+                  alt=""
+                  className="board-hazard-detain__icon"
                 />
               </div>
             )}

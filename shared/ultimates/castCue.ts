@@ -63,6 +63,12 @@ const THEME_BY_ULTIMATE_ID: Record<string, UltimateCastTheme> = {
   nightfall: "nightfall",
   "not-dead-yet": "shield",
   "steel-garden": "trap",
+  reckoning: "thunder",
+  thrash: "seekers",
+  annihilation: "lockdown",
+  "kill-contract": "duel",
+  armageddon: "explosion",
+  "saturating-fire": "blade",
 };
 
 export function themeForUltimateId(ultimateId: string): UltimateCastTheme {

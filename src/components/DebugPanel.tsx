@@ -64,6 +64,11 @@ type DebugPanelProps = {
   onAdjustRadianite: (amount: number) => void;
   onAdjustUltimateOrbs: (amount: number) => void;
   onSetUltimateOrbs: (orbs: number) => void;
+  /** Grant full orbs and fire the selected player's registered ultimate (auto-target). */
+  onTriggerSelectedUltimate?: () => void;
+  /** List of playable ultimates for debug fire buttons. */
+  playableUltimates?: { agentName: string; id: string; name: string; icon?: string }[];
+  onTriggerUltimateByAgent?: (agentName: string) => void;
   onGiveItem: (itemId: string) => void;
   onTriggerMinigame: (minigameId: MinigameId) => void;
   onLandOnTile: (tileType: TileType) => void;
@@ -157,6 +162,9 @@ export default function DebugPanel({
   onAdjustRadianite,
   onAdjustUltimateOrbs,
   onSetUltimateOrbs,
+  onTriggerSelectedUltimate,
+  playableUltimates = [],
+  onTriggerUltimateByAgent,
   onGiveItem,
   onTriggerMinigame,
   onLandOnTile,
@@ -560,8 +568,49 @@ export default function DebugPanel({
               >
                 Clear orbs
               </DebugButton>
+              {onTriggerSelectedUltimate && (
+                <DebugButton
+                  onClick={onTriggerSelectedUltimate}
+                  className="debug-panel__span-2"
+                  tooltip={`Grant 3/3 orbs and cast ${selectedPlayerName}'s agent ultimate with auto-picked targets.`}
+                >
+                  Cast selected player's ult
+                </DebugButton>
+              )}
             </div>
           </DebugSection>
+
+          {playableUltimates.length > 0 && onTriggerUltimateByAgent && (
+            <DebugSection title="Trigger Ultimate">
+              <p className="debug-panel__hint">
+                Grants full orbs to {selectedPlayerName}, then casts that agent's
+                ultimate (auto-target). Useful for testing every ult.
+              </p>
+              <div className="debug-panel__grid-2">
+                {playableUltimates.map((ult) => (
+                  <DebugButton
+                    key={ult.id}
+                    onClick={() => onTriggerUltimateByAgent(ult.agentName)}
+                    className="debug-panel__full"
+                    tooltip={`Cast ${ult.agentName}'s ${ult.name} as ${selectedPlayerName}.`}
+                  >
+                    {ult.icon ? (
+                      <span className="inline-flex items-center gap-2">
+                        <img
+                          src={ult.icon}
+                          alt=""
+                          className="h-6 w-6 rounded object-contain"
+                        />
+                        {ult.agentName}: {ult.name}
+                      </span>
+                    ) : (
+                      `${ult.agentName}: ${ult.name}`
+                    )}
+                  </DebugButton>
+                ))}
+              </div>
+            </DebugSection>
+          )}
 
           <DebugSection title="Dice">
             <div className="debug-panel__dice-grid">

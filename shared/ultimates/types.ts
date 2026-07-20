@@ -103,10 +103,18 @@ export type UltimateTrap = {
   armed: boolean;
 };
 
+/** Gekko Thrash — first opponent to enter is detained (skip next turn). */
+export type DetainZone = {
+  nodeId: string;
+  ownerPlayerIndex: number;
+  armed: boolean;
+};
+
 export type BoardUltimateState = {
   poisonClouds: PoisonCloud[];
   walls: UltimateWall[];
   traps: UltimateTrap[];
+  detainZones: DetainZone[];
 };
 
 export function createEmptyBoardUltimateState(): BoardUltimateState {
@@ -114,6 +122,7 @@ export function createEmptyBoardUltimateState(): BoardUltimateState {
     poisonClouds: [],
     walls: [],
     traps: [],
+    detainZones: [],
   };
 }
 

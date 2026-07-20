@@ -69,6 +69,7 @@ import {
   ULTIMATE_BOARD_PATHS,
   createEmptyPlayerUltimateStatus,
   getUltimateForAgent,
+  listPlayableUltimates,
   type BoardUltimateState,
   type UltimateCastCue,
 } from "../../shared/ultimates";
@@ -82,6 +83,7 @@ import {
   emptyBoardUltimateState,
   findPathContainingNode,
   gainOrb,
+  getArmedDetainAt,
   getArmedTrapAt,
   getSelectableEdgesForUltimate,
   getSelectableTileIdsForUltimate,
@@ -1379,6 +1381,136 @@ export default function GamePage({
     }));
   }
 
+  function buildDebugUltimateSelection(
+    agentName: string,
+    casterIndex: number
+  ): UltimateTargetSelection {
+    const def = getUltimateForAgent(agentName);
+    if (!def) return {};
+    const opponents = playersInGameRef.current
+      .map((_, index) => index)
+      .filter((index) => index !== casterIndex);
+    const targetPlayerIndex = opponents[0];
+    switch (def.targetKind) {
+      case "tile":
+      case "tile_and_move":
+        return { targetNodeId: "top-2" };
+      case "path":
+        return { choiceId: "top-row", targetNodeId: "top-row" };
+      case "edge":
+        return { targetNodeId: "start", targetNodeId2: "top-1" };
+      case "player":
+        return {
+          targetPlayerIndex,
+          stealFromPlayerIndex: targetPlayerIndex,
+        };
+      case "player_or_choice":
+        return {
+          targetPlayerIndex,
+          razeMode: "creds",
+          choiceId: "creds",
+        };
+      case "choice":
+        return { choiceId: def.choices?.[0]?.id ?? "cleanse" };
+      case "sequential_opponents": {
+        const opponentChoices: Record<number, "pay" | "skip"> = {};
+        for (const index of opponents) {
+          opponentChoices[index] = "skip";
+        }
+        return { opponentChoices };
+      }
+      default:
+        return {};
+    }
+  }
+
+  async function debugTriggerUltimateByAgent(agentName: string) {
+    const def = getUltimateForAgent(agentName);
+    if (!def || def.implementation !== "full") {
+      setStatusTitle("Debug Ultimate");
+      setStatusSubtitle(`No playable ultimate for ${agentName}.`);
+      return;
+    }
+
+    const casterIndex = debugSelectedPlayerIndex;
+    const caster = playersInGameRef.current[casterIndex];
+    if (!caster) return;
+
+    const selection = buildDebugUltimateSelection(agentName, casterIndex);
+    const readyPlayers = playersInGameRef.current
+      .map(toUltimatePlayerState)
+      .map((player, index) =>
+        index === casterIndex ? { ...player, ultimateOrbs: 3 } : player
+      );
+
+    const result = applyUltimate({
+      casterPlayerIndex: casterIndex,
+      agentName,
+      players: readyPlayers,
+      board: boardUltimateStateRef.current,
+      boardNodeIds: getBoardNodeIds(),
+      adjacency: buildBoardAdjacency(),
+      paths: ULTIMATE_BOARD_PATHS,
+      currentRound: round,
+      targetPlayerIndex: selection.targetPlayerIndex,
+      targetNodeId: selection.targetNodeId,
+      targetNodeId2: selection.targetNodeId2,
+      choiceId: selection.choiceId,
+      opponentChoices: selection.opponentChoices,
+      razeMode: selection.razeMode,
+      stealFromPlayerIndex: selection.stealFromPlayerIndex,
+      diceRolls: [6, 2],
+    });
+
+    if (result.incomplete) {
+      setStatusTitle(result.headline);
+      setStatusSubtitle(result.description);
+      showAnnouncement(result.headline, result.description);
+      return;
+    }
+
+    closeDebugOverlay();
+    setPlayersInGame(
+      mergeUltimatePlayers(playersInGameRef.current, result.players)
+    );
+    setBoardUltimateState(result.board);
+    setStatusTitle(`Debug: ${result.headline}`);
+    setStatusSubtitle(result.description);
+    showAnnouncement(result.headline, result.description);
+
+    const cue = buildUltimateCastCue({
+      def,
+      casterPlayerIndex: casterIndex,
+      casterName: caster.name,
+      casterPosition: caster.position,
+      selection,
+      result,
+      playerPositions: playersInGameRef.current.map((p) => p.position),
+      rangeTiles: def.rangeTiles,
+    });
+    lastPlayedCastIdRef.current = cue.id;
+    setUltimateCast(cue);
+
+    for (const change of result.positionChanges) {
+      await animateTeleport(
+        change.playerIndex,
+        change.fromNodeId,
+        change.toNodeId,
+        setAnimatedToken
+      );
+    }
+    setAnimatedToken(null);
+
+    if (result.jettMoveSteps != null) {
+      void runJettBladeStormMove(result.jettMoveSteps);
+    }
+  }
+
+  function debugTriggerSelectedUltimate() {
+    const player = playersInGameRef.current[debugSelectedPlayerIndex];
+    if (!player) return;
+    void debugTriggerUltimateByAgent(getAgentName(player));
+  }
 
   function handleSpikePlantAnimationComplete() {
     const pending = pendingSpikePlantRef.current;
@@ -1759,6 +1891,56 @@ export default function GamePage({
     }
 
     plantSpikeWithAnimation(debugSelectedPlayerIndex, player.position);
+  }
+
+  function handleUltimateHazardEnter(
+    nodeId: string,
+    playerIdx: number
+  ): boolean {
+    if (
+      (playersInGameRef.current[playerIdx]?.ultimateStatus?.yoruDriftRounds ??
+        0) > 0
+    ) {
+      return false;
+    }
+
+    const board = boardUltimateStateRef.current;
+    const trap = getArmedTrapAt(board, nodeId);
+    if (trap && trap.ownerPlayerIndex !== playerIdx) {
+      setBoardUltimateState((current) => ({
+        ...current,
+        traps: current.traps.map((t) =>
+          t.nodeId === nodeId ? { ...t, armed: false } : t
+        ),
+      }));
+      showAnnouncement("Steel Garden", "Trap sprung — movement ended.");
+      return true;
+    }
+
+    const detain = getArmedDetainAt(board, nodeId);
+    if (detain && detain.ownerPlayerIndex !== playerIdx) {
+      setBoardUltimateState((current) => ({
+        ...current,
+        detainZones: (current.detainZones ?? []).map((z) =>
+          z.nodeId === nodeId ? { ...z, armed: false } : z
+        ),
+      }));
+      updatePlayer(playerIdx, (p) => ({
+        ...p,
+        ultimateStatus: {
+          ...createEmptyPlayerUltimateStatus(),
+          ...p.ultimateStatus,
+          skipNextTurn: true,
+        },
+      }));
+      showAnnouncement(
+        "Thrash",
+        `${playersInGameRef.current[playerIdx]?.name ?? "Player"} detained — skips next turn.`
+      );
+      return true;
+    }
+
+    return false;
   }
 
   function handleBoardTileClick(nodeId: string) {
@@ -3241,24 +3423,8 @@ export default function GamePage({
       isEdgeBlocked: (from, to) =>
         !yoruIgnore &&
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
-      onEnterNode: (nodeId, playerIdx) => {
-        const trap = getArmedTrapAt(boardUltimateStateRef.current, nodeId);
-        if (!trap || trap.ownerPlayerIndex === playerIdx) return false;
-        if (
-          (playersInGameRef.current[playerIdx]?.ultimateStatus?.yoruDriftRounds ??
-            0) > 0
-        ) {
-          return false;
-        }
-        setBoardUltimateState((board) => ({
-          ...board,
-          traps: board.traps.map((t) =>
-            t.nodeId === nodeId ? { ...t, armed: false } : t
-          ),
-        }));
-        showAnnouncement("Steel Garden", "Trap sprung — movement ended.");
-        return true;
-      },
+      onEnterNode: (nodeId, playerIdx) =>
+        handleUltimateHazardEnter(nodeId, playerIdx),
     })) as MovementResult;
 
     if (result.blockedBySplit) {
@@ -3894,18 +4060,8 @@ export default function GamePage({
       isEdgeBlocked: (from, to) =>
         !yoruIgnore &&
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
-      onEnterNode: (nodeId, playerIdx) => {
-        const trap = getArmedTrapAt(boardUltimateStateRef.current, nodeId);
-        if (!trap || trap.ownerPlayerIndex === playerIdx) return false;
-        setBoardUltimateState((board) => ({
-          ...board,
-          traps: board.traps.map((t) =>
-            t.nodeId === nodeId ? { ...t, armed: false } : t
-          ),
-        }));
-        showAnnouncement("Steel Garden", "Trap sprung — movement ended.");
-        return true;
-      },
+      onEnterNode: (nodeId, playerIdx) =>
+        handleUltimateHazardEnter(nodeId, playerIdx),
     });
 
     setIsMoving(false);
@@ -5248,6 +5404,7 @@ export default function GamePage({
                   poisonClouds: boardUltimateState.poisonClouds,
                   walls: boardUltimateState.walls,
                   traps: boardUltimateState.traps,
+                  detainZones: boardUltimateState.detainZones ?? [],
                 }}
               />
             </div>
@@ -5462,6 +5619,16 @@ export default function GamePage({
           onSetUltimateOrbs={(orbs) =>
             debugSetUltimateOrbs(debugSelectedPlayerIndex, orbs)
           }
+          onTriggerSelectedUltimate={debugTriggerSelectedUltimate}
+          playableUltimates={listPlayableUltimates().map((ult) => ({
+            agentName: ult.agentName,
+            id: ult.id,
+            name: ult.name,
+            icon: ult.icon,
+          }))}
+          onTriggerUltimateByAgent={(agentName) => {
+            void debugTriggerUltimateByAgent(agentName);
+          }}
           onGiveItem={debugGiveItem}
           onTriggerMinigame={debugTriggerMinigameById}
           onLandOnTile={debugLandOnTile}

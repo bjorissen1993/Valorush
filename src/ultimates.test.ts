@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import {
   applyUltimate,
   canActivateUltimate,
+  collectConnectedZone,
   gainOrb,
   spendUltimate,
   getSelectableEdgesForUltimate,
   getSelectableTileIdsForUltimate,
+  moveTowardNode,
 } from "./game/ultimates";
 import {
   createEmptyBoardUltimateState,
@@ -13,6 +17,7 @@ import {
   getUltimateForAgent,
   listPlayableUltimates,
   normalizeAgentLookupKey,
+  ultimateRegistry,
   ULTIMATE_BOARD_PATHS,
 } from "../shared/ultimates";
 import type { UltimatePlayerState } from "../shared/ultimates";
@@ -84,17 +89,28 @@ describe("agent ultimate lookup", () => {
     expect(getUltimateForAgent("kay-o")?.id).toBe("null-cmd");
   });
 
-  it("maps every playable ultimate to an ability icon path", () => {
+  it("resolves every registry agent including former stubs", () => {
+    for (const ult of ultimateRegistry) {
+      expect(getUltimateForAgent(ult.agentName)?.id).toBe(ult.id);
+      expect(ult.implementation).toBe("full");
+      expect(ult.icon, `${ult.agentName} missing icon`).toBeTruthy();
+    }
+  });
+
+  it("maps every playable ultimate to an existing ability PNG", () => {
     const playable = listPlayableUltimates();
-    expect(playable).toHaveLength(21);
+    expect(playable).toHaveLength(27);
+    const publicRoot = path.resolve(process.cwd(), "public");
     for (const ult of playable) {
       expect(ult.icon, `${ult.agentName} missing icon`).toBeTruthy();
       expect(ult.icon).toMatch(/^\/abilities\//);
+      const filePath = path.join(publicRoot, ult.icon!.replace(/^\//, ""));
+      expect(existsSync(filePath), `missing file ${ult.icon}`).toBe(true);
     }
   });
 });
 
-describe("applyUltimate — all 21 playable agents", () => {
+describe("applyUltimate — all playable agents", () => {
   it("applies instant / self ultimates", () => {
     const cases: { agent: string; headline: string }[] = [
       { agent: "Phoenix", headline: "Run It Back" },
@@ -184,10 +200,57 @@ describe("applyUltimate — all 21 playable agents", () => {
     ).toBe(true);
   });
 
+  it("applies formerly stubbed lobby agents", () => {
+    expect(
+      applyUltimate(
+        baseInput("Harbor", { choiceId: "top-row", targetNodeId: "top-row" })
+      ).headline
+    ).toBe("Reckoning");
+    expect(
+      applyUltimate(baseInput("Gekko", { targetNodeId: "right-2" })).board
+        .detainZones[0]?.nodeId
+    ).toBe("right-2");
+    const annihilation = applyUltimate(
+      baseInput("Deadlock", { targetPlayerIndex: 1 })
+    );
+    expect(annihilation.incomplete).toBeFalsy();
+    expect(annihilation.headline).toBe("Annihilation");
+    expect(annihilation.players[0]!.creds).toBeGreaterThan(800);
+    expect(
+      applyUltimate(
+        baseInput("Iso", {
+          targetPlayerIndex: 1,
+          diceRolls: [6, 1],
+        })
+      ).players[0]?.creds
+    ).toBe(1200);
+    expect(
+      applyUltimate(baseInput("Tejo", { targetNodeId: "top-1" })).headline
+    ).toBe("Armageddon");
+    expect(
+      applyUltimate(
+        baseInput("Waylay", { choiceId: "bottom-row", targetNodeId: "bottom-row" })
+      ).headline
+    ).toBe("Saturating Fire");
+  });
+
   it("does not spend orbs when targeting is incomplete", () => {
-    const result = applyUltimate(baseInput("Viper"));
-    expect(result.incomplete).toBe(true);
-    expect(result.players[0]?.ultimateOrbs).toBe(3);
+    const cases = [
+      "Viper",
+      "Sova",
+      "Astra",
+      "Chamber",
+      "Harbor",
+      "Gekko",
+      "Deadlock",
+      "Tejo",
+      "Waylay",
+    ];
+    for (const agent of cases) {
+      const result = applyUltimate(baseInput(agent));
+      expect(result.incomplete, agent).toBe(true);
+      expect(result.players[0]?.ultimateOrbs, agent).toBe(3);
+    }
   });
 
   it("does not spend orbs for unknown agents", () => {
@@ -195,19 +258,18 @@ describe("applyUltimate — all 21 playable agents", () => {
     expect(result.incomplete).toBe(true);
     expect(result.players[0]?.ultimateOrbs).toBe(3);
   });
-
-  it("stubs Harbor without crash", () => {
-    const result = applyUltimate(baseInput("Harbor"));
-    expect(result.stub).toBe(true);
-    expect(result.players[0]?.ultimateOrbs).toBe(0);
-  });
 });
 
-describe("ultimate board targeting helpers", () => {
+describe("ultimate board helpers", () => {
   it("exposes selectable tiles and edges for board ultimates", () => {
     expect(getSelectableTileIdsForUltimate("tile").length).toBeGreaterThan(10);
     expect(getSelectableTileIdsForUltimate("path").length).toBeGreaterThan(5);
     expect(getSelectableEdgesForUltimate("edge").length).toBeGreaterThan(5);
     expect(getSelectableEdgesForUltimate("tile")).toEqual([]);
+  });
+
+  it("pulls toward a destination and builds connected zones", () => {
+    expect(moveTowardNode("bottom-1", "start", 3)).not.toBe("bottom-1");
+    expect(collectConnectedZone("top-2", 3).size).toBe(3);
   });
 });

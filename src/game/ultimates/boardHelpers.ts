@@ -77,6 +77,15 @@ export function getArmedTrapAt(
   return board.traps.find((trap) => trap.armed && trap.nodeId === nodeId);
 }
 
+export function getArmedDetainAt(
+  board: BoardUltimateState,
+  nodeId: string
+): BoardUltimateState["detainZones"][number] | undefined {
+  return (board.detainZones ?? []).find(
+    (zone) => zone.armed && zone.nodeId === nodeId
+  );
+}
+
 export function isInPoisonCloud(
   board: BoardUltimateState,
   nodeId: string
@@ -84,6 +93,56 @@ export function isInPoisonCloud(
   return board.poisonClouds.some(
     (cloud) => cloud.nodeId === nodeId && cloud.roundsLeft > 0
   );
+}
+
+/** BFS pull toward a destination, up to `steps` tiles. */
+export function moveTowardNode(
+  startNodeId: string,
+  destinationId: string,
+  steps: number
+): string {
+  if (startNodeId === destinationId || steps <= 0) return startNodeId;
+  const adj = buildBoardAdjacency();
+  // Build parent map from destination BFS so we walk the shortest path.
+  const parent = new Map<string, string | null>();
+  parent.set(destinationId, null);
+  const queue = [destinationId];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    for (const next of adj[id] ?? []) {
+      if (parent.has(next)) continue;
+      parent.set(next, id);
+      queue.push(next);
+    }
+  }
+  if (!parent.has(startNodeId)) return startNodeId;
+  let current = startNodeId;
+  for (let i = 0; i < steps; i += 1) {
+    const next = parent.get(current);
+    if (!next) break;
+    current = next;
+    if (current === destinationId) break;
+  }
+  return current;
+}
+
+/** Collect up to `size` connected tiles starting at `seed` (BFS). */
+export function collectConnectedZone(
+  seed: string,
+  size: number
+): Set<string> {
+  const zone = new Set<string>();
+  const adj = buildBoardAdjacency();
+  const queue = [seed];
+  while (queue.length > 0 && zone.size < size) {
+    const id = queue.shift()!;
+    if (zone.has(id)) continue;
+    zone.add(id);
+    for (const next of adj[id] ?? []) {
+      if (!zone.has(next)) queue.push(next);
+    }
+  }
+  return zone;
 }
 
 /** Connected edges for Astra Cosmic Divide ultimate targeting. */

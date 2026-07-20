@@ -54,6 +54,8 @@ export function buildUltimateCastCue(input: CastCueBuildInput): UltimateCastCue 
     }
     case "vipers-pit":
     case "steel-garden":
+    case "thrash":
+    case "armageddon":
       addNode(input.selection.targetNodeId);
       break;
     case "from-the-shadows":
@@ -72,7 +74,9 @@ export function buildUltimateCastCue(input: CastCueBuildInput): UltimateCastCue 
     case "neural-theft":
       addPlayer(input.selection.stealFromPlayerIndex ?? input.selection.targetPlayerIndex);
       break;
-    case "hunters-fury": {
+    case "hunters-fury":
+    case "reckoning":
+    case "saturating-fire": {
       const pathKey =
         input.selection.choiceId ?? input.selection.targetNodeId;
       const path =
@@ -87,6 +91,8 @@ export function buildUltimateCastCue(input: CastCueBuildInput): UltimateCastCue 
     }
     case "showstopper":
     case "tour-de-force":
+    case "annihilation":
+    case "kill-contract":
       addPlayer(input.selection.targetPlayerIndex);
       if (input.selection.targetPlayerIndex != null) {
         addNode(input.playerPositions[input.selection.targetPlayerIndex]);

@@ -19,6 +19,7 @@ export function tickBoardUltimateState(
       .map((w) => ({ ...w, roundsLeft: w.roundsLeft - 1 }))
       .filter((w) => w.roundsLeft > 0),
     traps: board.traps.filter((t) => t.armed),
+    detainZones: (board.detainZones ?? []).filter((z) => z.armed),
   };
 }
 

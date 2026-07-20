@@ -2,8 +2,7 @@ import type { UltimateDefinition, UltimatePathOption } from "./types";
 
 /**
  * Ultimate registry — one entry per agent.
- * `implementation: "full"` agents have playable apply logic in `src/game/ultimates/`.
- * Stub entries keep the official board-game spec for future work.
+ * All entries are playable (`implementation: "full"`) with apply logic in `src/game/ultimates/`.
  */
 export const ultimateRegistry: UltimateDefinition[] = [
   {
@@ -238,60 +237,65 @@ export const ultimateRegistry: UltimateDefinition[] = [
     icon: "/abilities/vyse/Steel_Garden.png",
   },
 
-  // ── Spec stubs (no portrait / future agents) ──────────────────────────
   {
     agentName: "Harbor",
     id: "reckoning",
     name: "Reckoning",
     description:
-      "Summon a cascade along a path — opponents hit lose 200 creds and −1 movement next turn. (Stub)",
+      "Summon a cascade along a path — opponents hit lose 200 creds and −1 movement next turn.",
     targetKind: "path",
-    implementation: "stub",
+    implementation: "full",
+    icon: "/abilities/harbor/Reckoning.png",
   },
   {
     agentName: "Gekko",
     id: "thrash",
     name: "Thrash",
     description:
-      "Send Thrash to a tile; detain the first opponent who enters (skip next turn). (Stub)",
+      "Send Thrash to a tile; detain the first opponent who enters (skip next turn).",
     targetKind: "tile",
-    implementation: "stub",
+    implementation: "full",
+    icon: "/abilities/gekko/Thrash.png",
   },
   {
     agentName: "Deadlock",
     id: "annihilation",
     name: "Annihilation",
     description:
-      "Pull an opponent toward you up to 3 spaces and steal 150 creds. (Stub)",
+      "Pull an opponent toward you up to 3 spaces and steal 150 creds.",
     targetKind: "player",
-    implementation: "stub",
+    implementation: "full",
+    icon: "/abilities/deadlock/Annihilation.png",
   },
   {
     agentName: "Iso",
     id: "kill-contract",
     name: "Kill Contract",
     description:
-      "Isolate one opponent in a duel — winner +400 creds, loser −1 orb. (Stub)",
+      "Isolate one opponent in a duel — winner +400 creds, loser −1 orb.",
     targetKind: "player",
-    implementation: "stub",
+    implementation: "full",
+    icon: "/abilities/iso/Kill_Contract.png",
   },
   {
     agentName: "Tejo",
     id: "armageddon",
     name: "Armageddon",
     description:
-      "Mark a zone of 3 connected tiles; opponents there lose 350 creds. (Stub)",
+      "Mark a zone of 3 connected tiles; opponents there lose 350 creds.",
     targetKind: "tile",
-    implementation: "stub",
+    implementation: "full",
+    icon: "/abilities/tejo/Armageddon.png",
   },
   {
     agentName: "Waylay",
     id: "saturating-fire",
     name: "Saturating Fire",
     description:
-      "Spray a row: each opponent hit pays 150 or discards a random item. (Stub)",
+      "Spray a row: each opponent hit pays 150 or discards a random item.",
     targetKind: "path",
-    implementation: "stub",
+    implementation: "full",
+    icon: "/abilities/waylay/Saturate.png",
   },
 ];
 
@@ -317,6 +321,7 @@ const AGENT_NAME_ALIASES: Record<string, string> = {
   kayo: "kayo",
   kay: "kayo",
   nullcmd: "kayo",
+  kayoagent: "kayo",
 };
 
 export function getUltimateForAgent(

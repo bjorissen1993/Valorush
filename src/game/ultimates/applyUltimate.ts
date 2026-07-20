@@ -11,8 +11,10 @@ import {
 import { spendUltimate, clampOrbs } from "./orbs";
 import {
   boardDistance,
+  collectConnectedZone,
   getAdjacentNodeIds,
   moveBackSpaces,
+  moveTowardNode,
 } from "./boardHelpers";
 
 function clonePlayers(players: UltimatePlayerState[]): UltimatePlayerState[] {
@@ -28,6 +30,7 @@ function cloneBoard(board: BoardUltimateState): BoardUltimateState {
     poisonClouds: board.poisonClouds.map((c) => ({ ...c })),
     walls: board.walls.map((w) => ({ ...w })),
     traps: board.traps.map((t) => ({ ...t })),
+    detainZones: (board.detainZones ?? []).map((z) => ({ ...z })),
   };
 }
 
@@ -139,11 +142,15 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
     case "vipers-pit":
     case "from-the-shadows":
     case "steel-garden":
+    case "thrash":
+    case "armageddon":
       if (!input.targetNodeId) {
         return incompleteResult(input, def.name, "Pick a tile.");
       }
       break;
-    case "hunters-fury": {
+    case "hunters-fury":
+    case "reckoning":
+    case "saturating-fire": {
       const pathId = input.choiceId ?? input.targetNodeId;
       const path =
         ULTIMATE_BOARD_PATHS.find((p) => p.id === pathId) ??
@@ -164,6 +171,8 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
       break;
     case "showstopper":
     case "tour-de-force":
+    case "annihilation":
+    case "kill-contract":
       if (
         input.targetPlayerIndex == null ||
         input.targetPlayerIndex === input.casterPlayerIndex
@@ -701,6 +710,187 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
         board,
         headline: "Steel Garden",
         description: `Trap armed on ${nodeId}. First visitor ends movement.`,
+        positionChanges: [],
+      };
+    }
+
+    case "reckoning": {
+      const pathId = input.choiceId ?? input.targetNodeId;
+      const path =
+        ULTIMATE_BOARD_PATHS.find((p) => p.id === pathId) ??
+        input.paths.find((p) => p.id === pathId)!;
+      const hitSet = new Set(path.nodeIds);
+      const parts: string[] = [];
+      for (let i = 0; i < players.length; i += 1) {
+        if (i === input.casterPlayerIndex) continue;
+        const p = players[i]!;
+        if (!hitSet.has(p.position)) continue;
+        applyNegativeToPlayer(p, (target) => {
+          target.creds = Math.max(0, target.creds - 200);
+          target.status = {
+            ...target.status,
+            movementPenalty: 1,
+            movementPenaltyTurns: 1,
+          };
+          parts.push(`${target.name} −200 & −1 move`);
+        });
+      }
+      return {
+        players,
+        board,
+        headline: "Reckoning",
+        description:
+          parts.length > 0
+            ? `Cascade along ${path.label}: ${parts.join("; ")}.`
+            : `Cascade along ${path.label} — no one caught.`,
+        positionChanges: [],
+      };
+    }
+
+    case "thrash": {
+      const nodeId = input.targetNodeId!;
+      board.detainZones = (board.detainZones ?? []).filter(
+        (z) => z.nodeId !== nodeId
+      );
+      board.detainZones.push({
+        nodeId,
+        ownerPlayerIndex: input.casterPlayerIndex,
+        armed: true,
+      });
+      return {
+        players,
+        board,
+        headline: "Thrash",
+        description: `Thrash waits on ${nodeId}. First opponent detained.`,
+        positionChanges: [],
+      };
+    }
+
+    case "annihilation": {
+      const targetIdx = input.targetPlayerIndex!;
+      const target = players[targetIdx]!;
+      if (isUntargetable(target) || tryConsumeCloveShield(target)) {
+        return {
+          players,
+          board,
+          headline: "Annihilation",
+          description: `${target.name} escaped the pull.`,
+          positionChanges: [],
+        };
+      }
+      const from = target.position;
+      target.position = moveTowardNode(from, caster.position, 3);
+      const stolen = Math.min(150, target.creds);
+      target.creds -= stolen;
+      caster.creds += stolen;
+      if (from !== target.position) {
+        positionChanges.push({
+          playerIndex: targetIdx,
+          fromNodeId: from,
+          toNodeId: target.position,
+        });
+      }
+      return {
+        players,
+        board,
+        headline: "Annihilation",
+        description: `Pulled ${target.name} to ${target.position} and stole ${stolen} creds.`,
+        positionChanges,
+      };
+    }
+
+    case "kill-contract": {
+      const targetIdx = input.targetPlayerIndex!;
+      const target = players[targetIdx]!;
+      if (isUntargetable(target)) {
+        return {
+          players,
+          board,
+          headline: "Kill Contract",
+          description: `${target.name} is untargetable.`,
+          positionChanges: [],
+        };
+      }
+      const casterRoll = input.diceRolls?.[0] ?? rollDie();
+      const targetRoll = input.diceRolls?.[1] ?? rollDie();
+      const winnerIdx =
+        casterRoll >= targetRoll ? input.casterPlayerIndex : targetIdx;
+      const loserIdx =
+        winnerIdx === input.casterPlayerIndex
+          ? targetIdx
+          : input.casterPlayerIndex;
+      players[winnerIdx]!.creds += 400;
+      players[loserIdx]!.ultimateOrbs = clampOrbs(
+        players[loserIdx]!.ultimateOrbs - 1
+      );
+      return {
+        players,
+        board,
+        headline: "Kill Contract",
+        description: `${players[input.casterPlayerIndex]!.name} ${casterRoll} vs ${target.name} ${targetRoll}. ${players[winnerIdx]!.name} wins +400; ${players[loserIdx]!.name} −1 orb.`,
+        positionChanges: [],
+        chamberDuel: {
+          casterRoll,
+          targetRoll,
+          winnerPlayerIndex: winnerIdx,
+        },
+      };
+    }
+
+    case "armageddon": {
+      const center = input.targetNodeId!;
+      const zone = collectConnectedZone(center, 3);
+      const hitNames: string[] = [];
+      for (let i = 0; i < players.length; i += 1) {
+        if (i === input.casterPlayerIndex) continue;
+        const p = players[i]!;
+        if (!zone.has(p.position)) continue;
+        applyNegativeToPlayer(p, (target) => {
+          target.creds = Math.max(0, target.creds - 350);
+          hitNames.push(target.name);
+        });
+      }
+      return {
+        players,
+        board,
+        headline: "Armageddon",
+        description:
+          hitNames.length > 0
+            ? `Zone blast hits ${hitNames.join(", ")} — −350 creds.`
+            : `Armageddon marks ${[...zone].join(", ")} — no one hit.`,
+        positionChanges: [],
+      };
+    }
+
+    case "saturating-fire": {
+      const pathId = input.choiceId ?? input.targetNodeId;
+      const path =
+        ULTIMATE_BOARD_PATHS.find((p) => p.id === pathId) ??
+        input.paths.find((p) => p.id === pathId)!;
+      const hitSet = new Set(path.nodeIds);
+      const parts: string[] = [];
+      for (let i = 0; i < players.length; i += 1) {
+        if (i === input.casterPlayerIndex) continue;
+        const p = players[i]!;
+        if (!hitSet.has(p.position)) continue;
+        applyNegativeToPlayer(p, (target) => {
+          const item = loseRandomItem(target);
+          if (item) {
+            parts.push(`${target.name} discarded ${item}`);
+          } else {
+            target.creds = Math.max(0, target.creds - 150);
+            parts.push(`${target.name} −150 creds`);
+          }
+        });
+      }
+      return {
+        players,
+        board,
+        headline: "Saturating Fire",
+        description:
+          parts.length > 0
+            ? `Spray along ${path.label}: ${parts.join("; ")}.`
+            : `Spray along ${path.label} — no one hit.`,
         positionChanges: [],
       };
     }
