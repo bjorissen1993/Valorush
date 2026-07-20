@@ -270,9 +270,18 @@ export default function PlayerInventorySidebar({
             <UltimateMeter orbs={orbs} agentName={agentName} />
           </div>
           {ultimateDef && (
-            <p className="player-inventory-panel__ultimate-name">
-              {ultimateDef.name}
-            </p>
+            <div className="player-inventory-panel__ultimate-name-row">
+              {ultimateDef.icon ? (
+                <img
+                  src={ultimateDef.icon}
+                  alt=""
+                  className="player-inventory-panel__ultimate-icon"
+                />
+              ) : null}
+              <p className="player-inventory-panel__ultimate-name">
+                {ultimateDef.name}
+              </p>
+            </div>
           )}
           {canShowUltActivate && (
             <button
@@ -280,27 +289,58 @@ export default function PlayerInventorySidebar({
               className="player-inventory-panel__ult-btn"
               onClick={onActivateUltimate}
             >
+              {ultimateDef?.icon ? (
+                <img
+                  src={ultimateDef.icon}
+                  alt=""
+                  className="player-inventory-panel__ult-btn-icon"
+                />
+              ) : null}
               Activate Ultimate
             </button>
           )}
-          {player.ultimateStatus?.cloveShield && (
-            <p className="player-inventory-panel__buff">Not Dead Yet — shield ready</p>
-          )}
-          {(player.ultimateStatus?.yoruDriftRounds ?? 0) > 0 && (
-            <p className="player-inventory-panel__buff">
-              Dimensional Drift · {player.ultimateStatus?.yoruDriftRounds} round
-              {(player.ultimateStatus?.yoruDriftRounds ?? 0) === 1 ? "" : "s"}
-            </p>
-          )}
-          {(player.ultimateStatus?.reynaBuffRounds ?? 0) > 0 && (
-            <p className="player-inventory-panel__buff">
-              Empress · {player.ultimateStatus?.reynaBuffRounds} round
-              {(player.ultimateStatus?.reynaBuffRounds ?? 0) === 1 ? "" : "s"}
-            </p>
-          )}
-          {itemsLocked && (
-            <p className="player-inventory-panel__hint">Items locked (NULL/CMD)</p>
-          )}
+          <div className="player-inventory-panel__status-row">
+            {player.ultimateStatus?.cloveShield && (
+              <span className="player-status-chip player-status-chip--shield">
+                Shield
+              </span>
+            )}
+            {(player.ultimateStatus?.yoruDriftRounds ?? 0) > 0 && (
+              <span className="player-status-chip player-status-chip--drift">
+                Drift · {player.ultimateStatus?.yoruDriftRounds}
+              </span>
+            )}
+            {(player.ultimateStatus?.reynaBuffRounds ?? 0) > 0 && (
+              <span className="player-status-chip player-status-chip--empress">
+                Empress · {player.ultimateStatus?.reynaBuffRounds}
+              </span>
+            )}
+            {(player.ultimateStatus?.movementPenaltyTurns ?? 0) > 0 && (
+              <span className="player-status-chip player-status-chip--breach">
+                −{player.ultimateStatus?.movementPenalty ?? 1} move
+              </span>
+            )}
+            {player.ultimateStatus?.neonOverdrive && (
+              <span className="player-status-chip player-status-chip--overdrive">
+                Overdrive
+              </span>
+            )}
+            {player.ultimateStatus?.inViperPit && (
+              <span className="player-status-chip player-status-chip--poison">
+                In Pit
+              </span>
+            )}
+            {player.ultimateStatus?.phoenixRunItBack && (
+              <span className="player-status-chip player-status-chip--rewind">
+                Run It Back
+              </span>
+            )}
+            {itemsLocked && (
+              <span className="player-status-chip player-status-chip--null">
+                Items locked
+              </span>
+            )}
+          </div>
         </div>
 
         {canOpenDice && onOpenDice && (

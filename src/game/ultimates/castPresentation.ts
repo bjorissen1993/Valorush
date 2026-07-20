@@ -141,6 +141,7 @@ export function buildUltimateCastCue(input: CastCueBuildInput): UltimateCastCue 
     theme,
     highlightNodeIds: [...highlightNodeIds],
     highlightPlayerIndices: [...highlightPlayerIndices],
+    iconUrl: input.def.icon,
     durationMs: defaultCastDurationMs(theme),
   };
 }

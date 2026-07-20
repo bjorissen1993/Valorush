@@ -180,6 +180,8 @@ export type UltimateApplyResult = {
   headline: string;
   description: string;
   positionChanges: PositionChange[];
+  /** True when required targeting/choice was missing — orbs not spent. */
+  incomplete?: boolean;
   /** Jett: start special movement with this step count. */
   jettMoveSteps?: number;
   /** Omen: after teleport, allow mini-move up to N. */

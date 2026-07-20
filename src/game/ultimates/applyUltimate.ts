@@ -75,9 +75,25 @@ function rollDie(): number {
   return Math.floor(Math.random() * 6) + 1;
 }
 
+function incompleteResult(
+  input: UltimateApplyInput,
+  headline: string,
+  description: string
+): UltimateApplyResult {
+  return {
+    players: input.players,
+    board: input.board,
+    headline,
+    description,
+    positionChanges: [],
+    incomplete: true,
+  };
+}
+
 /**
  * Apply an agent ultimate. Caller must verify orbs === 3 and spend them
- * (this function spends on success).
+ * (this function spends on success). Missing targets return `incomplete`
+ * without spending orbs.
  */
 export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
   const def = getUltimateForAgent(input.agentName);
@@ -86,37 +102,86 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
   const caster = players[input.casterPlayerIndex];
 
   if (!caster) {
-    return {
-      players: input.players,
-      board: input.board,
-      headline: "Ultimate failed",
-      description: "Caster not found.",
-      positionChanges: [],
-    };
+    return incompleteResult(input, "Ultimate failed", "Caster not found.");
   }
 
-  if (!def || def.implementation === "stub") {
+  if (!def) {
+    return incompleteResult(
+      input,
+      "Ultimate failed",
+      `No ultimate registered for ${input.agentName}.`
+    );
+  }
+
+  if (def.implementation === "stub") {
     caster.ultimateOrbs = spendUltimate(caster.ultimateOrbs);
     return {
       players,
       board,
-      headline: def?.name ?? "Ultimate",
-      description: def
-        ? `${def.name} is not playable yet — orbs consumed as a placeholder.`
-        : "No ultimate registered for this agent.",
+      headline: def.name,
+      description: `${def.name} is not playable yet — orbs consumed as a placeholder.`,
       positionChanges: [],
       stub: true,
     };
   }
 
   if (caster.ultimateOrbs < 3) {
-    return {
-      players: input.players,
-      board: input.board,
-      headline: "Ultimate not ready",
-      description: "Need 3/3 ultimate orbs.",
-      positionChanges: [],
-    };
+    return incompleteResult(
+      input,
+      "Ultimate not ready",
+      "Need 3/3 ultimate orbs."
+    );
+  }
+
+  // Validate required targeting before spending orbs.
+  switch (def.id) {
+    case "orbital-strike":
+    case "vipers-pit":
+    case "from-the-shadows":
+    case "steel-garden":
+      if (!input.targetNodeId) {
+        return incompleteResult(input, def.name, "Pick a tile.");
+      }
+      break;
+    case "hunters-fury": {
+      const pathId = input.choiceId ?? input.targetNodeId;
+      const path =
+        ULTIMATE_BOARD_PATHS.find((p) => p.id === pathId) ??
+        input.paths.find((p) => p.id === pathId);
+      if (!path) {
+        return incompleteResult(input, def.name, "Pick a path to fire along.");
+      }
+      break;
+    }
+    case "resurrection":
+      if (
+        input.choiceId !== "to-start" &&
+        input.choiceId !== "extra-turn" &&
+        input.choiceId !== "cleanse"
+      ) {
+        return incompleteResult(input, def.name, "Choose an effect.");
+      }
+      break;
+    case "showstopper":
+    case "tour-de-force":
+      if (
+        input.targetPlayerIndex == null ||
+        input.targetPlayerIndex === input.casterPlayerIndex
+      ) {
+        return incompleteResult(input, def.name, "Pick a target.");
+      }
+      break;
+    case "cosmic-divide-ult":
+      if (!input.targetNodeId || !input.targetNodeId2) {
+        return incompleteResult(
+          input,
+          def.name,
+          "Pick a connected path edge to wall off."
+        );
+      }
+      break;
+    default:
+      break;
   }
 
   caster.ultimateOrbs = spendUltimate(caster.ultimateOrbs);
@@ -124,17 +189,7 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
 
   switch (def.id) {
     case "orbital-strike": {
-      const center = input.targetNodeId;
-      if (!center) {
-        caster.ultimateOrbs = 3;
-        return {
-          players: input.players,
-          board: input.board,
-          headline: "Orbital Strike",
-          description: "Pick a tile.",
-          positionChanges: [],
-        };
-      }
+      const center = input.targetNodeId!;
       const affected = new Set([center, ...getAdjacentNodeIds(center)]);
       const hitNames: string[] = [];
       for (let i = 0; i < players.length; i += 1) {
@@ -168,17 +223,7 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
     }
 
     case "vipers-pit": {
-      const nodeId = input.targetNodeId;
-      if (!nodeId) {
-        caster.ultimateOrbs = 3;
-        return {
-          players: input.players,
-          board: input.board,
-          headline: "Viper's Pit",
-          description: "Pick a tile for the poison cloud.",
-          positionChanges: [],
-        };
-      }
+      const nodeId = input.targetNodeId!;
       board.poisonClouds = board.poisonClouds.filter((c) => c.nodeId !== nodeId);
       board.poisonClouds.push({
         nodeId,
@@ -195,17 +240,7 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
     }
 
     case "from-the-shadows": {
-      const dest = input.targetNodeId;
-      if (!dest) {
-        caster.ultimateOrbs = 3;
-        return {
-          players: input.players,
-          board: input.board,
-          headline: "From The Shadows",
-          description: "Pick a teleport destination.",
-          positionChanges: [],
-        };
-      }
+      const dest = input.targetNodeId!;
       const from = caster.position;
       caster.position = dest;
       if (from !== dest) {
@@ -297,17 +332,7 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
       const pathId = input.choiceId ?? input.targetNodeId;
       const path =
         ULTIMATE_BOARD_PATHS.find((p) => p.id === pathId) ??
-        input.paths.find((p) => p.id === pathId);
-      if (!path) {
-        caster.ultimateOrbs = 3;
-        return {
-          players: input.players,
-          board: input.board,
-          headline: "Hunter's Fury",
-          description: "Pick a path to fire along.",
-          positionChanges: [],
-        };
-      }
+        input.paths.find((p) => p.id === pathId)!;
       const hitSet = new Set(path.nodeIds);
       const parts: string[] = [];
       for (let i = 0; i < players.length; i += 1) {
@@ -370,22 +395,13 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
           positionChanges: [],
         };
       }
-      if (choice === "cleanse") {
-        caster.status = clearStatusEffects(caster.status);
-        return {
-          players,
-          board,
-          headline: "Resurrection",
-          description: `${caster.name}'s status effects were cleared.`,
-          positionChanges: [],
-        };
-      }
-      caster.ultimateOrbs = 3;
+      // cleanse
+      caster.status = clearStatusEffects(caster.status);
       return {
-        players: input.players,
-        board: input.board,
+        players,
+        board,
         headline: "Resurrection",
-        description: "Choose an effect.",
+        description: `${caster.name}'s status effects were cleared.`,
         positionChanges: [],
       };
     }
@@ -434,19 +450,10 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
     }
 
     case "showstopper": {
-      const targetIdx = input.targetPlayerIndex;
-      if (targetIdx == null || targetIdx === input.casterPlayerIndex) {
-        caster.ultimateOrbs = 3;
-        return {
-          players: input.players,
-          board: input.board,
-          headline: "Showstopper",
-          description: "Pick a target and effect.",
-          positionChanges: [],
-        };
-      }
+      const targetIdx = input.targetPlayerIndex!;
       const target = players[targetIdx]!;
-      const mode = input.razeMode ?? (input.choiceId === "spaces" ? "spaces" : "creds");
+      const mode =
+        input.razeMode ?? (input.choiceId === "spaces" ? "spaces" : "creds");
       if (isUntargetable(target) || tryConsumeCloveShield(target)) {
         return {
           players,
@@ -557,18 +564,8 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
     }
 
     case "cosmic-divide-ult": {
-      const from = input.targetNodeId;
-      const to = input.targetNodeId2;
-      if (!from || !to) {
-        caster.ultimateOrbs = 3;
-        return {
-          players: input.players,
-          board: input.board,
-          headline: "Cosmic Divide",
-          description: "Pick a connected path edge to wall off.",
-          positionChanges: [],
-        };
-      }
+      const from = input.targetNodeId!;
+      const to = input.targetNodeId2!;
       board.walls = board.walls.filter(
         (w) =>
           !(
@@ -617,17 +614,7 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
     }
 
     case "tour-de-force": {
-      const targetIdx = input.targetPlayerIndex;
-      if (targetIdx == null || targetIdx === input.casterPlayerIndex) {
-        caster.ultimateOrbs = 3;
-        return {
-          players: input.players,
-          board: input.board,
-          headline: "Tour de Force",
-          description: "Pick a duel opponent.",
-          positionChanges: [],
-        };
-      }
+      const targetIdx = input.targetPlayerIndex!;
       const target = players[targetIdx]!;
       if (isUntargetable(target)) {
         return {
@@ -702,17 +689,7 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
     }
 
     case "steel-garden": {
-      const nodeId = input.targetNodeId;
-      if (!nodeId) {
-        caster.ultimateOrbs = 3;
-        return {
-          players: input.players,
-          board: input.board,
-          headline: "Steel Garden",
-          description: "Pick a tile for the trap.",
-          positionChanges: [],
-        };
-      }
+      const nodeId = input.targetNodeId!;
       board.traps = board.traps.filter((t) => t.nodeId !== nodeId);
       board.traps.push({
         nodeId,

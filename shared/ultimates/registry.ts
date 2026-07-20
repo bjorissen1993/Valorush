@@ -24,7 +24,7 @@ export const ultimateRegistry: UltimateDefinition[] = [
       "Drop a poison cloud on a tile for 1 round. Players in the cloud have half movement (floored).",
     targetKind: "tile",
     implementation: "full",
-    icon: "/abilities/viper/Viper's_Pit.png",
+    icon: "/abilities/viper/Vipers_Pit.png",
   },
   {
     agentName: "Omen",
@@ -64,7 +64,7 @@ export const ultimateRegistry: UltimateDefinition[] = [
       "Fire along a board path. Each opponent hit loses a random item or −250 creds.",
     targetKind: "path",
     implementation: "full",
-    icon: "/abilities/sova/Hunter's_Fury.png",
+    icon: "/abilities/sova/Hunters_Fury.png",
   },
   {
     agentName: "Sage",
@@ -189,7 +189,7 @@ export const ultimateRegistry: UltimateDefinition[] = [
     targetKind: "none",
     rangeTiles: 3,
     implementation: "full",
-    icon: "/abilities/kayo/NULL-CMD.png",
+    icon: "/abilities/kayo/NULL-cmd.png",
   },
   {
     agentName: "Chamber",
@@ -295,14 +295,44 @@ export const ultimateRegistry: UltimateDefinition[] = [
   },
 ];
 
+/** Strip punctuation/spacing so "KAY/O", "Kayo", "kay-o" all match. */
+export function normalizeAgentLookupKey(agentName: string): string {
+  return agentName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
 export const ultimateByAgentName = new Map(
   ultimateRegistry.map((ult) => [ult.agentName, ult])
 );
 
+const ultimateByNormalizedName = new Map(
+  ultimateRegistry.map((ult) => [normalizeAgentLookupKey(ult.agentName), ult])
+);
+
+/** Extra aliases for API / display name drift. */
+const AGENT_NAME_ALIASES: Record<string, string> = {
+  kayo: "kayo",
+  kay: "kayo",
+  nullcmd: "kayo",
+};
+
 export function getUltimateForAgent(
   agentName: string
 ): UltimateDefinition | undefined {
-  return ultimateByAgentName.get(agentName);
+  if (!agentName || agentName === "No agent") return undefined;
+  const exact = ultimateByAgentName.get(agentName);
+  if (exact) return exact;
+  const key = normalizeAgentLookupKey(agentName);
+  const aliased = AGENT_NAME_ALIASES[key] ?? key;
+  return ultimateByNormalizedName.get(aliased);
+}
+
+/** Playable (fully implemented) ultimates only. */
+export function listPlayableUltimates(): UltimateDefinition[] {
+  return ultimateRegistry.filter((ult) => ult.implementation === "full");
 }
 
 /** Board paths used by Sova Hunter's Fury (and similar path ultimates). */

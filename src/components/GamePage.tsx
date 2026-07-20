@@ -1842,7 +1842,6 @@ export default function GamePage({
   }
 
   function confirmUltimateFromBoard(selection: UltimateTargetSelection) {
-    setUltimateTargeting(null);
     void resolveUltimateUse(selection);
   }
 
@@ -3787,6 +3786,29 @@ export default function GamePage({
       stealFromPlayerIndex: selection.stealFromPlayerIndex,
     });
 
+    if (result.incomplete) {
+      setStatusTitle(result.headline);
+      setStatusSubtitle(result.description);
+      showAnnouncement(result.headline, result.description);
+      // Keep / restore targeting or modal so the cast can be completed.
+      if (usesBoardTargeting(def.targetKind) && def.targetKind !== "player_or_choice") {
+        setUltimateModalOpen(false);
+        setUltimateTargeting({
+          agentName,
+          ultimateId: def.id,
+          ultimateName: def.name,
+          targetKind: def.targetKind,
+        });
+      } else if (
+        def.targetKind === "choice" ||
+        def.targetKind === "sequential_opponents" ||
+        def.targetKind === "player_or_choice"
+      ) {
+        setUltimateModalOpen(true);
+      }
+      return;
+    }
+
     setUltimateModalOpen(false);
     setUltimateTargeting(null);
     setRazeTargetPlayerIndex(null);
@@ -5222,6 +5244,11 @@ export default function GamePage({
                       }
                     : null
                 }
+                hazards={{
+                  poisonClouds: boardUltimateState.poisonClouds,
+                  walls: boardUltimateState.walls,
+                  traps: boardUltimateState.traps,
+                }}
               />
             </div>
           </div>

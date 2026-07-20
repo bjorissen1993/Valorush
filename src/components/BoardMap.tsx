@@ -27,6 +27,12 @@ export type BoardCastFx = {
   playerIndices: number[];
 };
 
+export type BoardHazardState = {
+  poisonClouds: { nodeId: string; roundsLeft: number }[];
+  walls: { fromNodeId: string; toNodeId: string; roundsLeft: number }[];
+  traps: { nodeId: string; armed: boolean }[];
+};
+
 type Props = {
   players: PlayerInGame[];
   currentPlayerIndex: number;
@@ -52,6 +58,8 @@ type Props = {
   onSpikePlantAnimationComplete?: () => void;
   /** Short-lived ultimate cast tile / token highlights. */
   castFx?: BoardCastFx | null;
+  /** Persistent ultimate hazards (poison / walls / traps). */
+  hazards?: BoardHazardState | null;
 };
 
 const LAYOUT_MIN_X = 10;
@@ -189,6 +197,7 @@ function BoardMap({
   spikePlantAnimation = null,
   onSpikePlantAnimationComplete,
   castFx = null,
+  hazards = null,
 }: Props) {
   const currentPlayer = players[currentPlayerIndex];
   const currentPlayerNodeId = currentPlayer?.position;
@@ -197,6 +206,22 @@ function BoardMap({
   const castFxNodeSet = new Set(castFx?.nodeIds ?? []);
   const castFxPlayerSet = new Set(castFx?.playerIndices ?? []);
   const castFxTheme = castFx?.theme ?? "generic";
+  const poisonNodeSet = new Set(
+    (hazards?.poisonClouds ?? [])
+      .filter((c) => c.roundsLeft > 0)
+      .map((c) => c.nodeId)
+  );
+  const trapNodeSet = new Set(
+    (hazards?.traps ?? []).filter((t) => t.armed).map((t) => t.nodeId)
+  );
+  const wallEdgeSet = new Set(
+    (hazards?.walls ?? [])
+      .filter((w) => w.roundsLeft > 0)
+      .flatMap((w) => [
+        edgeKey(w.fromNodeId, w.toNodeId),
+        edgeKey(w.toNodeId, w.fromNodeId),
+      ])
+  );
   const selectableEdgeSet = new Set(
     selectableEdges.map((edge) => edgeKey(edge.from, edge.to))
   );
@@ -364,6 +389,7 @@ function BoardMap({
           const selectKey = edgeKey(from, to);
           const isSelectable = selectableEdgeSet.has(selectKey);
           const isHovered = hoveredEdgeKey === selectKey;
+          const isWalled = wallEdgeSet.has(selectKey);
           const dimEdge =
             isTargetingMode && hasSelectableEdges && !isSelectable;
 
@@ -371,7 +397,12 @@ function BoardMap({
             <g
               key={key}
               opacity={dimEdge ? 0.28 : 1}
-              className={isSelectable ? "board-map-edge--selectable" : undefined}
+              className={[
+                isSelectable ? "board-map-edge--selectable" : "",
+                isWalled ? "board-map-edge--walled" : "",
+              ]
+                .filter(Boolean)
+                .join(" ") || undefined}
             >
               <line
                 x1={x1}
@@ -382,19 +413,42 @@ function BoardMap({
                 strokeWidth="4.8"
                 strokeLinecap="round"
               />
+              {isWalled && (
+                <line
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  className="board-map-wall-beam"
+                  stroke="rgba(167,139,250,0.95)"
+                  strokeWidth="6.5"
+                  strokeLinecap="round"
+                  filter="url(#board-path-glow)"
+                />
+              )}
               <line
                 x1={x1}
                 y1={y1}
                 x2={x2}
                 y2={y2}
                 stroke={
-                  isSelectable
-                    ? isHovered
-                      ? "rgba(252,165,165,0.55)"
-                      : "rgba(248,113,113,0.35)"
-                    : "rgba(34,211,238,0.16)"
+                  isWalled
+                    ? "rgba(196,181,253,0.9)"
+                    : isSelectable
+                      ? isHovered
+                        ? "rgba(252,165,165,0.55)"
+                        : "rgba(248,113,113,0.35)"
+                      : "rgba(34,211,238,0.16)"
                 }
-                strokeWidth={isSelectable ? (isHovered ? 5.2 : 4.2) : 3.6}
+                strokeWidth={
+                  isWalled
+                    ? 4.8
+                    : isSelectable
+                      ? isHovered
+                        ? 5.2
+                        : 4.2
+                      : 3.6
+                }
                 strokeLinecap="round"
                 filter="url(#board-path-glow)"
               />
@@ -404,16 +458,21 @@ function BoardMap({
                 x2={x2}
                 y2={y2}
                 stroke={
-                  isSelectable
-                    ? isHovered
-                      ? "rgba(254,202,202,0.95)"
-                      : "rgba(252,165,165,0.75)"
-                    : `url(#board-path-grad-${key})`
+                  isWalled
+                    ? "rgba(237,233,254,0.95)"
+                    : isSelectable
+                      ? isHovered
+                        ? "rgba(254,202,202,0.95)"
+                        : "rgba(252,165,165,0.75)"
+                      : `url(#board-path-grad-${key})`
                 }
-                strokeWidth={isSelectable ? (isHovered ? 3.2 : 2.6) : 2.2}
+                strokeWidth={
+                  isWalled ? 2.8 : isSelectable ? (isHovered ? 3.2 : 2.6) : 2.2
+                }
                 strokeLinecap="round"
+                strokeDasharray={isWalled ? "3.2 2.4" : undefined}
               />
-              {!isSelectable && (
+              {!isSelectable && !isWalled && (
                 <>
                   <line
                     x1={x1}
@@ -478,6 +537,8 @@ function BoardMap({
           spikePlantAnimation?.toNodeId === node.id && flyingSpikePosition !== null;
         const isPathChoiceOption = selectableNodeIdSet.has(node.id);
         const isCastFxTile = castFxNodeSet.has(node.id);
+        const isPoisonTile = poisonNodeSet.has(node.id);
+        const isTrapTile = trapNodeSet.has(node.id);
         const isCurrentPlayerTile =
           highlightCurrentPlayer && currentPlayerNodeId === node.id;
         const isDimmed =
@@ -533,6 +594,10 @@ function BoardMap({
                 ? `ult-cast-tile ult-cast-tile--${castFxTheme} z-[4]`
                 : ""
             } ${
+              isPoisonTile ? "board-hazard-tile board-hazard-tile--poison" : ""
+            } ${
+              isTrapTile ? "board-hazard-tile board-hazard-tile--trap" : ""
+            } ${
               isDimmed ? "pointer-events-none opacity-35 saturate-50" : ""
             } ${
               debugClickable && !isPathChoiceOption
@@ -545,6 +610,26 @@ function BoardMap({
               transform: "translate(-50%, -50%)",
             }}
           >
+            {isPoisonTile && (
+              <div className="board-hazard-poison" aria-hidden>
+                <span className="board-hazard-poison__cloud" />
+                <span className="board-hazard-poison__cloud board-hazard-poison__cloud--2" />
+                <span className="board-hazard-poison__particles" />
+              </div>
+            )}
+            {isTrapTile && (
+              <div
+                className="board-hazard-trap"
+                aria-label="Steel Garden trap"
+                title="Steel Garden trap"
+              >
+                <img
+                  src="/abilities/vyse/Steel_Garden.png"
+                  alt=""
+                  className="board-hazard-trap__icon"
+                />
+              </div>
+            )}
             {isActiveSpikeTile && (
               <div className="absolute -right-3 -top-3 z-[5] flex h-12 w-12 items-center justify-center">
                 <img
@@ -574,6 +659,26 @@ function BoardMap({
                 const isMoving = playerIndex === movingPlayerIndex;
                 const isSelectablePlayer = selectablePlayerSet.has(playerIndex);
                 const isCastFxPlayer = castFxPlayerSet.has(playerIndex);
+                const status = player.ultimateStatus;
+                const statusClasses = [
+                  (status?.yoruDriftRounds ?? 0) > 0
+                    ? "board-token--drift"
+                    : "",
+                  (status?.reynaBuffRounds ?? 0) > 0
+                    ? "board-token--empress"
+                    : "",
+                  status?.cloveShield ? "board-token--shield" : "",
+                  (status?.movementPenaltyTurns ?? 0) > 0
+                    ? "board-token--breach"
+                    : "",
+                  status?.neonOverdrive ? "board-token--overdrive" : "",
+                  status?.inViperPit ? "board-token--poison" : "",
+                  (status?.itemsLockedTurns ?? 0) > 0
+                    ? "board-token--null"
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
 
                 return (
                   <div
@@ -594,7 +699,8 @@ function BoardMap({
                     }}
                     className={[
                       tokenSizeClass,
-                      "overflow-hidden rounded-full border-2 shadow transition-all duration-150",
+                      "board-token relative overflow-hidden rounded-full border-2 shadow transition-all duration-150",
+                      statusClasses,
                       isSelectablePlayer
                         ? "animate-ultimateTargetPulse cursor-pointer border-red-200 shadow-[0_0_22px_rgba(248,113,113,0.65)] ring-4 ring-red-400/45 hover:scale-110"
                         : isCurrent

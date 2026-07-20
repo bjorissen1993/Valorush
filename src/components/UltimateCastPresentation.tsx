@@ -47,6 +47,15 @@ export default function UltimateCastPresentation({
       </div>
 
       <div className="ult-cast-overlay__banner">
+        {cue.iconUrl ? (
+          <div className="ult-cast-overlay__ability-wrap">
+            <img
+              src={cue.iconUrl}
+              alt=""
+              className="ult-cast-overlay__ability"
+            />
+          </div>
+        ) : null}
         <div className="ult-cast-overlay__portrait-wrap">
           <img
             src={portrait}

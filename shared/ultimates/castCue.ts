@@ -35,6 +35,8 @@ export type UltimateCastCue = {
   theme: UltimateCastTheme;
   highlightNodeIds: string[];
   highlightPlayerIndices: number[];
+  /** Ability icon under /abilities when available. */
+  iconUrl?: string;
   /** Presentation length before auto-dismiss (1.5–3s). */
   durationMs: number;
 };

@@ -63,7 +63,12 @@ export default function UltimateTargetModal({
 
   if (kind === "none") {
     return (
-      <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
+      <ModalShell
+        title={ultimate.name}
+        subtitle={ultimate.description}
+        iconUrl={ultimate.icon}
+        onCancel={onCancel}
+      >
         <p className="text-sm text-zinc-400">
           {casterName} activates{" "}
           <span className="font-semibold text-white">{ultimate.name}</span>.
@@ -86,7 +91,12 @@ export default function UltimateTargetModal({
 
   if (kind === "choice" && ultimate.choices) {
     return (
-      <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
+      <ModalShell
+        title={ultimate.name}
+        subtitle={ultimate.description}
+        iconUrl={ultimate.icon}
+        onCancel={onCancel}
+      >
         <div className="flex flex-col gap-2">
           {ultimate.choices.map((choice) => (
             <button
@@ -121,7 +131,12 @@ export default function UltimateTargetModal({
 
   // Fallback: should not open for board-targeted kinds.
   return (
-    <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
+    <ModalShell
+      title={ultimate.name}
+      subtitle={ultimate.description}
+      iconUrl={ultimate.icon}
+      onCancel={onCancel}
+    >
       <p className="text-sm text-zinc-400">
         Select your target on the board, then confirm.
       </p>
@@ -135,21 +150,30 @@ export default function UltimateTargetModal({
 function ModalShell({
   title,
   subtitle,
+  iconUrl,
   onCancel,
   children,
 }: {
   title: string;
   subtitle: string;
+  iconUrl?: string;
   onCancel: () => void;
   children: ReactNode;
 }) {
   return (
     <div className="fixed inset-0 z-[85] flex animate-fadeIn items-center justify-center bg-black/60 p-4">
       <div className="ultimate-modal">
-        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">
-          Ultimate
-        </p>
-        <h2 className="mt-2 text-2xl font-bold text-white">{title}</h2>
+        <div className="ultimate-modal__header">
+          {iconUrl ? (
+            <img src={iconUrl} alt="" className="ultimate-modal__icon" />
+          ) : null}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">
+              Ultimate
+            </p>
+            <h2 className="mt-2 text-2xl font-bold text-white">{title}</h2>
+          </div>
+        </div>
         <p className="mt-2 text-sm text-zinc-400">{subtitle}</p>
         <div className="mt-5">{children}</div>
         <button type="button" className="ultimate-modal__cancel" onClick={onCancel}>
@@ -175,6 +199,7 @@ function RazeModePicker({
     <ModalShell
       title={ultimate.name}
       subtitle={`Blast ${player.name} — choose the effect.`}
+      iconUrl={ultimate.icon}
       onCancel={onCancel}
     >
       <div className="flex flex-wrap gap-2">
@@ -229,7 +254,12 @@ function KilljoyPicker({
   });
 
   return (
-    <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
+    <ModalShell
+      title={ultimate.name}
+      subtitle={ultimate.description}
+      iconUrl={ultimate.icon}
+      onCancel={onCancel}
+    >
       <div className="space-y-3">
         {otherPlayers.map((p) => (
           <div
