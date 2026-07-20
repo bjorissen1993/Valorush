@@ -176,13 +176,13 @@ export default function PlayerInventorySidebar({
   const orbs = player.ultimateOrbs ?? 0;
   const ultReady = canActivateUltimate(orbs);
   const itemsLocked = (player.ultimateStatus?.itemsLockedTurns ?? 0) > 0;
-  const canShowUltActivate =
+  /** Show the text Activate button whenever this agent has a playable ult. */
+  const showUltActivateButton =
     Boolean(ultimateDef) &&
     ultimateDef?.implementation === "full" &&
-    isCurrentTurn &&
-    canAct &&
-    ultReady &&
     Boolean(onActivateUltimate);
+  const canClickUltActivate =
+    showUltActivateButton && isCurrentTurn && canAct && ultReady;
 
   function handleItemClick(item: ItemDefinition) {
     if (!canAct || !onUseItem || !isUsableBoardItem(item)) return;
@@ -265,6 +265,10 @@ export default function PlayerInventorySidebar({
           </div>
         </div>
 
+        {/*
+          Ultimate card stack (only one ability <img>):
+          1) large art  2) plain charge orbs  3) text Activate button
+        */}
         <div className="player-inventory-panel__ultimate">
           {ultimateDef ? (
             <HoverTooltip
@@ -315,11 +319,12 @@ export default function PlayerInventorySidebar({
             <UltimateMeter orbs={orbs} showReadyLabel />
           </div>
 
-          {canShowUltActivate && (
+          {showUltActivateButton && (
             <button
               type="button"
               className="player-inventory-panel__ult-btn"
               onClick={onActivateUltimate}
+              disabled={!canClickUltActivate}
             >
               Activate Ultimate
             </button>

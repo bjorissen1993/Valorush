@@ -3481,7 +3481,14 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #fff;
-  transition: filter 0.15s ease, border-color 0.15s ease;
+  transition: filter 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.player-inventory-panel__ult-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  filter: grayscale(0.35);
+  border-color: rgba(248, 113, 113, 0.28);
 }
 
 .player-inventory-panel__status-row {
@@ -3544,7 +3551,7 @@ body {
   color: #cbd5e1;
 }
 
-.player-inventory-panel__ult-btn:hover {
+.player-inventory-panel__ult-btn:hover:not(:disabled) {
   filter: brightness(1.12);
   border-color: rgba(252, 165, 165, 0.85);
 }

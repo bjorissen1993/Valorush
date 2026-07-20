@@ -3724,6 +3724,7 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 
 // shared/lobbyTypes.ts
 var MAX_LOBBY_PLAYERS = 4;
+var SYSTEM_CHAT_PLAYER_ID = "system";
 
 // shared/turnOrderDiceSystem.ts
 function rollD6() {
@@ -3952,7 +3953,7 @@ async function handleTwitchAppToken(res) {
   const clientSecret = process.env.VITE_TWITCH_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
     sendJson(res, 400, {
-      error: "Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local, then restart the server."
+      error: process.env.NODE_ENV === "production" ? "Twitch credentials are not configured on the server." : "Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local, then restart the server."
     });
     return;
   }
@@ -3979,7 +3980,7 @@ async function handleTwitchOAuthToken(req, res) {
   const clientSecret = process.env.VITE_TWITCH_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
     sendJson(res, 400, {
-      error: "Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local for OAuth sign-in."
+      error: process.env.NODE_ENV === "production" ? "Twitch OAuth credentials are not configured on the server." : "Set VITE_TWITCH_CLIENT_ID and VITE_TWITCH_CLIENT_SECRET in .env.local for OAuth sign-in."
     });
     return;
   }
@@ -4147,6 +4148,9 @@ function handleHttpRequest(req, res) {
 }
 var CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 var CODE_LENGTH = 6;
+var REJOIN_GRACE_MS = 10 * 60 * 1e3;
+var MAX_CHAT_HISTORY = 120;
+var DISCONNECT_ANNOUNCE_DELAY_MS = 4e3;
 var rooms = /* @__PURE__ */ new Map();
 var playerToRoom = /* @__PURE__ */ new Map();
 function generateCode() {
@@ -4179,6 +4183,39 @@ function send(ws, message) {
     ws.send(JSON.stringify(message));
   }
 }
+function createSystemChatMessage(text) {
+  return {
+    id: (0, import_node_crypto.randomBytes)(8).toString("hex"),
+    playerId: SYSTEM_CHAT_PLAYER_ID,
+    playerName: "System",
+    text,
+    sentAt: Date.now(),
+    kind: "system"
+  };
+}
+function appendChatMessage(room, message) {
+  room.chatHistory.push(message);
+  if (room.chatHistory.length > MAX_CHAT_HISTORY) {
+    room.chatHistory.splice(0, room.chatHistory.length - MAX_CHAT_HISTORY);
+  }
+}
+function broadcastChatMessage(room, message) {
+  appendChatMessage(room, message);
+  const payload = { type: "chat_message", message };
+  for (const client of room.clients.values()) {
+    send(client.ws, payload);
+  }
+}
+function broadcastSystemChat(room, text) {
+  broadcastChatMessage(room, createSystemChatMessage(text));
+}
+function sendChatHistory(ws, room) {
+  if (room.chatHistory.length === 0) return;
+  send(ws, {
+    type: "chat_history",
+    messages: room.chatHistory.map((message) => ({ ...message }))
+  });
+}
 function pushRoomState(room) {
   for (const [playerId, client] of room.clients) {
     const player = room.players.find((entry) => entry.id === playerId);
@@ -4190,7 +4227,42 @@ function pushRoomState(room) {
     });
   }
 }
-function disconnectClient(playerId) {
+function clearRoomCleanupTimer(room) {
+  if (!room.cleanupTimer) return;
+  clearTimeout(room.cleanupTimer);
+  room.cleanupTimer = void 0;
+}
+function scheduleRoomCleanup(room) {
+  if (room.clients.size > 0) {
+    clearRoomCleanupTimer(room);
+    return;
+  }
+  if (room.cleanupTimer) return;
+  room.cleanupTimer = setTimeout(() => {
+    room.cleanupTimer = void 0;
+    if (room.clients.size === 0) {
+      rooms.delete(room.code);
+    }
+  }, REJOIN_GRACE_MS);
+}
+function clearPendingDisconnectAnnouncement(room, playerId) {
+  const timer = room.pendingDisconnectAnnouncements.get(playerId);
+  if (!timer) return false;
+  clearTimeout(timer);
+  room.pendingDisconnectAnnouncements.delete(playerId);
+  return true;
+}
+function scheduleDisconnectAnnouncement(room, playerId, playerName) {
+  clearPendingDisconnectAnnouncement(room, playerId);
+  const timer = setTimeout(() => {
+    room.pendingDisconnectAnnouncements.delete(playerId);
+    if (room.clients.has(playerId)) return;
+    if (!room.players.some((entry) => entry.id === playerId)) return;
+    broadcastSystemChat(room, `${playerName} disconnected`);
+  }, DISCONNECT_ANNOUNCE_DELAY_MS);
+  room.pendingDisconnectAnnouncements.set(playerId, timer);
+}
+function disconnectClient(ws, playerId) {
   const roomCode = playerToRoom.get(playerId);
   if (!roomCode) return;
   const room = rooms.get(roomCode);
@@ -4198,8 +4270,15 @@ function disconnectClient(playerId) {
     playerToRoom.delete(playerId);
     return;
   }
+  const client = room.clients.get(playerId);
+  if (!client || client.ws !== ws) return;
+  const player = room.players.find((entry) => entry.id === playerId);
   room.clients.delete(playerId);
   playerToRoom.delete(playerId);
+  scheduleRoomCleanup(room);
+  if (player) {
+    scheduleDisconnectAnnouncement(room, playerId, player.name);
+  }
 }
 function pickNextHost(players, leavingPlayerId) {
   let nextHost = null;
@@ -4212,6 +4291,59 @@ function pickNextHost(players, leavingPlayerId) {
   return nextHost;
 }
 function removePlayerOnExplicitLeave(playerId) {
+  removePlayerFromRoom(playerId, { transferHostOnLeave: true });
+}
+function removePlayerByKick(targetPlayerId, hostPlayerId) {
+  const roomCode = playerToRoom.get(hostPlayerId);
+  if (!roomCode) return;
+  const room = rooms.get(roomCode);
+  if (!room) return;
+  const host = room.players.find((player) => player.id === hostPlayerId);
+  if (!host?.isHost) return;
+  if (room.status !== "waiting") return;
+  if (targetPlayerId === hostPlayerId) return;
+  const target = room.players.find((player) => player.id === targetPlayerId);
+  const targetName = target?.name ?? "A player";
+  const targetClient = room.clients.get(targetPlayerId);
+  if (targetClient) {
+    send(targetClient.ws, {
+      type: "error",
+      message: "You were removed from the lobby."
+    });
+    removePlayerFromRoom(targetPlayerId, {
+      transferHostOnLeave: false,
+      announceLeave: false
+    });
+    targetClient.ws.close();
+  } else {
+    removePlayerFromRoom(targetPlayerId, {
+      transferHostOnLeave: false,
+      announceLeave: false
+    });
+  }
+  const stillExists = rooms.get(roomCode);
+  if (stillExists) {
+    broadcastSystemChat(stillExists, `${targetName} was removed from the lobby`);
+  }
+}
+function transferHostRole(hostPlayerId, targetPlayerId) {
+  const roomCode = playerToRoom.get(hostPlayerId);
+  if (!roomCode) return;
+  const room = rooms.get(roomCode);
+  if (!room) return;
+  const host = room.players.find((player) => player.id === hostPlayerId);
+  if (!host?.isHost) return;
+  if (room.status !== "waiting") return;
+  if (targetPlayerId === hostPlayerId) return;
+  const target = room.players.find((player) => player.id === targetPlayerId);
+  if (!target) return;
+  for (const player of room.players) {
+    player.isHost = player.id === targetPlayerId;
+  }
+  room.hostPlayerId = targetPlayerId;
+  pushRoomState(room);
+}
+function removePlayerFromRoom(playerId, options) {
   const roomCode = playerToRoom.get(playerId);
   if (!roomCode) return;
   const room = rooms.get(roomCode);
@@ -4222,12 +4354,13 @@ function removePlayerOnExplicitLeave(playerId) {
   room.clients.delete(playerId);
   playerToRoom.delete(playerId);
   const leaving = room.players.find((player) => player.id === playerId);
-  if (leaving?.isHost) {
+  if (options.transferHostOnLeave && leaving?.isHost) {
     const nextHost = pickNextHost(room.players, playerId);
     if (nextHost) {
       for (const player of room.players) {
         player.isHost = player.id === nextHost.id;
       }
+      room.hostPlayerId = nextHost.id;
     }
   }
   room.players = room.players.filter((player) => player.id !== playerId);
@@ -4235,11 +4368,45 @@ function removePlayerOnExplicitLeave(playerId) {
     rooms.delete(roomCode);
     return;
   }
+  if (leaving && options.announceLeave !== false) {
+    const place = room.status === "waiting" ? "lobby" : "game";
+    broadcastSystemChat(room, `${leaving.name} left the ${place}`);
+  }
   pushRoomState(room);
 }
+function getHostPlayerId(room) {
+  if (room.hostPlayerId) {
+    const stillHost = room.players.some(
+      (player) => player.id === room.hostPlayerId && player.isHost
+    );
+    if (stillHost) return room.hostPlayerId;
+  }
+  return room.players.find((player) => player.isHost)?.id ?? null;
+}
+function broadcastGameState(room, snapshot) {
+  room.gameSnapshot = snapshot;
+  const message = { type: "game_state", snapshot };
+  for (const client of room.clients.values()) {
+    send(client.ws, message);
+  }
+}
+function forwardGameActionToHost(room, fromPlayerId, action) {
+  const hostId = getHostPlayerId(room);
+  if (!hostId || hostId === fromPlayerId) return;
+  const hostClient = room.clients.get(hostId);
+  if (!hostClient) return;
+  send(hostClient.ws, {
+    type: "game_action",
+    fromPlayerId,
+    action: action.action
+  });
+}
 function attachClient(room, ws, playerId) {
+  const wasPendingDisconnect = clearPendingDisconnectAnnouncement(room, playerId);
   room.clients.set(playerId, { ws, playerId, roomCode: room.code });
   playerToRoom.set(playerId, room.code);
+  clearRoomCleanupTimer(room);
+  return { wasPendingDisconnect };
 }
 function profileFromMessage(profile) {
   const name = profile.name.trim().slice(0, 32);
@@ -4286,11 +4453,31 @@ function handleCreate(ws, profile) {
     code,
     status: "waiting",
     players: [host],
-    clients: /* @__PURE__ */ new Map()
+    clients: /* @__PURE__ */ new Map(),
+    chatHistory: [],
+    pendingDisconnectAnnouncements: /* @__PURE__ */ new Map()
   };
   rooms.set(code, room);
   attachClient(room, ws, playerId);
+  room.hostPlayerId = playerId;
   pushRoomState(room);
+}
+function handleCheckLobby(ws, rawCode) {
+  const code = normalizeCode(rawCode);
+  const room = rooms.get(code);
+  if (!room) {
+    send(ws, { type: "error", message: "Lobby not found. Check the join code." });
+    return;
+  }
+  if (room.status !== "waiting") {
+    send(ws, { type: "error", message: "This lobby has already started." });
+    return;
+  }
+  if (room.players.length >= MAX_LOBBY_PLAYERS) {
+    send(ws, { type: "error", message: "Lobby is full." });
+    return;
+  }
+  send(ws, { type: "lobby_check", code });
 }
 function handleJoin(ws, rawCode, profile) {
   const code = normalizeCode(rawCode);
@@ -4300,6 +4487,15 @@ function handleJoin(ws, rawCode, profile) {
     return;
   }
   if (room.status !== "waiting") {
+    const reconnectable = findReconnectablePlayer(room, profile);
+    if (reconnectable) {
+      const { wasPendingDisconnect } = attachClient(room, ws, reconnectable.id);
+      sendRejoinState(ws, room, reconnectable.id);
+      if (!wasPendingDisconnect) {
+        broadcastSystemChat(room, `${reconnectable.name} rejoined`);
+      }
+      return;
+    }
     send(ws, { type: "error", message: "This lobby has already started." });
     return;
   }
@@ -4337,9 +4533,53 @@ function handleJoin(ws, rawCode, profile) {
   room.players.push(player);
   attachClient(room, ws, playerId);
   pushRoomState(room);
+  sendChatHistory(ws, room);
+  broadcastSystemChat(room, `${player.name} joined the lobby`);
 }
-function handleRejoin(ws, rawCode, playerId) {
+function sendRejoinState(ws, room, playerId) {
+  const player = room.players.find((entry) => entry.id === playerId);
+  send(ws, {
+    type: "room_state",
+    state: roomState(room),
+    yourPlayerId: playerId,
+    isHost: !!player?.isHost
+  });
+  sendChatHistory(ws, room);
+  if (room.status === "in_game" && room.turnOrder) {
+    send(ws, {
+      type: "game_starting",
+      payload: {
+        players: roomState(room).players,
+        turnOrder: {
+          sequence: room.turnOrder.sequence,
+          playerIndexById: buildPlayerIndexById(room.players)
+        }
+      }
+    });
+  }
+  if (room.status === "in_game" && room.gameBegun && room.turnOrder?.sequence.order.length) {
+    send(ws, {
+      type: "game_begin",
+      payload: { turnOrder: room.turnOrder.sequence.order }
+    });
+  }
+  if (room.status === "in_game" && room.gameSnapshot) {
+    send(ws, { type: "game_state", snapshot: room.gameSnapshot });
+  }
+}
+function findReconnectablePlayer(room, profile) {
+  const normalized = profileFromMessage(profile);
+  return room.players.find((player) => {
+    if (room.clients.has(player.id)) return false;
+    if (normalized.twitchId && player.twitchId && player.twitchId === normalized.twitchId) {
+      return true;
+    }
+    return player.name.toLowerCase() === normalized.name.toLowerCase();
+  });
+}
+function handleRejoin(ws, rawCode, rawPlayerId) {
   const code = normalizeCode(rawCode);
+  const playerId = rawPlayerId.trim();
   const room = rooms.get(code);
   if (!room) {
     send(ws, { type: "error", message: "Lobby not found." });
@@ -4350,8 +4590,14 @@ function handleRejoin(ws, rawCode, playerId) {
     send(ws, { type: "error", message: "Could not rejoin \u2014 player slot expired." });
     return;
   }
-  attachClient(room, ws, playerId);
-  pushRoomState(room);
+  const { wasPendingDisconnect } = attachClient(room, ws, playerId);
+  if (player.isHost) {
+    room.hostPlayerId = playerId;
+  }
+  sendRejoinState(ws, room, playerId);
+  if (!wasPendingDisconnect) {
+    broadcastSystemChat(room, `${player.name} rejoined`);
+  }
 }
 function getClientContext(ws) {
   for (const room of rooms.values()) {
@@ -4380,6 +4626,9 @@ function handleMessage(ws, raw) {
       return;
     case "rejoin":
       handleRejoin(ws, message.code, message.playerId);
+      return;
+    case "check_lobby":
+      handleCheckLobby(ws, message.code);
       return;
     case "ping":
       send(ws, { type: "pong" });
@@ -4505,6 +4754,7 @@ function handleMessage(ws, raw) {
         return;
       }
       room.status = "starting";
+      room.hostPlayerId = playerId;
       const sequence = buildTurnOrderDiceSequence(room.players.length);
       room.turnOrder = {
         sequence,
@@ -4564,13 +4814,33 @@ function handleMessage(ws, raw) {
         send(ws, { type: "error", message: "Only the host can begin the match." });
         return;
       }
+      room.gameBegun = true;
+      const turnOrder = room.turnOrder?.sequence.order ?? [];
+      const beginMessage = {
+        type: "game_begin",
+        payload: { turnOrder }
+      };
       for (const client of room.clients.values()) {
-        send(client.ws, { type: "turn_order_done" });
+        send(client.ws, beginMessage);
       }
       return;
     }
+    case "game_state_publish": {
+      if (playerId !== getHostPlayerId(room)) {
+        send(ws, { type: "error", message: "Only the host can publish game state." });
+        return;
+      }
+      broadcastGameState(room, message.snapshot);
+      return;
+    }
+    case "game_action": {
+      if (room.status !== "in_game") return;
+      if (playerId === getHostPlayerId(room)) return;
+      forwardGameActionToHost(room, playerId, message);
+      return;
+    }
     case "chat_message": {
-      if (room.status !== "waiting") return;
+      if (room.status !== "waiting" && room.status !== "in_game") return;
       const text = message.text.trim().slice(0, 500);
       if (!text) {
         send(ws, { type: "error", message: "Message cannot be empty." });
@@ -4581,15 +4851,40 @@ function handleMessage(ws, raw) {
         playerId,
         playerName: player.name,
         text,
-        sentAt: Date.now()
+        sentAt: Date.now(),
+        kind: "player"
       };
-      const payload = {
-        type: "chat_message",
-        message: chatMessage
-      };
-      for (const client of room.clients.values()) {
-        send(client.ws, payload);
+      broadcastChatMessage(room, chatMessage);
+      return;
+    }
+    case "system_chat": {
+      if (room.status !== "waiting" && room.status !== "in_game") return;
+      if (playerId !== getHostPlayerId(room)) {
+        send(ws, { type: "error", message: "Only the host can publish system chat." });
+        return;
       }
+      const text = message.text.trim().slice(0, 500);
+      if (!text) {
+        send(ws, { type: "error", message: "Message cannot be empty." });
+        return;
+      }
+      broadcastSystemChat(room, text);
+      return;
+    }
+    case "kick_player": {
+      if (!player.isHost) {
+        send(ws, { type: "error", message: "Only the host can kick players." });
+        return;
+      }
+      removePlayerByKick(message.targetPlayerId.trim(), playerId);
+      return;
+    }
+    case "transfer_host": {
+      if (!player.isHost) {
+        send(ws, { type: "error", message: "Only the host can transfer host role." });
+        return;
+      }
+      transferHostRole(playerId, message.targetPlayerId.trim());
       return;
     }
     default:
@@ -4608,7 +4903,7 @@ wss.on("connection", (ws) => {
   });
   ws.on("close", () => {
     const ctx = getClientContext(ws);
-    if (ctx) disconnectClient(ctx.playerId);
+    if (ctx) disconnectClient(ws, ctx.playerId);
   });
 });
 enforceDistIntegrityAtStartup();
