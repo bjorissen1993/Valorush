@@ -12,7 +12,7 @@ type UltimateMeterProps = {
   agentName?: string;
 };
 
-/** Mario Party–style ultimate orb meter (0–3). */
+/** Mario Party–style ultimate orb meter (0–3). Plain dots only — no ability art. */
 export default function UltimateMeter({
   orbs,
   compact = false,
@@ -34,13 +34,6 @@ export default function UltimateMeter({
           : `Ultimate ${filled}/${MAX_ULTIMATE_ORBS}`
       }
     >
-      {def?.icon && ready && (
-        <img
-          src={def.icon}
-          alt=""
-          className="ultimate-meter__ready-icon"
-        />
-      )}
       <div
         className="ultimate-meter__orbs"
         aria-label={`Ultimate orbs ${filled} of ${MAX_ULTIMATE_ORBS}`}
@@ -71,13 +64,6 @@ export default function UltimateMeter({
       className="ultimate-meter-tooltip"
       content={
         <span className="ultimate-meter__tooltip">
-          {def.icon ? (
-            <img
-              src={def.icon}
-              alt=""
-              className="ultimate-meter__tooltip-icon"
-            />
-          ) : null}
           <strong className="ultimate-meter__tooltip-name">{def.name}</strong>
           <span className="ultimate-meter__tooltip-desc">{def.description}</span>
           <span className="ultimate-meter__tooltip-orbs">

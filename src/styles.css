@@ -3402,17 +3402,14 @@ body {
 
 .player-inventory-panel__ultimate {
   margin-bottom: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
   border: 1px solid rgba(248, 113, 113, 0.22);
   border-radius: 0.75rem;
   background: linear-gradient(135deg, rgba(127, 29, 29, 0.25), rgba(0, 0, 0, 0.35));
-  padding: 0.55rem 0.65rem;
-}
-
-.player-inventory-panel__ultimate-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  padding: 0.7rem 0.65rem 0.6rem;
 }
 
 .player-inventory-panel__ultimate-label {
@@ -3423,37 +3420,58 @@ body {
   color: rgba(254, 202, 202, 0.85);
 }
 
-.player-inventory-panel__ultimate-name {
-  margin-top: 0;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.85);
+.player-inventory-panel__ultimate-art-tooltip {
+  display: flex;
+  width: 100%;
+  justify-content: center;
 }
 
-.player-inventory-panel__ultimate-name-row {
-  margin-top: 0.3rem;
+.player-inventory-panel__ultimate-art {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: center;
+  height: 4.75rem;
+  width: 4.75rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.player-inventory-panel__ultimate-art--ready {
+  border-color: rgba(252, 165, 165, 0.55);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 0 14px rgba(239, 68, 68, 0.35);
 }
 
 .player-inventory-panel__ultimate-icon {
-  height: 2.75rem;
-  width: 2.75rem;
-  flex-shrink: 0;
-  border-radius: 0.45rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.45);
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
   object-fit: contain;
+  padding: 0.35rem;
+}
+
+.player-inventory-panel__ultimate-fallback {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fecaca;
+}
+
+.player-inventory-panel__ultimate-charges {
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .player-inventory-panel__ult-btn {
-  margin-top: 0.45rem;
+  margin-top: 0.1rem;
   width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.55rem;
   border-radius: 0.55rem;
   border: 1px solid rgba(248, 113, 113, 0.55);
   background: linear-gradient(180deg, rgba(239, 68, 68, 0.45), rgba(127, 29, 29, 0.65));
@@ -3466,18 +3484,17 @@ body {
   transition: filter 0.15s ease, border-color 0.15s ease;
 }
 
-.player-inventory-panel__ult-btn-icon {
-  height: 2.5rem;
-  width: 2.5rem;
-  border-radius: 0.4rem;
-  object-fit: contain;
-}
-
 .player-inventory-panel__status-row {
-  margin-top: 0.4rem;
+  margin-top: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
+  justify-content: center;
+  width: 100%;
+}
+
+.player-inventory-panel__status-row:empty {
+  display: none;
 }
 
 .player-status-chip {
@@ -4143,24 +4160,13 @@ body {
 }
 
 /* ── Ultimate ability icons in UI ───────────────────────────────── */
-.ultimate-meter__ready-icon {
-  height: 3rem;
-  width: 3rem;
-  border-radius: 0.45rem;
-  border: 1px solid rgba(252, 165, 165, 0.45);
-  background: rgba(0, 0, 0, 0.4);
-  object-fit: contain;
+.hover-tooltip.player-inventory-panel__ultimate-art-tooltip .hover-tooltip__bubble {
+  max-width: min(280px, 78vw);
+  border-color: rgba(248, 113, 113, 0.45);
 }
 
-.ultimate-meter__tooltip-icon {
-  display: block;
-  height: 3.75rem;
-  width: 3.75rem;
-  margin-bottom: 0.4rem;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(0, 0, 0, 0.45);
-  object-fit: contain;
+.hover-tooltip.player-inventory-panel__ultimate-art-tooltip .hover-tooltip__bubble::after {
+  border-top-color: rgba(248, 113, 113, 0.45);
 }
 
 .ult-cast-overlay__ability-wrap {

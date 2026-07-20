@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import type { PlayerInGame } from "../types/Game";
 import { itemById, type ItemDefinition } from "../../shared/items";
-import { getUltimateForAgent } from "../../shared/ultimates";
+import { getUltimateForAgent, MAX_ULTIMATE_ORBS } from "../../shared/ultimates";
 import { weaponImageMap, shieldImageMap } from "../game/data/weaponImages";
 import type { WeaponName } from "../game/systems/shopSystem";
-import UltimateMeter from "./UltimateMeter";
+import HoverTooltip from "./HoverTooltip";
+import UltimateMeter, { ULTIMATE_TOOLTIP_DELAY_MS } from "./UltimateMeter";
 import { canActivateUltimate } from "../game/ultimates";
 
 const SPIKE_ONLY_ITEM_IDS = new Set([
@@ -265,37 +266,61 @@ export default function PlayerInventorySidebar({
         </div>
 
         <div className="player-inventory-panel__ultimate">
-          <div className="player-inventory-panel__ultimate-row">
-            <span className="player-inventory-panel__ultimate-label">Ultimate</span>
-            <UltimateMeter orbs={orbs} agentName={agentName} />
-          </div>
-          {ultimateDef && (
-            <div className="player-inventory-panel__ultimate-name-row">
-              {ultimateDef.icon ? (
-                <img
-                  src={ultimateDef.icon}
-                  alt=""
-                  className="player-inventory-panel__ultimate-icon"
-                />
-              ) : null}
-              <p className="player-inventory-panel__ultimate-name">
-                {ultimateDef.name}
-              </p>
-            </div>
+          {ultimateDef ? (
+            <HoverTooltip
+              delayMs={ULTIMATE_TOOLTIP_DELAY_MS}
+              className="player-inventory-panel__ultimate-art-tooltip"
+              content={
+                <span className="ultimate-meter__tooltip">
+                  <strong className="ultimate-meter__tooltip-name">
+                    {ultimateDef.name}
+                  </strong>
+                  <span className="ultimate-meter__tooltip-desc">
+                    {ultimateDef.description}
+                  </span>
+                  <span className="ultimate-meter__tooltip-orbs">
+                    Orbs {orbs}/{MAX_ULTIMATE_ORBS}
+                    {ultReady ? " — ready" : ""}
+                  </span>
+                </span>
+              }
+            >
+              <div
+                className={`player-inventory-panel__ultimate-art ${
+                  ultReady
+                    ? "player-inventory-panel__ultimate-art--ready"
+                    : ""
+                }`}
+              >
+                {ultimateDef.icon ? (
+                  <img
+                    src={ultimateDef.icon}
+                    alt={ultimateDef.name}
+                    className="player-inventory-panel__ultimate-icon"
+                  />
+                ) : (
+                  <span className="player-inventory-panel__ultimate-fallback">
+                    {ultimateDef.name.charAt(0)}
+                  </span>
+                )}
+              </div>
+            </HoverTooltip>
+          ) : (
+            <span className="player-inventory-panel__ultimate-label">
+              Ultimate
+            </span>
           )}
+
+          <div className="player-inventory-panel__ultimate-charges">
+            <UltimateMeter orbs={orbs} showReadyLabel />
+          </div>
+
           {canShowUltActivate && (
             <button
               type="button"
               className="player-inventory-panel__ult-btn"
               onClick={onActivateUltimate}
             >
-              {ultimateDef?.icon ? (
-                <img
-                  src={ultimateDef.icon}
-                  alt=""
-                  className="player-inventory-panel__ult-btn-icon"
-                />
-              ) : null}
               Activate Ultimate
             </button>
           )}
