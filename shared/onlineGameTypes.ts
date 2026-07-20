@@ -4,6 +4,7 @@ import type { DirectorPickPayload } from "./director/types";
 import type {
   BoardUltimateState,
   PlayerUltimateStatus,
+  UltimateCastCue,
 } from "./ultimates";
 
 export type SyncedActiveStoryEvent = {
@@ -126,6 +127,11 @@ export type OnlineGameSnapshot = {
   pendingEventChoice?: SyncedPendingEventChoice;
   /** Board-level ultimate hazards (poison / Astra wall / Vyse traps). */
   boardUltimateState?: BoardUltimateState;
+  /**
+   * Short-lived ultimate cast VFX cue. Host sets on apply; guests play once
+   * per `id`, then host clears after the presentation duration.
+   */
+  ultimateCast?: UltimateCastCue | null;
 };
 
 export type OnlineGameAction =

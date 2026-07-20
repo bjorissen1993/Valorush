@@ -267,7 +267,7 @@ export default function PlayerInventorySidebar({
         <div className="player-inventory-panel__ultimate">
           <div className="player-inventory-panel__ultimate-row">
             <span className="player-inventory-panel__ultimate-label">Ultimate</span>
-            <UltimateMeter orbs={orbs} />
+            <UltimateMeter orbs={orbs} agentName={agentName} />
           </div>
           {ultimateDef && (
             <p className="player-inventory-panel__ultimate-name">

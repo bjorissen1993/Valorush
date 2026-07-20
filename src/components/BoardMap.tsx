@@ -21,6 +21,12 @@ export type BoardTargetingBanner = {
   onCancel?: () => void;
 };
 
+export type BoardCastFx = {
+  theme: string;
+  nodeIds: string[];
+  playerIndices: number[];
+};
+
 type Props = {
   players: PlayerInGame[];
   currentPlayerIndex: number;
@@ -44,6 +50,8 @@ type Props = {
   targetingBanner?: BoardTargetingBanner | null;
   spikePlantAnimation?: { fromNodeId: string; toNodeId: string } | null;
   onSpikePlantAnimationComplete?: () => void;
+  /** Short-lived ultimate cast tile / token highlights. */
+  castFx?: BoardCastFx | null;
 };
 
 const LAYOUT_MIN_X = 10;
@@ -180,11 +188,15 @@ function BoardMap({
   targetingBanner = null,
   spikePlantAnimation = null,
   onSpikePlantAnimationComplete,
+  castFx = null,
 }: Props) {
   const currentPlayer = players[currentPlayerIndex];
   const currentPlayerNodeId = currentPlayer?.position;
   const selectableNodeIdSet = new Set(selectableNodeIds);
   const selectablePlayerSet = new Set(selectablePlayerIndices);
+  const castFxNodeSet = new Set(castFx?.nodeIds ?? []);
+  const castFxPlayerSet = new Set(castFx?.playerIndices ?? []);
+  const castFxTheme = castFx?.theme ?? "generic";
   const selectableEdgeSet = new Set(
     selectableEdges.map((edge) => edgeKey(edge.from, edge.to))
   );
@@ -253,7 +265,11 @@ function BoardMap({
       : null);
 
   return (
-    <div className="board-map-root relative h-full min-h-0 w-full overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl">
+    <div
+      className={`board-map-root relative h-full min-h-0 w-full overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl ${
+        castFx ? `board-map-root--ult-cast board-map-root--ult-cast-${castFxTheme}` : ""
+      }`}
+    >
       <img
         src={boardMapBackgroundPath()}
         alt=""
@@ -461,6 +477,7 @@ function BoardMap({
         const isSpikePlantTarget =
           spikePlantAnimation?.toNodeId === node.id && flyingSpikePosition !== null;
         const isPathChoiceOption = selectableNodeIdSet.has(node.id);
+        const isCastFxTile = castFxNodeSet.has(node.id);
         const isCurrentPlayerTile =
           highlightCurrentPlayer && currentPlayerNodeId === node.id;
         const isDimmed =
@@ -512,6 +529,10 @@ function BoardMap({
                   : "animate-pathChoicePulse z-[3] cursor-pointer border-yellow-300/80 ring-2 ring-yellow-300/60 transition-transform hover:scale-[1.04]"
                 : ""
             } ${
+              isCastFxTile
+                ? `ult-cast-tile ult-cast-tile--${castFxTheme} z-[4]`
+                : ""
+            } ${
               isDimmed ? "pointer-events-none opacity-35 saturate-50" : ""
             } ${
               debugClickable && !isPathChoiceOption
@@ -552,6 +573,7 @@ function BoardMap({
                 const isCurrent = playerIndex === currentPlayerIndex;
                 const isMoving = playerIndex === movingPlayerIndex;
                 const isSelectablePlayer = selectablePlayerSet.has(playerIndex);
+                const isCastFxPlayer = castFxPlayerSet.has(playerIndex);
 
                 return (
                   <div
@@ -579,6 +601,9 @@ function BoardMap({
                           ? "scale-[1.15] border-cyan-200 shadow-[0_0_22px_rgba(34,211,238,0.65)] ring-4 ring-cyan-400/40"
                           : "border-white/85",
                       isMoving && !isSelectablePlayer ? "ring-2 ring-white/50" : "",
+                      isCastFxPlayer
+                        ? `ult-cast-token ult-cast-token--${castFxTheme}`
+                        : "",
                       isTargetingMode &&
                       hasSelectablePlayers &&
                       !isSelectablePlayer

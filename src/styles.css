@@ -3523,4 +3523,541 @@ body {
   cursor: pointer;
 }
 
+/* ── Ultimate meter tooltip ─────────────────────────────────────── */
+.ultimate-meter-tooltip {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.ultimate-meter__tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.ultimate-meter__tooltip-name {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fecaca;
+}
+
+.ultimate-meter__tooltip-desc {
+  display: block;
+  color: #cbd5e1;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.ultimate-meter__tooltip-orbs {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(252, 165, 165, 0.75);
+}
+
+.hover-tooltip.ultimate-meter-tooltip .hover-tooltip__bubble {
+  max-width: min(280px, 78vw);
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+.hover-tooltip.ultimate-meter-tooltip .hover-tooltip__bubble::after {
+  border-top-color: rgba(248, 113, 113, 0.45);
+}
+
+/* ── Ultimate cast presentation overlay ─────────────────────────── */
+.ult-cast-overlay {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.ult-cast-overlay__veil {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(8, 12, 22, 0.35) 0%,
+    rgba(4, 6, 12, 0.72) 100%
+  );
+  animation: ult-cast-veil 2s ease-out both;
+}
+
+.ult-cast-overlay__burst {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: min(70vw, 520px);
+  height: min(70vw, 520px);
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.22) 0%,
+    transparent 62%
+  );
+  animation: ult-cast-burst 1.2s ease-out both;
+}
+
+.ult-cast-overlay__particles {
+  position: absolute;
+  inset: 0;
+}
+
+.ult-cast-overlay__particle {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #fecaca;
+  opacity: 0;
+  animation: ult-cast-particle 1.6s ease-out both;
+  animation-delay: calc(var(--i) * 0.05s);
+  transform: rotate(calc(var(--i) * 45deg)) translateY(0);
+}
+
+.ult-cast-overlay__banner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: min(560px, 92vw);
+  padding: 1rem 1.25rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: linear-gradient(
+    135deg,
+    rgba(20, 10, 14, 0.92),
+    rgba(8, 12, 22, 0.95)
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 18px 48px rgba(0, 0, 0, 0.55);
+  animation: ult-cast-banner 0.55s cubic-bezier(0.2, 0.9, 0.2, 1.15) both;
+}
+
+.ult-cast-overlay__portrait-wrap {
+  flex-shrink: 0;
+  height: 4.5rem;
+  width: 4.5rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  border: 2px solid rgba(252, 165, 165, 0.75);
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.35);
+}
+
+.ult-cast-overlay__portrait {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+
+.ult-cast-overlay__text {
+  min-width: 0;
+}
+
+.ult-cast-overlay__agent {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(252, 165, 165, 0.9);
+}
+
+.ult-cast-overlay__ult {
+  margin-top: 0.15rem;
+  font-size: clamp(1.35rem, 3.5vw, 1.85rem);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: #fff;
+  text-shadow: 0 0 28px rgba(248, 113, 113, 0.35);
+}
+
+.ult-cast-overlay__caster {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(203, 213, 225, 0.85);
+}
+
+@keyframes ult-cast-veil {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes ult-cast-burst {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.35);
+    opacity: 0;
+  }
+}
+
+@keyframes ult-cast-particle {
+  0% {
+    opacity: 0;
+    transform: rotate(calc(var(--i) * 45deg)) translateY(0) scale(0.4);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(calc(var(--i) * 45deg)) translateY(-140px) scale(1.2);
+  }
+}
+
+@keyframes ult-cast-banner {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Theme accents on overlay */
+.ult-cast-overlay--orbital .ult-cast-overlay__burst {
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.45), transparent 65%);
+}
+.ult-cast-overlay--poison .ult-cast-overlay__burst {
+  background: radial-gradient(circle, rgba(74, 222, 128, 0.4), transparent 65%);
+}
+.ult-cast-overlay--shadow .ult-cast-overlay__burst,
+.ult-cast-overlay--flicker .ult-cast-overlay__burst,
+.ult-cast-overlay--nightfall .ult-cast-overlay__burst {
+  background: radial-gradient(circle, rgba(129, 140, 248, 0.4), transparent 65%);
+}
+.ult-cast-overlay--heal .ult-cast-overlay__burst,
+.ult-cast-overlay--shield .ult-cast-overlay__burst {
+  background: radial-gradient(circle, rgba(125, 211, 252, 0.45), transparent 65%);
+}
+.ult-cast-overlay--explosion .ult-cast-overlay__burst,
+.ult-cast-overlay--thunder .ult-cast-overlay__burst {
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.45), transparent 65%);
+}
+.ult-cast-overlay--overdrive .ult-cast-overlay__burst,
+.ult-cast-overlay--blade .ult-cast-overlay__burst {
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.4), transparent 65%);
+}
+.ult-cast-overlay--glitch .ult-cast-overlay__banner {
+  animation:
+    ult-cast-banner 0.55s cubic-bezier(0.2, 0.9, 0.2, 1.15) both,
+    ult-cast-glitch 0.7s steps(2, end) 0.2s 2;
+}
+.ult-cast-overlay--rewind .ult-cast-overlay__portrait {
+  animation: ult-cast-rewind 1.4s ease-in-out both;
+}
+.ult-cast-overlay--empress .ult-cast-overlay__portrait-wrap {
+  box-shadow: 0 0 36px rgba(192, 132, 252, 0.55);
+  border-color: rgba(216, 180, 254, 0.9);
+}
+.ult-cast-overlay--null .ult-cast-overlay__banner {
+  filter: saturate(0.35);
+}
+.ult-cast-overlay--wall .ult-cast-overlay__burst {
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.5), transparent 65%);
+}
+
+@keyframes ult-cast-glitch {
+  0%,
+  100% {
+    transform: translate(0);
+    filter: none;
+  }
+  33% {
+    transform: translate(-3px, 1px);
+    filter: hue-rotate(90deg);
+  }
+  66% {
+    transform: translate(3px, -1px);
+    filter: hue-rotate(-60deg);
+  }
+}
+
+@keyframes ult-cast-rewind {
+  0% {
+    transform: scaleX(1);
+    filter: hue-rotate(0deg);
+  }
+  40% {
+    transform: scaleX(-1);
+    filter: hue-rotate(40deg);
+  }
+  100% {
+    transform: scaleX(1);
+    filter: hue-rotate(0deg);
+  }
+}
+
+/* Board tile / token cast highlights */
+.ult-cast-tile {
+  animation: ult-cast-tile-pulse 1.8s ease-in-out both;
+}
+
+.ult-cast-tile--orbital {
+  border-color: rgba(251, 146, 60, 0.95) !important;
+  box-shadow:
+    0 0 0 2px rgba(251, 146, 60, 0.45),
+    0 0 36px rgba(249, 115, 22, 0.55) !important;
+  background-image: radial-gradient(
+    circle at center,
+    rgba(251, 146, 60, 0.35),
+    transparent 70%
+  ) !important;
+}
+
+.ult-cast-tile--poison {
+  border-color: rgba(74, 222, 128, 0.9) !important;
+  box-shadow: 0 0 28px rgba(34, 197, 94, 0.5) !important;
+  animation: ult-cast-poison 2s ease-out both;
+}
+
+.ult-cast-tile--shadow,
+.ult-cast-tile--flicker {
+  border-color: rgba(129, 140, 248, 0.9) !important;
+  box-shadow: 0 0 28px rgba(99, 102, 241, 0.5) !important;
+  animation: ult-cast-shadow 1.8s ease-in-out both;
+}
+
+.ult-cast-tile--bolt {
+  border-color: rgba(56, 189, 248, 0.95) !important;
+  box-shadow: 0 0 30px rgba(14, 165, 233, 0.55) !important;
+  animation: ult-cast-bolt 1.6s linear both;
+}
+
+.ult-cast-tile--explosion,
+.ult-cast-tile--trap {
+  border-color: rgba(250, 204, 21, 0.95) !important;
+  box-shadow: 0 0 34px rgba(234, 179, 8, 0.55) !important;
+  animation: ult-cast-explode 1.5s ease-out both;
+}
+
+.ult-cast-tile--heal,
+.ult-cast-tile--shield {
+  border-color: rgba(125, 211, 252, 0.95) !important;
+  box-shadow: 0 0 30px rgba(56, 189, 248, 0.5) !important;
+}
+
+.ult-cast-tile--wall {
+  border-color: rgba(167, 139, 250, 0.95) !important;
+  box-shadow: 0 0 28px rgba(139, 92, 246, 0.55) !important;
+}
+
+.ult-cast-tile--null {
+  border-color: rgba(148, 163, 184, 0.9) !important;
+  filter: saturate(0.4);
+}
+
+.ult-cast-token {
+  animation: ult-cast-token-pop 1.6s ease-out both;
+}
+
+.ult-cast-token--lockdown,
+.ult-cast-token--thunder,
+.ult-cast-token--nightfall,
+.ult-cast-token--seekers,
+.ult-cast-token--glitch,
+.ult-cast-token--duel,
+.ult-cast-token--explosion {
+  box-shadow: 0 0 22px rgba(248, 113, 113, 0.7) !important;
+}
+
+.board-map-root--ult-cast-nightfall::after,
+.board-map-root--ult-cast-fade::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: radial-gradient(
+    circle at center,
+    transparent 20%,
+    rgba(15, 23, 42, 0.55) 100%
+  );
+  animation: ult-cast-nightfall 2.2s ease-out both;
+}
+
+.board-map-root--ult-cast-overdrive::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: repeating-linear-gradient(
+    -18deg,
+    transparent 0 18px,
+    rgba(34, 211, 238, 0.08) 18px 22px
+  );
+  animation: ult-cast-speedlines 1.8s linear both;
+}
+
+.board-map-root--ult-cast-thunder::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: linear-gradient(
+    100deg,
+    transparent 40%,
+    rgba(250, 204, 21, 0.2) 50%,
+    transparent 60%
+  );
+  animation: ult-cast-thunder-wave 1.8s ease-out both;
+}
+
+@keyframes ult-cast-tile-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  40% {
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+@keyframes ult-cast-poison {
+  0% {
+    filter: brightness(1);
+  }
+  40% {
+    filter: brightness(1.25) hue-rotate(40deg);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
+@keyframes ult-cast-shadow {
+  0%,
+  100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.55;
+    filter: brightness(0.55);
+  }
+}
+
+@keyframes ult-cast-bolt {
+  0% {
+    filter: brightness(1);
+  }
+  20%,
+  60% {
+    filter: brightness(1.6);
+  }
+  40%,
+  80% {
+    filter: brightness(0.9);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
+@keyframes ult-cast-explode {
+  0% {
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  35% {
+    transform: translate(-50%, -50%) scale(1.14);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes ult-cast-token-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes ult-cast-nightfall {
+  0% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes ult-cast-speedlines {
+  0% {
+    opacity: 0;
+    transform: translateX(-8%);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(8%);
+  }
+}
+
+@keyframes ult-cast-thunder-wave {
+  0% {
+    opacity: 0;
+    transform: translateX(-30%);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(30%);
+  }
+}
+
+.performance-mode .ult-cast-overlay__particles,
+.performance-mode .ult-cast-overlay__burst,
+.tab-hidden .ult-cast-overlay__particles,
+.tab-hidden .ult-cast-overlay__burst {
+  display: none;
+}
+
+.performance-mode .ult-cast-tile,
+.performance-mode .ult-cast-token {
+  animation: none;
+}
+
 

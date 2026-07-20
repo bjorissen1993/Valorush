@@ -22,6 +22,7 @@ import EventStoryModal from "./EventStoryModal";
 import EventChoiceModal from "./EventChoiceModal";
 import MapRevealPresentation from "./MapRevealPresentation";
 import MatchFormatPresentation from "./MatchFormatPresentation";
+import UltimateCastPresentation from "./UltimateCastPresentation";
 import CustomMatchLobby from "./CustomMatchLobby";
 import SpikeDefuseModal from "./SpikeDefuseModal";
 import DirectorPresentation from "./DirectorPresentation";
@@ -69,11 +70,13 @@ import {
   createEmptyPlayerUltimateStatus,
   getUltimateForAgent,
   type BoardUltimateState,
+  type UltimateCastCue,
 } from "../../shared/ultimates";
 import {
   applyUltimate,
   applyJettPassToll,
   buildBoardAdjacency,
+  buildUltimateCastCue,
   canActivateUltimate,
   clampOrbs,
   emptyBoardUltimateState,
@@ -509,6 +512,12 @@ export default function GamePage({
   const [boardUltimateState, setBoardUltimateState] = useState<BoardUltimateState>(
     () => initialSnapshot?.boardUltimateState ?? emptyBoardUltimateState()
   );
+  const [ultimateCast, setUltimateCast] = useState<UltimateCastCue | null>(
+    () => initialSnapshot?.ultimateCast ?? null
+  );
+  const lastPlayedCastIdRef = useRef<string | null>(
+    initialSnapshot?.ultimateCast?.id ?? null
+  );
   const [ultimateModalOpen, setUltimateModalOpen] = useState(false);
   const [ultimateTargeting, setUltimateTargeting] =
     useState<UltimateBoardTargeting | null>(null);
@@ -606,6 +615,13 @@ export default function GamePage({
     );
     if (snapshot.boardUltimateState) {
       setBoardUltimateState(snapshot.boardUltimateState);
+    }
+    if (snapshot.ultimateCast) {
+      const cue = snapshot.ultimateCast;
+      if (cue.id !== lastPlayedCastIdRef.current) {
+        lastPlayedCastIdRef.current = cue.id;
+        setUltimateCast(cue);
+      }
     }
     setLastRoll(snapshot.lastRoll);
     setDiceDisplayValue(snapshot.diceDisplayValue);
@@ -3781,6 +3797,24 @@ export default function GamePage({
     showAnnouncement(result.headline, result.description);
     publishGameEventChat(`${caster.name} used ${result.headline}: ${result.description}`);
 
+    const orbsBefore = caster.ultimateOrbs ?? 0;
+    const orbsAfter = result.players[casterIndex]?.ultimateOrbs ?? orbsBefore;
+    if (orbsAfter < orbsBefore && def) {
+      const cue = buildUltimateCastCue({
+        def,
+        casterPlayerIndex: casterIndex,
+        casterName: caster.name,
+        casterPosition: caster.position,
+        selection,
+        result,
+        playerPositions: playersInGameRef.current.map((p) => p.position),
+        rangeTiles: def.rangeTiles,
+      });
+      lastPlayedCastIdRef.current = cue.id;
+      setUltimateCast(cue);
+      await sleep(Math.min(900, cue.durationMs));
+    }
+
     for (const change of result.positionChanges) {
       await animateTeleport(
         change.playerIndex,
@@ -3995,6 +4029,7 @@ export default function GamePage({
       scheduledCustomMatch: toSyncedScheduledCustomMatch(scheduledCustomMatch),
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
       boardUltimateState,
+      ultimateCast,
     });
   }, [
     activeStoryEvent,
@@ -4020,6 +4055,7 @@ export default function GamePage({
     statusTitle,
     turnBannerPlayerIndex,
     turnOrder,
+    ultimateCast,
   ]);
 
   useEffect(() => {
@@ -4058,6 +4094,7 @@ export default function GamePage({
       scheduledCustomMatch: toSyncedScheduledCustomMatch(scheduledCustomMatch),
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
       boardUltimateState,
+      ultimateCast,
     });
   }, [
     activeStoryEvent,
@@ -4083,6 +4120,7 @@ export default function GamePage({
     statusTitle,
     turnBannerPlayerIndex,
     turnOrder,
+    ultimateCast,
   ]);
 
   useEffect(() => {
@@ -4442,6 +4480,17 @@ export default function GamePage({
             )}
           </div>
         </div>
+      )}
+
+      {ultimateCast && (
+        <UltimateCastPresentation
+          cue={ultimateCast}
+          onComplete={() =>
+            setUltimateCast((current) =>
+              current?.id === ultimateCast.id ? null : current
+            )
+          }
+        />
       )}
 
       {spikeReveal && (
@@ -4993,6 +5042,7 @@ export default function GamePage({
                         </div>
                         <UltimateMeter
                           orbs={player.ultimateOrbs ?? 0}
+                          agentName={getAgentName(player)}
                           compact
                           showReadyLabel
                         />
@@ -5163,6 +5213,15 @@ export default function GamePage({
                 }
                 spikePlantAnimation={spikePlantAnimation}
                 onSpikePlantAnimationComplete={handleSpikePlantAnimationComplete}
+                castFx={
+                  ultimateCast
+                    ? {
+                        theme: ultimateCast.theme,
+                        nodeIds: ultimateCast.highlightNodeIds,
+                        playerIndices: ultimateCast.highlightPlayerIndices,
+                      }
+                    : null
+                }
               />
             </div>
           </div>
