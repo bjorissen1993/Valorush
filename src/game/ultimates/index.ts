@@ -4,3 +4,4 @@ export * from "./applyUltimate";
 export * from "./tickStatus";
 export * from "./playerBridge";
 export * from "./gainHooks";
+export * from "./targeting";

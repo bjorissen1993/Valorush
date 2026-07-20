@@ -36,11 +36,13 @@ body {
 .tab-hidden .animate-boardCurrentPulse::before,
 .tab-hidden .animate-spikeTargetPulse::before,
 .tab-hidden .animate-pathChoicePulse::before,
+.tab-hidden .animate-ultimateTargetPulse::before,
 .tab-hidden .board-map-path-flow,
 .tab-hidden .dice-roll-stage--rolling .dice-roll-face,
 .performance-mode .animate-boardCurrentPulse::before,
 .performance-mode .animate-spikeTargetPulse::before,
 .performance-mode .animate-pathChoicePulse::before,
+.performance-mode .animate-ultimateTargetPulse::before,
 .performance-mode .board-map-path-flow,
 .performance-mode .dice-roll-stage--rolling .dice-roll-face {
   animation-play-state: paused !important;
@@ -50,6 +52,7 @@ body {
   .animate-boardCurrentPulse::before,
   .animate-spikeTargetPulse::before,
   .animate-pathChoicePulse::before,
+  .animate-ultimateTargetPulse::before,
   .board-map-path-flow,
   .dice-roll-stage--rolling .dice-roll-face,
   .turn-banner-backdrop--active,
@@ -264,9 +267,15 @@ body {
   animation: tileRingPulse 1.2s ease-in-out infinite;
 }
 
+.animate-ultimateTargetPulse::before {
+  border: 2px solid rgba(248, 113, 113, 0.75);
+  animation: tileRingPulse 1.15s ease-in-out infinite;
+}
+
 .performance-mode .animate-boardCurrentPulse::before,
 .performance-mode .animate-spikeTargetPulse::before,
-.performance-mode .animate-pathChoicePulse::before {
+.performance-mode .animate-pathChoicePulse::before,
+.performance-mode .animate-ultimateTargetPulse::before {
   animation: none;
   opacity: 0.85;
 }
@@ -796,6 +805,10 @@ body {
 }
 
 .animate-pathChoicePulse {
+  /* ring pulse via tile-pulse-host::before */
+}
+
+.animate-ultimateTargetPulse {
   /* ring pulse via tile-pulse-host::before */
 }
 
@@ -3504,6 +3517,10 @@ body {
   color: rgba(161, 161, 170, 0.9);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.board-map-edge--selectable {
+  cursor: pointer;
 }
 
 

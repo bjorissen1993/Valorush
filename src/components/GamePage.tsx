@@ -77,16 +77,22 @@ import {
   canActivateUltimate,
   clampOrbs,
   emptyBoardUltimateState,
+  findPathContainingNode,
   gainOrb,
   getArmedTrapAt,
+  getSelectableEdgesForUltimate,
+  getSelectableTileIdsForUltimate,
+  getUltimateTargetingPrompt,
+  getUltimateTargetingSubtitle,
   isEdgeBlockedByWall,
   isInPoisonCloud,
-  listConnectedEdges,
   mergeUltimatePlayers,
   tickBoardUltimateState,
   tickPlayerUltimateStatus,
   toUltimatePlayerState,
+  usesBoardTargeting,
   withDefaultUltimateFields,
+  type UltimateBoardTargeting,
 } from "../game/ultimates";
 import UltimateMeter from "./UltimateMeter";
 import UltimateTargetModal, {
@@ -504,6 +510,12 @@ export default function GamePage({
     () => initialSnapshot?.boardUltimateState ?? emptyBoardUltimateState()
   );
   const [ultimateModalOpen, setUltimateModalOpen] = useState(false);
+  const [ultimateTargeting, setUltimateTargeting] =
+    useState<UltimateBoardTargeting | null>(null);
+  /** Showstopper: player picked on board; modal asks creds vs spaces. */
+  const [razeTargetPlayerIndex, setRazeTargetPlayerIndex] = useState<number | null>(
+    null
+  );
   const [phoenixChoiceOpen, setPhoenixChoiceOpen] = useState(false);
   const [pendingOmenMiniMove, setPendingOmenMiniMove] = useState<{
     steps: number;
@@ -689,10 +701,19 @@ export default function GamePage({
   }
 
   useEffect(() => {
-    if (!canOpenGameMenu) return;
-
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+
+      if (ultimateTargeting || razeTargetPlayerIndex != null || ultimateModalOpen) {
+        event.preventDefault();
+        setUltimateTargeting(null);
+        setRazeTargetPlayerIndex(null);
+        setUltimateModalOpen(false);
+        return;
+      }
+
+      if (!canOpenGameMenu) return;
+
       if (leaveConfirmOpen) {
         event.preventDefault();
         setLeaveConfirmOpen(false);
@@ -704,7 +725,13 @@ export default function GamePage({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canOpenGameMenu, leaveConfirmOpen]);
+  }, [
+    canOpenGameMenu,
+    leaveConfirmOpen,
+    ultimateTargeting,
+    razeTargetPlayerIndex,
+    ultimateModalOpen,
+  ]);
 
   const [isMoving, setIsMoving] = useState(initialSnapshot?.isMoving ?? false);
   const [movingPlayerIndex, setMovingPlayerIndex] = useState<number | null>(
@@ -1724,7 +1751,83 @@ export default function GamePage({
       return;
     }
 
+    if (ultimateTargeting) {
+      handleUltimateBoardTileClick(nodeId);
+      return;
+    }
+
     handleDebugBoardTileClick(nodeId);
+  }
+
+  function cancelUltimateTargeting() {
+    setUltimateTargeting(null);
+    setRazeTargetPlayerIndex(null);
+    setUltimateModalOpen(false);
+  }
+
+  function handleUltimateBoardTileClick(nodeId: string) {
+    if (!ultimateTargeting) return;
+    const kind = ultimateTargeting.targetKind;
+
+    if (kind === "tile" || kind === "tile_and_move") {
+      void confirmUltimateFromBoard({ targetNodeId: nodeId });
+      return;
+    }
+
+    if (kind === "path") {
+      const path = findPathContainingNode(nodeId);
+      if (!path) return;
+      void confirmUltimateFromBoard({
+        choiceId: path.id,
+        targetNodeId: path.id,
+      });
+      return;
+    }
+
+    if (kind === "player" || kind === "player_or_choice") {
+      const opponentsOnTile = playersInGame
+        .map((player, index) => ({ player, index }))
+        .filter(
+          ({ player, index }) =>
+            index !== currentPlayerIndex && player.position === nodeId
+        );
+      if (opponentsOnTile.length === 0) return;
+      handleUltimatePlayerTarget(opponentsOnTile[0]!.index);
+    }
+  }
+
+  function handleUltimateEdgeClick(from: string, to: string) {
+    if (!ultimateTargeting || ultimateTargeting.targetKind !== "edge") return;
+    void confirmUltimateFromBoard({
+      targetNodeId: from,
+      targetNodeId2: to,
+    });
+  }
+
+  function handleUltimatePlayerTarget(playerIndex: number) {
+    if (!ultimateTargeting) return;
+    if (playerIndex === currentPlayerIndex) return;
+
+    const kind = ultimateTargeting.targetKind;
+    if (kind === "player_or_choice") {
+      setUltimateTargeting(null);
+      setRazeTargetPlayerIndex(playerIndex);
+      setUltimateModalOpen(true);
+      return;
+    }
+
+    if (kind === "player") {
+      const isCypher = ultimateTargeting.ultimateId === "neural-theft";
+      void confirmUltimateFromBoard({
+        targetPlayerIndex: playerIndex,
+        stealFromPlayerIndex: isCypher ? playerIndex : undefined,
+      });
+    }
+  }
+
+  function confirmUltimateFromBoard(selection: UltimateTargetSelection) {
+    setUltimateTargeting(null);
+    void resolveUltimateUse(selection);
   }
 
   function handleDebugBoardTileClick(nodeId: string) {
@@ -1796,6 +1899,9 @@ export default function GamePage({
     setDiceDisplayValue(null);
     setDiceFlowPhase("hidden");
     setHasRolledThisTurn(false);
+    setUltimateTargeting(null);
+    setRazeTargetPlayerIndex(null);
+    setUltimateModalOpen(false);
   }
 
   function debugForceNextTurn() {
@@ -3584,20 +3690,38 @@ export default function GamePage({
     const player = playersInGame[currentPlayerIndex];
     if (!player || !canActivateUltimate(player.ultimateOrbs ?? 0)) return;
 
-    if (isOnlineGuest) {
-      if (multiplayer?.yourPlayerIndex !== currentPlayerIndex) return;
-      if (def.targetKind === "none") {
+    setMobileInventoryOpen(false);
+    setRazeTargetPlayerIndex(null);
+
+    if (def.targetKind === "none") {
+      if (isOnlineGuest) {
+        if (multiplayer?.yourPlayerIndex !== currentPlayerIndex) return;
         sendAction({ type: "use_ultimate" });
         return;
       }
-      setUltimateModalOpen(true);
-      return;
-    }
-
-    if (def.targetKind === "none") {
       void resolveUltimateUse({});
       return;
     }
+
+    if (usesBoardTargeting(def.targetKind)) {
+      if (isOnlineGuest && multiplayer?.yourPlayerIndex !== currentPlayerIndex) {
+        return;
+      }
+      setUltimateModalOpen(false);
+      setUltimateTargeting({
+        agentName,
+        ultimateId: def.id,
+        ultimateName: def.name,
+        targetKind: def.targetKind,
+      });
+      return;
+    }
+
+    // Choice / sequential (Sage, Killjoy) — keep modal.
+    if (isOnlineGuest && multiplayer?.yourPlayerIndex !== currentPlayerIndex) {
+      return;
+    }
+    setUltimateTargeting(null);
     setUltimateModalOpen(true);
   }
 
@@ -3617,6 +3741,8 @@ export default function GamePage({
         stealFromPlayerIndex: selection.stealFromPlayerIndex,
       });
       setUltimateModalOpen(false);
+      setUltimateTargeting(null);
+      setRazeTargetPlayerIndex(null);
       return;
     }
 
@@ -3646,6 +3772,8 @@ export default function GamePage({
     });
 
     setUltimateModalOpen(false);
+    setUltimateTargeting(null);
+    setRazeTargetPlayerIndex(null);
     setPlayersInGame(mergeUltimatePlayers(playersInGameRef.current, result.players));
     setBoardUltimateState(result.board);
     setStatusTitle(result.headline);
@@ -4986,10 +5114,50 @@ export default function GamePage({
                     : null
                 }
                 onTileClick={handleBoardTileClick}
+                onEdgeClick={handleUltimateEdgeClick}
+                onPlayerTokenClick={handleUltimatePlayerTarget}
                 debugClickable={debugMode && debugBoardAction !== null}
-                selectableNodeIds={pendingPathChoice?.options ?? []}
+                selectableNodeIds={
+                  ultimateTargeting
+                    ? getSelectableTileIdsForUltimate(ultimateTargeting.targetKind, {
+                        opponentPositions: playersInGame
+                          .filter((_, index) => index !== currentPlayerIndex)
+                          .map((p) => p.position),
+                        paths: ULTIMATE_BOARD_PATHS,
+                      })
+                    : pendingPathChoice?.options ?? []
+                }
+                selectableEdges={
+                  ultimateTargeting
+                    ? getSelectableEdgesForUltimate(ultimateTargeting.targetKind)
+                    : []
+                }
+                selectablePlayerIndices={
+                  ultimateTargeting &&
+                  (ultimateTargeting.targetKind === "player" ||
+                    ultimateTargeting.targetKind === "player_or_choice")
+                    ? playersInGame
+                        .map((_, index) => index)
+                        .filter((index) => index !== currentPlayerIndex)
+                    : []
+                }
+                dimNonSelectable={ultimateTargeting != null}
+                targetingBanner={
+                  ultimateTargeting
+                    ? {
+                        title: getUltimateTargetingPrompt(
+                          ultimateTargeting.ultimateName,
+                          ultimateTargeting.targetKind
+                        ),
+                        subtitle: getUltimateTargetingSubtitle(
+                          ultimateTargeting.targetKind
+                        ),
+                        onCancel: cancelUltimateTargeting,
+                      }
+                    : null
+                }
                 pathChoiceHint={
-                  pendingPathChoice
+                  !ultimateTargeting && pendingPathChoice
                     ? `${playersInGame[pendingPathChoice.playerIndex]?.name ?? "Player"} — choose your route, click a highlighted tile`
                     : null
                 }
@@ -5061,6 +5229,16 @@ export default function GamePage({
         const agentName = currentPlayer ? getAgentName(currentPlayer) : "";
         const ultDef = getUltimateForAgent(agentName);
         if (!ultDef) return null;
+        const razePlayer =
+          razeTargetPlayerIndex != null
+            ? {
+                index: razeTargetPlayerIndex,
+                name: playersInGame[razeTargetPlayerIndex]?.name ?? "Player",
+                creds: playersInGame[razeTargetPlayerIndex]?.creds ?? 0,
+                items: playersInGame[razeTargetPlayerIndex]?.items ?? [],
+                ultimateOrbs: playersInGame[razeTargetPlayerIndex]?.ultimateOrbs ?? 0,
+              }
+            : null;
         return (
           <UltimateTargetModal
             open={ultimateModalOpen}
@@ -5075,11 +5253,9 @@ export default function GamePage({
                 ultimateOrbs: p.ultimateOrbs ?? 0,
               }))
               .filter((p) => p.index !== currentPlayerIndex)}
-            boardNodeIds={getBoardNodeIds()}
-            paths={ULTIMATE_BOARD_PATHS}
-            edges={listConnectedEdges()}
+            razeTargetPlayer={razePlayer}
             onConfirm={(selection) => void resolveUltimateUse(selection)}
-            onCancel={() => setUltimateModalOpen(false)}
+            onCancel={cancelUltimateTargeting}
           />
         );
       })()}

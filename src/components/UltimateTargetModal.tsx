@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { UltimateDefinition, UltimatePathOption } from "../../shared/ultimates";
-import { formatNodeLabel } from "../game/ultimates/boardHelpers";
+import type { UltimateDefinition } from "../../shared/ultimates";
 
 export type UltimateTargetSelection = {
   targetPlayerIndex?: number;
@@ -19,47 +18,48 @@ type PlayerOption = {
   items?: string[];
   ultimateOrbs?: number;
 };
-type EdgeOption = { from: string; to: string; label: string };
 
 type UltimateTargetModalProps = {
   open: boolean;
   ultimate: UltimateDefinition;
   casterName: string;
   otherPlayers: PlayerOption[];
-  boardNodeIds: string[];
-  paths: UltimatePathOption[];
-  edges: EdgeOption[];
-  cypherReveal?: {
-    players: {
-      playerIndex: number;
-      name: string;
-      creds: number;
-      items: string[];
-      ultimateOrbs: number;
-    }[];
-  } | null;
-  /** When true, Cypher already revealed — only steal pick is shown. */
-  cypherStealPhase?: boolean;
+  /**
+   * When set, Showstopper already selected a player on the board —
+   * only the blast-type choice is shown.
+   */
+  razeTargetPlayer?: PlayerOption | null;
   onConfirm: (selection: UltimateTargetSelection) => void;
   onCancel: () => void;
 };
 
+/**
+ * Choice / confirm modal for ultimates that are not board-targeted.
+ * Tile, player, path, and edge picks happen on the map via board targeting.
+ */
 export default function UltimateTargetModal({
   open,
   ultimate,
   casterName,
   otherPlayers,
-  boardNodeIds,
-  paths,
-  edges,
-  cypherReveal = null,
-  cypherStealPhase = false,
+  razeTargetPlayer = null,
   onConfirm,
   onCancel,
 }: UltimateTargetModalProps) {
   if (!open) return null;
 
   const kind = ultimate.targetKind;
+
+  if (razeTargetPlayer) {
+    return (
+      <RazeModePicker
+        ultimate={ultimate}
+        player={razeTargetPlayer}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />
+    );
+  }
 
   if (kind === "none") {
     return (
@@ -108,159 +108,6 @@ export default function UltimateTargetModal({
     );
   }
 
-  if (cypherStealPhase && cypherReveal) {
-    return (
-      <ModalShell
-        title="Neural Theft — Steal"
-        subtitle="Intel revealed. Pick whose item to steal."
-        onCancel={onCancel}
-      >
-        <ul className="mb-4 space-y-2 text-sm">
-          {cypherReveal.players.map((p) => (
-            <li
-              key={p.playerIndex}
-              className="rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-            >
-              <p className="font-semibold text-white">{p.name}</p>
-              <p className="text-zinc-400">
-                {p.creds} creds · {p.ultimateOrbs}/3 orbs ·{" "}
-                {p.items.length ? p.items.join(", ") : "no items"}
-              </p>
-            </li>
-          ))}
-        </ul>
-        <div className="flex flex-col gap-2">
-          {otherPlayers.map((p) => (
-            <button
-              key={p.index}
-              type="button"
-              className="ultimate-modal__option"
-              onClick={() =>
-                onConfirm({
-                  stealFromPlayerIndex: p.index,
-                  targetPlayerIndex: p.index,
-                })
-              }
-            >
-              Steal from {p.name}
-            </button>
-          ))}
-        </div>
-      </ModalShell>
-    );
-  }
-
-  if (kind === "player_or_choice") {
-    return (
-      <RazePicker
-        ultimate={ultimate}
-        otherPlayers={otherPlayers}
-        onConfirm={onConfirm}
-        onCancel={onCancel}
-      />
-    );
-  }
-
-  if (kind === "player") {
-    const isCypher = ultimate.id === "neural-theft";
-    return (
-      <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
-        {isCypher && (
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-cyan-300">
-            Opponent intel (Neural Theft)
-          </p>
-        )}
-        <div className="flex flex-col gap-2">
-          {otherPlayers.map((p) => (
-            <button
-              key={p.index}
-              type="button"
-              className="ultimate-modal__option"
-              onClick={() =>
-                onConfirm({
-                  targetPlayerIndex: p.index,
-                  stealFromPlayerIndex: isCypher ? p.index : undefined,
-                })
-              }
-            >
-              <span className="font-semibold text-white">{p.name}</span>
-              {isCypher && (
-                <span className="mt-1 block text-xs text-zinc-400">
-                  {p.creds} creds · {p.ultimateOrbs ?? 0}/3 orbs ·{" "}
-                  {p.items?.length ? p.items.join(", ") : "no items"}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </ModalShell>
-    );
-  }
-
-  if (kind === "tile" || kind === "tile_and_move") {
-    return (
-      <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
-        <div className="ultimate-modal__grid">
-          {boardNodeIds.map((nodeId) => (
-            <button
-              key={nodeId}
-              type="button"
-              className="ultimate-modal__option ultimate-modal__option--compact"
-              onClick={() => onConfirm({ targetNodeId: nodeId })}
-            >
-              {formatNodeLabel(nodeId)}
-            </button>
-          ))}
-        </div>
-      </ModalShell>
-    );
-  }
-
-  if (kind === "path") {
-    return (
-      <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
-        <div className="flex flex-col gap-2">
-          {paths.map((path) => (
-            <button
-              key={path.id}
-              type="button"
-              className="ultimate-modal__option"
-              onClick={() =>
-                onConfirm({ choiceId: path.id, targetNodeId: path.id })
-              }
-            >
-              {path.label}
-            </button>
-          ))}
-        </div>
-      </ModalShell>
-    );
-  }
-
-  if (kind === "edge") {
-    return (
-      <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
-        <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-          {edges.map((edge) => (
-            <button
-              key={`${edge.from}->${edge.to}`}
-              type="button"
-              className="ultimate-modal__option"
-              onClick={() =>
-                onConfirm({
-                  targetNodeId: edge.from,
-                  targetNodeId2: edge.to,
-                })
-              }
-            >
-              {edge.label}
-            </button>
-          ))}
-        </div>
-      </ModalShell>
-    );
-  }
-
   if (kind === "sequential_opponents") {
     return (
       <KilljoyPicker
@@ -272,7 +119,17 @@ export default function UltimateTargetModal({
     );
   }
 
-  return null;
+  // Fallback: should not open for board-targeted kinds.
+  return (
+    <ModalShell title={ultimate.name} subtitle={ultimate.description} onCancel={onCancel}>
+      <p className="text-sm text-zinc-400">
+        Select your target on the board, then confirm.
+      </p>
+      <button type="button" className="ultimate-modal__cancel" onClick={onCancel}>
+        Cancel
+      </button>
+    </ModalShell>
+  );
 }
 
 function ModalShell({
@@ -303,60 +160,50 @@ function ModalShell({
   );
 }
 
-function RazePicker({
+function RazeModePicker({
   ultimate,
-  otherPlayers,
+  player,
   onConfirm,
   onCancel,
 }: {
   ultimate: UltimateDefinition;
-  otherPlayers: PlayerOption[];
+  player: PlayerOption;
   onConfirm: (selection: UltimateTargetSelection) => void;
   onCancel: () => void;
 }) {
   return (
     <ModalShell
       title={ultimate.name}
-      subtitle="Pick a target, then the blast type."
+      subtitle={`Blast ${player.name} — choose the effect.`}
       onCancel={onCancel}
     >
-      <div className="space-y-4">
-        {otherPlayers.map((p) => (
-          <div
-            key={p.index}
-            className="rounded-xl border border-white/10 bg-black/25 p-3"
-          >
-            <p className="mb-2 font-semibold text-white">{p.name}</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="ultimate-modal__btn ultimate-modal__btn--primary"
-                onClick={() =>
-                  onConfirm({
-                    targetPlayerIndex: p.index,
-                    razeMode: "creds",
-                    choiceId: "creds",
-                  })
-                }
-              >
-                −600 Creds
-              </button>
-              <button
-                type="button"
-                className="ultimate-modal__btn"
-                onClick={() =>
-                  onConfirm({
-                    targetPlayerIndex: p.index,
-                    razeMode: "spaces",
-                    choiceId: "spaces",
-                  })
-                }
-              >
-                Back 4 Spaces
-              </button>
-            </div>
-          </div>
-        ))}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="ultimate-modal__btn ultimate-modal__btn--primary"
+          onClick={() =>
+            onConfirm({
+              targetPlayerIndex: player.index,
+              razeMode: "creds",
+              choiceId: "creds",
+            })
+          }
+        >
+          −600 Creds
+        </button>
+        <button
+          type="button"
+          className="ultimate-modal__btn"
+          onClick={() =>
+            onConfirm({
+              targetPlayerIndex: player.index,
+              razeMode: "spaces",
+              choiceId: "spaces",
+            })
+          }
+        >
+          Back 4 Spaces
+        </button>
       </div>
     </ModalShell>
   );
