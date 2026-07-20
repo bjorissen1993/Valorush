@@ -621,7 +621,6 @@ function BoardMap({
             {isPoisonTile && (
               <div className="board-hazard-poison" aria-hidden>
                 <span className="board-hazard-poison__cloud" />
-                <span className="board-hazard-poison__cloud board-hazard-poison__cloud--2" />
                 <span className="board-hazard-poison__particles" />
               </div>
             )}

@@ -233,12 +233,20 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
 
     case "vipers-pit": {
       const nodeId = input.targetNodeId!;
-      board.poisonClouds = board.poisonClouds.filter((c) => c.nodeId !== nodeId);
-      board.poisonClouds.push({
-        nodeId,
-        roundsLeft: 1,
-        ownerPlayerIndex: input.casterPlayerIndex,
-      });
+      // One active pit only — replace any existing clouds.
+      board.poisonClouds = [
+        {
+          nodeId,
+          roundsLeft: 1,
+          ownerPlayerIndex: input.casterPlayerIndex,
+        },
+      ];
+      for (const p of players) {
+        p.status = {
+          ...p.status,
+          inViperPit: p.position === nodeId,
+        };
+      }
       return {
         players,
         board,

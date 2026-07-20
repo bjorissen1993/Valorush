@@ -141,6 +141,31 @@ describe("applyUltimate — all playable agents", () => {
       applyUltimate(baseInput("Viper", { targetNodeId: "right-2" })).board
         .poisonClouds[0]?.nodeId
     ).toBe("right-2");
+    {
+      const existing = createEmptyBoardUltimateState();
+      existing.poisonClouds = [
+        { nodeId: "top-1", roundsLeft: 1, ownerPlayerIndex: 0 },
+      ];
+      const viper = applyUltimate(
+        baseInput("Viper", {
+          targetNodeId: "right-2",
+          board: existing,
+          players: [
+            player({ name: "V", position: "right-2", ultimateOrbs: 3 }),
+            player({ name: "O", position: "top-1", ultimateOrbs: 0 }),
+          ],
+        })
+      );
+      expect(viper.board.poisonClouds).toEqual([
+        {
+          nodeId: "right-2",
+          roundsLeft: 1,
+          ownerPlayerIndex: 0,
+        },
+      ]);
+      expect(viper.players[0]?.status.inViperPit).toBe(true);
+      expect(viper.players[1]?.status.inViperPit).toBe(false);
+    }
     expect(
       applyUltimate(baseInput("Omen", { targetNodeId: "bottom-1" }))
         .omenMiniMoveSteps

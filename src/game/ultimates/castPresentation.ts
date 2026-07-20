@@ -41,7 +41,10 @@ export function buildUltimateCastCue(input: CastCueBuildInput): UltimateCastCue 
     if (index != null && index >= 0) highlightPlayerIndices.add(index);
   };
 
-  addPlayer(input.casterPlayerIndex);
+  // Tile-drop pits should only light the chosen tile — caster glow looked like a 2nd pit.
+  if (input.def.id !== "vipers-pit") {
+    addPlayer(input.casterPlayerIndex);
+  }
 
   switch (input.def.id) {
     case "orbital-strike": {
