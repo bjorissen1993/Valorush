@@ -57,6 +57,9 @@ export function validateCypherTeamAssignment(
     if (alpha.length === 0 || bravo.length === 0) {
       return "Both teams need at least one player.";
     }
+    if (alpha.length > 2 || bravo.length > 2) {
+      return "Each team can have at most 2 players.";
+    }
     return null;
   }
 
@@ -65,6 +68,9 @@ export function validateCypherTeamAssignment(
     return "Assign a Solo attacker.";
   }
   const defenders = config.defenderIndices ?? [];
+  if (defenders.length > 3) {
+    return "The Team of 3 can have at most 3 players.";
+  }
   const combined = [config.attackerIndex, ...defenders];
   if (combined.length !== playerCount) {
     return "Assign every player to Solo or the Team of 3.";

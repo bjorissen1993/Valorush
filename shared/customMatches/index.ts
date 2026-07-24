@@ -4,3 +4,4 @@ export * from "./registry";
 export * from "./teamAssignment";
 export * from "./weaponTiers";
 export * from "./cypherOverride";
+export * from "./cypherTeamPlacement";

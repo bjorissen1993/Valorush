@@ -95,10 +95,11 @@ export const customMatchRegistry: CustomMatchDefinition[] = [
   {
     id: "retake",
     name: "Retake",
-    category: "1v3",
-    playerFormat: "1v3 retake",
-    description: "Spike planted — retake the site as attackers outnumbered on defense.",
-    rulesStub: "One attacker vs three defenders. Host confirms the winning side.",
+    category: "2v2",
+    playerFormat: "2v2",
+    description: "Spike planted — retake the site as two teams of two.",
+    rulesStub:
+      "Team Alpha vs Team Bravo. Host confirms the winning team after the match.",
     eligibleMaps: retake,
     winCreds: 200,
     winRadianite: 1,
@@ -107,10 +108,11 @@ export const customMatchRegistry: CustomMatchDefinition[] = [
   {
     id: "all-random-one-site",
     name: "All Random One Site",
-    category: "1v3",
-    playerFormat: "1v3 single site",
-    description: "Random agents, one bombsite — one attacker vs three defenders.",
-    rulesStub: "One attacker vs three defenders. Host confirms the winning side.",
+    category: "2v2",
+    playerFormat: "2v2",
+    description: "Random agents, one bombsite — two teams of two.",
+    rulesStub:
+      "Team Alpha vs Team Bravo. Host confirms the winning team after the match.",
     eligibleMaps: arOS,
     winCreds: 200,
     winRadianite: 1,

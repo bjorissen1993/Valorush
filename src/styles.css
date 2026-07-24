@@ -3569,16 +3569,57 @@ body {
 .ultimate-modal--cypher {
   max-width: 44rem;
   border-color: rgba(34, 211, 238, 0.28);
-  background: linear-gradient(160deg, rgba(8, 18, 28, 0.98), rgba(6, 10, 18, 0.98));
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(34, 211, 238, 0.12), transparent 55%),
+    linear-gradient(160deg, rgba(8, 18, 28, 0.98), rgba(6, 10, 18, 0.98));
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(34, 211, 238, 0.08);
+}
+
+.cypher-config__eyebrow {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(103, 232, 249, 0.9);
+}
+
+.cypher-config__title {
+  margin-top: 0.35rem;
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+}
+
+.cypher-config__lead {
+  margin-top: 0.55rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: rgba(161, 161, 170, 0.95);
+}
+
+.cypher-config__section {
+  padding-top: 0.15rem;
 }
 
 .cypher-config__label {
-  margin-bottom: 0.45rem;
-  font-size: 0.65rem;
+  margin-bottom: 0.55rem;
+  font-size: 0.62rem;
   font-weight: 700;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: rgba(148, 163, 184, 0.9);
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.cypher-config__sublabel {
+  margin-bottom: 0.4rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(113, 113, 122, 0.95);
 }
 
 .cypher-config__matchup-grid {
@@ -3588,47 +3629,48 @@ body {
 }
 
 .cypher-config__matchup {
-  border-radius: 0.85rem;
+  border-radius: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.28);
-  padding: 0.7rem 0.65rem;
-  text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  background: rgba(0, 0, 0, 0.32);
+  padding: 0.85rem 0.7rem;
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 
 .cypher-config__matchup:hover {
   border-color: rgba(34, 211, 238, 0.4);
+  background: rgba(34, 211, 238, 0.06);
 }
 
 .cypher-config__matchup--active {
-  border-color: rgba(34, 211, 238, 0.65);
-  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.7);
+  background: rgba(34, 211, 238, 0.14);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.18);
 }
 
 .cypher-config__matchup-title {
   display: block;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   font-weight: 800;
+  letter-spacing: 0.02em;
   color: #fff;
-}
-
-.cypher-config__matchup-blurb {
-  display: block;
-  margin-top: 0.25rem;
-  font-size: 0.68rem;
-  line-height: 1.35;
-  color: rgba(161, 161, 170, 0.95);
 }
 
 .cypher-config__pool {
   display: flex;
-  min-height: 3.1rem;
+  min-height: 3.25rem;
   flex-wrap: wrap;
   gap: 0.45rem;
+  align-items: center;
   border-radius: 0.85rem;
   border: 1px dashed rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.22);
-  padding: 0.55rem;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 0.6rem;
+}
+
+.cypher-config__pool-empty {
+  font-size: 0.72rem;
+  color: rgba(82, 82, 91, 0.95);
 }
 
 .cypher-config__chip {
@@ -3641,6 +3683,7 @@ body {
   padding: 0.25rem 0.65rem 0.25rem 0.25rem;
   color: #fff;
   cursor: grab;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .cypher-config__chip:active {
@@ -3648,7 +3691,7 @@ body {
 }
 
 .cypher-config__chip--selected {
-  border-color: rgba(34, 211, 238, 0.7);
+  border-color: rgba(34, 211, 238, 0.75);
   box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35);
 }
 
@@ -3680,128 +3723,164 @@ body {
 }
 
 .cypher-config__slot {
-  min-height: 6.5rem;
+  min-height: 6.25rem;
   border-radius: 0.95rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.22);
-  padding: 0.7rem;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 0.75rem;
+  transition: border-color 0.15s ease, background 0.15s ease, filter 0.15s ease;
 }
 
 .cypher-config__slot--cyan {
-  border-color: rgba(34, 211, 238, 0.22);
-  background: rgba(6, 182, 212, 0.06);
+  border-color: rgba(34, 211, 238, 0.28);
+  background: linear-gradient(160deg, rgba(6, 182, 212, 0.1), rgba(0, 0, 0, 0.28));
 }
 
 .cypher-config__slot--orange {
-  border-color: rgba(251, 146, 60, 0.22);
-  background: rgba(249, 115, 22, 0.06);
+  border-color: rgba(251, 146, 60, 0.28);
+  background: linear-gradient(160deg, rgba(249, 115, 22, 0.1), rgba(0, 0, 0, 0.28));
 }
 
 .cypher-config__slot--red {
-  border-color: rgba(248, 113, 113, 0.22);
-  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(248, 113, 113, 0.28);
+  background: linear-gradient(160deg, rgba(239, 68, 68, 0.1), rgba(0, 0, 0, 0.28));
 }
 
 .cypher-config__slot--emerald {
-  border-color: rgba(52, 211, 153, 0.22);
-  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(52, 211, 153, 0.28);
+  background: linear-gradient(160deg, rgba(16, 185, 129, 0.1), rgba(0, 0, 0, 0.28));
 }
 
 .cypher-config__slot--over,
 .cypher-config__slot--active {
   border-style: dashed;
-  filter: brightness(1.08);
+  filter: brightness(1.1);
 }
 
 .cypher-config__slot-title {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 800;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   color: #e4e4e7;
-}
-
-.cypher-config__slot-hint {
-  margin-top: 0.15rem;
-  font-size: 0.65rem;
-  color: rgba(113, 113, 122, 0.95);
 }
 
 .cypher-config__slot-body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-top: 0.55rem;
+  margin-top: 0.6rem;
   min-height: 2.2rem;
+}
+
+.cypher-config__error {
+  margin-top: 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(252, 211, 77, 0.95);
 }
 
 .cypher-config__mode-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem;
+  gap: 0.5rem;
 }
 
 .cypher-config__mode {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  min-height: 3.1rem;
   border-radius: 0.85rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.28);
-  padding: 0.65rem 0.7rem;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 0.85rem 0.9rem;
   text-align: left;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.cypher-config__mode-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-position: center;
+  background-size: cover;
+  opacity: 0.14;
+  transition: opacity 0.22s ease;
+  transform: scale(1.02);
+}
+
+.cypher-config__mode-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    110deg,
+    rgba(4, 10, 18, 0.88) 0%,
+    rgba(4, 10, 18, 0.62) 55%,
+    rgba(4, 10, 18, 0.72) 100%
+  );
+  pointer-events: none;
 }
 
 .cypher-config__mode:hover {
-  border-color: rgba(34, 211, 238, 0.35);
+  border-color: rgba(34, 211, 238, 0.4);
+}
+
+.cypher-config__mode:hover .cypher-config__mode-bg {
+  opacity: 0.32;
 }
 
 .cypher-config__mode--active {
-  border-color: rgba(34, 211, 238, 0.6);
-  background: rgba(34, 211, 238, 0.1);
+  border-color: rgba(34, 211, 238, 0.7);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2);
+}
+
+.cypher-config__mode--active .cypher-config__mode-bg {
+  opacity: 0.26;
+}
+
+.cypher-config__mode--active:hover .cypher-config__mode-bg {
+  opacity: 0.36;
 }
 
 .cypher-config__mode-name {
+  position: relative;
+  z-index: 2;
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   font-weight: 800;
-  color: #fff;
-}
-
-.cypher-config__mode-meta {
-  display: block;
-  margin-top: 0.15rem;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(34, 211, 238, 0.85);
-}
-
-.cypher-config__mode-desc {
-  display: block;
-  margin-top: 0.3rem;
-  font-size: 0.68rem;
-  line-height: 1.35;
-  color: rgba(161, 161, 170, 0.95);
+  letter-spacing: 0.01em;
+  color: #f8fafc;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85);
 }
 
 .cypher-config__rule-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.45rem;
+  gap: 0.5rem;
 }
 
 .cypher-config__rule {
-  border-radius: 0.85rem;
+  border-radius: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.28);
-  padding: 0.65rem;
-  text-align: left;
+  background: rgba(0, 0, 0, 0.32);
+  padding: 0.8rem 0.65rem;
+  text-align: center;
   font-size: 0.78rem;
+  font-weight: 700;
+  color: #e4e4e7;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.cypher-config__rule:hover {
+  border-color: rgba(250, 204, 21, 0.35);
 }
 
 .cypher-config__rule--active {
-  border-color: rgba(250, 204, 21, 0.55);
-  background: rgba(250, 204, 21, 0.08);
+  border-color: rgba(250, 204, 21, 0.6);
+  background: rgba(250, 204, 21, 0.1);
+  color: #fef08a;
 }
 
 .cypher-config__tier-btn {
@@ -3828,9 +3907,10 @@ body {
 .cypher-config__tier-card {
   border-radius: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.22);
   padding: 0.55rem 0.7rem;
-  opacity: 0.45;
+  opacity: 0.42;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
 }
 
 .cypher-config__tier-card--on {
@@ -3839,7 +3919,7 @@ body {
 }
 
 .cypher-config__tier-card-title {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -3850,6 +3930,26 @@ body {
   margin-top: 0.2rem;
   font-size: 0.68rem;
   color: rgba(161, 161, 170, 0.95);
+}
+
+.cypher-config__weapon-summary {
+  margin-top: 0.65rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: rgba(103, 232, 249, 0.8);
+}
+
+.cypher-config__actions {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .cypher-config__actions {
+    flex-direction: row;
+  }
 }
 
 @media (max-width: 640px) {
