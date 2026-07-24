@@ -440,7 +440,7 @@ export default function CypherMatchConfigurator({
             </div>
 
             {weaponRule !== "full_progression" && (
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="cypher-config__tier-grid mt-3">
                 {TDM_WEAPON_TIERS.map((tier) => (
                   <button
                     key={tier.tier}
@@ -452,7 +452,8 @@ export default function CypherMatchConfigurator({
                     }`}
                     onClick={() => setWeaponTier(tier.tier)}
                   >
-                    T{tier.tier} · {tier.name}
+                    <span>T{tier.tier}</span>
+                    <span>{tier.name}</span>
                   </button>
                 ))}
               </div>
