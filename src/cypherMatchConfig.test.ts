@@ -8,6 +8,7 @@ import { placeCypherPlayer } from "../shared/customMatches/cypherTeamPlacement";
 import { customMatchById } from "../shared/customMatches/registry";
 import type { ScheduledCustomMatch } from "../shared/customMatches/types";
 import { TDM_WEAPON_TIERS, TDM_EXCLUDED_WEAPONS } from "../shared/customMatches/weaponTiers";
+import { cypherModeAllowsWeaponConfig } from "../shared/customMatches/weaponConfig";
 
 describe("Cypher match override", () => {
   it("validates 2v2 assignments cover every player once", () => {
@@ -105,6 +106,18 @@ describe("Cypher match override", () => {
   it("lists Retake and All Random One Site under 2v2", () => {
     expect(customMatchById.get("retake")?.category).toBe("2v2");
     expect(customMatchById.get("all-random-one-site")?.category).toBe("2v2");
+  });
+
+  it("hides weapon UI for fixed-weapon modes and shows it for configurable ones", () => {
+    expect(cypherModeAllowsWeaponConfig("escalation")).toBe(false);
+    expect(cypherModeAllowsWeaponConfig("team-deathmatch")).toBe(false);
+    expect(cypherModeAllowsWeaponConfig("spike-rush")).toBe(false);
+    expect(cypherModeAllowsWeaponConfig("deathmatch")).toBe(true);
+    expect(cypherModeAllowsWeaponConfig("standard")).toBe(true);
+    expect(cypherModeAllowsWeaponConfig("swiftplay")).toBe(true);
+    expect(cypherModeAllowsWeaponConfig("retake")).toBe(true);
+    expect(cypherModeAllowsWeaponConfig("skirmish")).toBe(true);
+    expect(cypherModeAllowsWeaponConfig("all-random-one-site")).toBe(true);
   });
 });
 

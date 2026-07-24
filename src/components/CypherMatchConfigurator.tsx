@@ -3,6 +3,7 @@ import {
   CYPHER_WEAPON_RULE_LABELS,
   TDM_WEAPON_TIERS,
   customMatchRegistry,
+  cypherModeAllowsWeaponConfig,
   describeCypherWeaponRule,
   getMapSplashPath,
   placeCypherPlayer,
@@ -63,8 +64,11 @@ function PlayerChip({
       draggable={draggable}
       onDragStart={onDragStart}
       onClick={onClick}
-      className={`cypher-config__chip ${selected ? "cypher-config__chip--selected" : ""}`}
+      className={`cypher-config__chip ${selected ? "cypher-config__chip--selected" : ""} ${
+        draggable ? "" : "cypher-config__chip--static"
+      }`}
       title={player.name}
+      style={draggable ? undefined : { cursor: "default" }}
     >
       {player.avatar ? (
         <img src={player.avatar} alt="" className="cypher-config__chip-avatar" />
@@ -87,7 +91,7 @@ function DropSlot({
   active,
 }: {
   title: string;
-  tone: "cyan" | "orange" | "red" | "emerald";
+  tone: "cyan" | "orange" | "red" | "emerald" | "slate";
   children: ReactNode;
   onDropPlayer: () => void;
   onSelectSlot?: () => void;
@@ -121,7 +125,7 @@ function DropSlot({
 /**
  * Cypher Neural Theft — configure the next custom match only.
  * Map cannot be changed here. Cancel spends no orbs.
- * Single-viewport dashboard: matchup/teams | gamemodes | weapons.
+ * Vertical stack: matchup → players → teams → modes → weapons → confirm.
  */
 export default function CypherMatchConfigurator({
   ultimate,
@@ -145,6 +149,7 @@ export default function CypherMatchConfigurator({
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
   const needsTeams = matchup !== "free_for_all";
+  const showWeapons = cypherModeAllowsWeaponConfig(modeId);
 
   const assigned = useMemo(() => {
     if (matchup === "2v2") return new Set([...teamAlpha, ...teamBravo]);
@@ -158,6 +163,12 @@ export default function CypherMatchConfigurator({
 
   const pool = players.filter((player) => !assigned.has(player.index));
 
+  const effectiveWeaponRule: CypherWeaponRule = showWeapons
+    ? weaponRule
+    : "full_progression";
+  const effectiveWeaponTier =
+    showWeapons && weaponRule !== "full_progression" ? weaponTier : 1;
+
   const draftConfig: CypherMatchConfig = {
     matchup,
     modeId,
@@ -165,8 +176,8 @@ export default function CypherMatchConfigurator({
     teamBravo: matchup === "2v2" ? teamBravo : undefined,
     attackerIndex: matchup === "1v3" ? attackerIndex ?? undefined : undefined,
     defenderIndices: matchup === "1v3" ? defenderIndices : undefined,
-    weaponRule,
-    weaponTier: weaponRule === "full_progression" ? 1 : weaponTier,
+    weaponRule: effectiveWeaponRule,
+    weaponTier: effectiveWeaponTier,
   };
 
   const validationError =
@@ -231,7 +242,7 @@ export default function CypherMatchConfigurator({
   }
 
   return (
-    <div className="fixed inset-0 z-[85] flex animate-fadeIn items-center justify-center bg-black/75 p-3 sm:p-4">
+    <div className="fixed inset-0 z-[85] flex animate-fadeIn items-center justify-center bg-black/75 p-2 sm:p-3">
       <div className="ultimate-modal ultimate-modal--cypher">
         <div className="ultimate-modal__header cypher-config__header">
           {ultimate.icon ? (
@@ -246,11 +257,7 @@ export default function CypherMatchConfigurator({
           </div>
         </div>
 
-        <div
-          className={`cypher-config cypher-config--board ${
-            needsTeams ? "cypher-config--with-teams" : "cypher-config--ffa"
-          }`}
-        >
+        <div className="cypher-config cypher-config--board">
           <section className="cypher-config__panel cypher-config__panel--matchup">
             <p className="cypher-config__label">Matchup</p>
             <div className="cypher-config__matchup-grid">
@@ -269,96 +276,86 @@ export default function CypherMatchConfigurator({
             </div>
           </section>
 
-          {needsTeams && (
-            <section className="cypher-config__panel cypher-config__panel--teams">
-              <p className="cypher-config__label">Teams</p>
+          <section className="cypher-config__panel cypher-config__panel--players">
+            <p className="cypher-config__label">Players</p>
+            <div className="cypher-config__player-bar">
+              {players.map((player) => (
+                <PlayerChip
+                  key={player.index}
+                  player={player}
+                  draggable={needsTeams}
+                  selected={selectedIndex === player.index}
+                  onDragStart={needsTeams ? bindChipDrag(player.index) : undefined}
+                  onClick={
+                    needsTeams ? () => handleChipClick(player.index) : undefined
+                  }
+                />
+              ))}
+            </div>
+          </section>
 
-              <div className="cypher-config__teams-body">
-                <div>
-                  <p className="cypher-config__sublabel">Unassigned</p>
-                  <div
-                    className="cypher-config__pool"
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      handleDrop("pool");
-                    }}
-                  >
-                    {pool.length === 0 ? (
-                      <span className="cypher-config__pool-empty">
-                        All players assigned
-                      </span>
-                    ) : (
-                      pool.map((player) => (
-                        <PlayerChip
-                          key={player.index}
-                          player={player}
-                          draggable
-                          selected={selectedIndex === player.index}
-                          onDragStart={bindChipDrag(player.index)}
-                          onClick={() => handleChipClick(player.index)}
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
+          <section className="cypher-config__panel cypher-config__panel--teams">
+            <p className="cypher-config__label">
+              {matchup === "free_for_all" ? "Team Preview" : "Teams"}
+            </p>
 
-                {matchup === "2v2" ? (
-                  <div className="cypher-config__slots">
+            <div className="cypher-config__teams-body">
+              {matchup === "free_for_all" ? (
+                <div className="cypher-config__ffa-preview">
+                  {players.map((player) => (
                     <DropSlot
-                      title="Team A"
-                      tone="cyan"
-                      active={selectedIndex != null}
-                      onDropPlayer={() => handleDrop("alpha")}
-                      onSelectSlot={() => {
-                        if (selectedIndex != null) placePlayer(selectedIndex, "alpha");
-                      }}
-                    >
-                      {playersFromIndices(teamAlpha).map((player) => (
-                        <PlayerChip
-                          key={player.index}
-                          player={player}
-                          draggable
-                          selected={selectedIndex === player.index}
-                          onDragStart={bindChipDrag(player.index)}
-                          onClick={() => handleChipClick(player.index)}
-                        />
-                      ))}
-                    </DropSlot>
-                    <DropSlot
-                      title="Team B"
-                      tone="orange"
-                      active={selectedIndex != null}
-                      onDropPlayer={() => handleDrop("bravo")}
-                      onSelectSlot={() => {
-                        if (selectedIndex != null) placePlayer(selectedIndex, "bravo");
-                      }}
-                    >
-                      {playersFromIndices(teamBravo).map((player) => (
-                        <PlayerChip
-                          key={player.index}
-                          player={player}
-                          draggable
-                          selected={selectedIndex === player.index}
-                          onDragStart={bindChipDrag(player.index)}
-                          onClick={() => handleChipClick(player.index)}
-                        />
-                      ))}
-                    </DropSlot>
-                  </div>
-                ) : (
-                  <div className="cypher-config__slots">
-                    <DropSlot
+                      key={player.index}
                       title="Solo"
-                      tone="red"
-                      active={selectedIndex != null}
-                      onDropPlayer={() => handleDrop("solo")}
-                      onSelectSlot={() => {
-                        if (selectedIndex != null) placePlayer(selectedIndex, "solo");
+                      tone="slate"
+                      onDropPlayer={() => undefined}
+                    >
+                      <PlayerChip player={player} draggable={false} />
+                    </DropSlot>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <p className="cypher-config__sublabel">Unassigned</p>
+                    <div
+                      className="cypher-config__pool"
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        handleDrop("pool");
                       }}
                     >
-                      {attackerIndex != null &&
-                        playersFromIndices([attackerIndex]).map((player) => (
+                      {pool.length === 0 ? (
+                        <span className="cypher-config__pool-empty">
+                          All players assigned
+                        </span>
+                      ) : (
+                        pool.map((player) => (
+                          <PlayerChip
+                            key={player.index}
+                            player={player}
+                            draggable
+                            selected={selectedIndex === player.index}
+                            onDragStart={bindChipDrag(player.index)}
+                            onClick={() => handleChipClick(player.index)}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {matchup === "2v2" ? (
+                    <div className="cypher-config__slots">
+                      <DropSlot
+                        title="Team A"
+                        tone="cyan"
+                        active={selectedIndex != null}
+                        onDropPlayer={() => handleDrop("alpha")}
+                        onSelectSlot={() => {
+                          if (selectedIndex != null) placePlayer(selectedIndex, "alpha");
+                        }}
+                      >
+                        {playersFromIndices(teamAlpha).map((player) => (
                           <PlayerChip
                             key={player.index}
                             player={player}
@@ -368,36 +365,81 @@ export default function CypherMatchConfigurator({
                             onClick={() => handleChipClick(player.index)}
                           />
                         ))}
-                    </DropSlot>
-                    <DropSlot
-                      title="Team of 3"
-                      tone="emerald"
-                      active={selectedIndex != null}
-                      onDropPlayer={() => handleDrop("squad")}
-                      onSelectSlot={() => {
-                        if (selectedIndex != null) placePlayer(selectedIndex, "squad");
-                      }}
-                    >
-                      {playersFromIndices(defenderIndices).map((player) => (
-                        <PlayerChip
-                          key={player.index}
-                          player={player}
-                          draggable
-                          selected={selectedIndex === player.index}
-                          onDragStart={bindChipDrag(player.index)}
-                          onClick={() => handleChipClick(player.index)}
-                        />
-                      ))}
-                    </DropSlot>
-                  </div>
-                )}
+                      </DropSlot>
+                      <DropSlot
+                        title="Team B"
+                        tone="orange"
+                        active={selectedIndex != null}
+                        onDropPlayer={() => handleDrop("bravo")}
+                        onSelectSlot={() => {
+                          if (selectedIndex != null) placePlayer(selectedIndex, "bravo");
+                        }}
+                      >
+                        {playersFromIndices(teamBravo).map((player) => (
+                          <PlayerChip
+                            key={player.index}
+                            player={player}
+                            draggable
+                            selected={selectedIndex === player.index}
+                            onDragStart={bindChipDrag(player.index)}
+                            onClick={() => handleChipClick(player.index)}
+                          />
+                        ))}
+                      </DropSlot>
+                    </div>
+                  ) : (
+                    <div className="cypher-config__slots">
+                      <DropSlot
+                        title="Solo"
+                        tone="red"
+                        active={selectedIndex != null}
+                        onDropPlayer={() => handleDrop("solo")}
+                        onSelectSlot={() => {
+                          if (selectedIndex != null) placePlayer(selectedIndex, "solo");
+                        }}
+                      >
+                        {attackerIndex != null &&
+                          playersFromIndices([attackerIndex]).map((player) => (
+                            <PlayerChip
+                              key={player.index}
+                              player={player}
+                              draggable
+                              selected={selectedIndex === player.index}
+                              onDragStart={bindChipDrag(player.index)}
+                              onClick={() => handleChipClick(player.index)}
+                            />
+                          ))}
+                      </DropSlot>
+                      <DropSlot
+                        title="Team of 3"
+                        tone="emerald"
+                        active={selectedIndex != null}
+                        onDropPlayer={() => handleDrop("squad")}
+                        onSelectSlot={() => {
+                          if (selectedIndex != null) placePlayer(selectedIndex, "squad");
+                        }}
+                      >
+                        {playersFromIndices(defenderIndices).map((player) => (
+                          <PlayerChip
+                            key={player.index}
+                            player={player}
+                            draggable
+                            selected={selectedIndex === player.index}
+                            onDragStart={bindChipDrag(player.index)}
+                            onClick={() => handleChipClick(player.index)}
+                          />
+                        ))}
+                      </DropSlot>
+                    </div>
+                  )}
 
-                {validationError && (
-                  <p className="cypher-config__error">{validationError}</p>
-                )}
-              </div>
-            </section>
-          )}
+                  {validationError && (
+                    <p className="cypher-config__error">{validationError}</p>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
 
           <section className="cypher-config__panel cypher-config__panel--modes">
             <p className="cypher-config__label">Gamemode</p>
@@ -439,86 +481,88 @@ export default function CypherMatchConfigurator({
             </div>
           </section>
 
-          <section className="cypher-config__panel cypher-config__panel--weapons">
-            <div className="cypher-config__weapons-head">
-              <p className="cypher-config__label cypher-config__label--inline">
-                Weapons
-              </p>
-              <p className="cypher-config__weapon-summary">
-                {describeCypherWeaponRule(
-                  weaponRule,
-                  weaponRule === "full_progression" ? 1 : weaponTier
-                )}
-              </p>
-            </div>
-
-            <div className="cypher-config__weapons-row">
-              <div className="cypher-config__rule-grid">
-                {WEAPON_RULES.map((rule) => (
-                  <button
-                    key={rule}
-                    type="button"
-                    className={`cypher-config__rule ${
-                      weaponRule === rule ? "cypher-config__rule--active" : ""
-                    }`}
-                    onClick={() => setWeaponRule(rule)}
-                  >
-                    {CYPHER_WEAPON_RULE_LABELS[rule]}
-                  </button>
-                ))}
+          {showWeapons && (
+            <section className="cypher-config__panel cypher-config__panel--weapons">
+              <div className="cypher-config__weapons-head">
+                <p className="cypher-config__label cypher-config__label--inline">
+                  Weapons
+                </p>
+                <p className="cypher-config__weapon-summary">
+                  {describeCypherWeaponRule(
+                    weaponRule,
+                    weaponRule === "full_progression" ? 1 : weaponTier
+                  )}
+                </p>
               </div>
 
-              {weaponRule !== "full_progression" && (
-                <div className="cypher-config__tier-grid">
-                  {TDM_WEAPON_TIERS.map((tier) => (
+              <div className="cypher-config__weapons-row">
+                <div className="cypher-config__rule-grid">
+                  {WEAPON_RULES.map((rule) => (
                     <button
-                      key={tier.tier}
+                      key={rule}
                       type="button"
-                      className={`cypher-config__tier-btn ${
-                        weaponTier === tier.tier
-                          ? "cypher-config__tier-btn--active"
-                          : ""
+                      className={`cypher-config__rule ${
+                        weaponRule === rule ? "cypher-config__rule--active" : ""
                       }`}
-                      onClick={() => setWeaponTier(tier.tier)}
+                      onClick={() => setWeaponRule(rule)}
                     >
-                      <span>T{tier.tier}</span>
-                      <span>{tier.name}</span>
+                      {CYPHER_WEAPON_RULE_LABELS[rule]}
                     </button>
                   ))}
                 </div>
-              )}
-            </div>
 
-            <div className="cypher-config__tier-list">
-              {TDM_WEAPON_TIERS.map((tier) => {
-                const emphasized =
-                  weaponRule === "full_progression" ||
-                  (weaponRule === "start_tier" && tier.tier <= weaponTier) ||
-                  (weaponRule === "locked_tier" && tier.tier === weaponTier);
-                return (
-                  <div
-                    key={tier.tier}
-                    className={`cypher-config__tier-card ${
-                      emphasized ? "cypher-config__tier-card--on" : ""
-                    }`}
-                  >
-                    <p className="cypher-config__tier-card-title">
-                      T{tier.tier} · {tier.name}
-                    </p>
-                    <p className="cypher-config__tier-card-weapons">
-                      {tier.weapons.join(" · ")}
-                    </p>
+                {weaponRule !== "full_progression" && (
+                  <div className="cypher-config__tier-grid">
+                    {TDM_WEAPON_TIERS.map((tier) => (
+                      <button
+                        key={tier.tier}
+                        type="button"
+                        className={`cypher-config__tier-btn ${
+                          weaponTier === tier.tier
+                            ? "cypher-config__tier-btn--active"
+                            : ""
+                        }`}
+                        onClick={() => setWeaponTier(tier.tier)}
+                      >
+                        <span>T{tier.tier}</span>
+                        <span>{tier.name}</span>
+                      </button>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-          </section>
+                )}
+              </div>
+
+              <div className="cypher-config__tier-list">
+                {TDM_WEAPON_TIERS.map((tier) => {
+                  const emphasized =
+                    weaponRule === "full_progression" ||
+                    (weaponRule === "start_tier" && tier.tier <= weaponTier) ||
+                    (weaponRule === "locked_tier" && tier.tier === weaponTier);
+                  return (
+                    <div
+                      key={tier.tier}
+                      className={`cypher-config__tier-card ${
+                        emphasized ? "cypher-config__tier-card--on" : ""
+                      }`}
+                    >
+                      <p className="cypher-config__tier-card-title">
+                        T{tier.tier} · {tier.name}
+                      </p>
+                      <p className="cypher-config__tier-card-weapons">
+                        {tier.weapons.join(" · ")}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </div>
 
         <div className="cypher-config__actions">
           <button
             type="button"
-            className="ultimate-modal__btn ultimate-modal__btn--primary flex-1 disabled:opacity-40"
+            className="ultimate-modal__btn cypher-config__btn-confirm disabled:opacity-40"
             disabled={!canConfirm}
             onClick={() => onConfirm(draftConfig)}
           >
@@ -526,7 +570,7 @@ export default function CypherMatchConfigurator({
           </button>
           <button
             type="button"
-            className="ultimate-modal__btn flex-1"
+            className="ultimate-modal__btn cypher-config__btn-cancel"
             onClick={onCancel}
           >
             Cancel
