@@ -216,6 +216,31 @@ describe("applyUltimate — all playable agents", () => {
     ).toBe(true);
   });
 
+  it("counts Sova shots down across applies", () => {
+    const first = applyUltimate(baseInput("Sova", { targetNodeId: "o1" }));
+    expect(first.sovaShotsRemaining).toBe(2);
+    const second = applyUltimate(
+      baseInput("Sova", { targetNodeId: "o1", sovaShotsRemaining: 2 })
+    );
+    expect(second.sovaShotsRemaining).toBe(1);
+    const third = applyUltimate(
+      baseInput("Sova", { targetNodeId: "o1", sovaShotsRemaining: 1 })
+    );
+    expect(third.sovaShotsRemaining).toBe(0);
+  });
+
+  it("returns Chamber loot segments for the wheel UI", () => {
+    const result = applyUltimate(
+      baseInput("Chamber", {
+        targetPlayerIndex: 1,
+        chamberLootId: "fallback",
+      })
+    );
+    expect(result.chamberLoot?.segmentId).toBe("fallback");
+    expect(result.chamberLoot?.segments?.length).toBeGreaterThan(0);
+    expect(result.chamberLoot?.targetName).toBeTruthy();
+  });
+
   it("applies formerly stubbed lobby agents", () => {
     expect(
       applyUltimate(

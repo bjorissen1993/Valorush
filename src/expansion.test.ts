@@ -67,13 +67,21 @@ describe("token stacking", () => {
 
 describe("area targeting", () => {
   it("counts partial tile hits as full", () => {
-    const hub = getNodeById("inner-hub");
+    const hub = getNodeById("inner-ne");
     expect(hub).toBeTruthy();
     const ids = tileIdsInArea({
       center: { x: hub!.x, y: hub!.y },
       radius: AREA_RADIUS.viper,
     });
     expect(ids.length).toBeGreaterThan(1);
-    expect(ids).toContain("inner-hub");
+    expect(ids).toContain("inner-ne");
+  });
+});
+
+describe("board planarity", () => {
+  it("has no visual road crossings between unconnected edges", () => {
+    const report = validateBoardGraph();
+    const crossings = report.issues.filter((i) => i.code === "visual_crossing");
+    expect(crossings, JSON.stringify(crossings, null, 2)).toEqual([]);
   });
 });

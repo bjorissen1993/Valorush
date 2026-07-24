@@ -45,6 +45,10 @@ export type PlayerInGame = Player & {
   ultimateOrbs: number;
   /** Buffs / debuffs from ultimates. */
   ultimateStatus: PlayerUltimateStatus;
+  /** Dice Holder: capture highest die from next roll. */
+  diceHolderArmed?: boolean;
+  /** Dice Holder: stored face to reuse instead of rolling. */
+  storedDie?: number | null;
 };
 
 export type TurnPhase =

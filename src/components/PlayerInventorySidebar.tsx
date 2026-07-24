@@ -101,6 +101,7 @@ function getShieldImage(label: string | null): string | undefined {
 function classifyItem(item: ItemDefinition): "dice" | "special" | "spike" {
   if (SPIKE_ONLY_ITEM_IDS.has(item.id)) return "spike";
   if (item.boardEffect?.kind === "dice_bonus") return "dice";
+  if (item.boardEffect?.kind === "dice_holder") return "dice";
   return "special";
 }
 
@@ -109,6 +110,7 @@ function isUsableBoardItem(item: ItemDefinition): boolean {
   if (SPIKE_ONLY_ITEM_IDS.has(item.id)) return false;
   return (
     item.boardEffect.kind === "dice_bonus" ||
+    item.boardEffect.kind === "dice_holder" ||
     item.boardEffect.kind === "steal_creds" ||
     item.boardEffect.kind === "swap_position"
   );

@@ -58,7 +58,7 @@ import { boardLayout, getNodeById, migrateBoardPosition, type TileType } from ".
 import { assertBoardGraphValidInDev } from "../game/boardValidator";
 import { rollDice, DEFAULT_DICE_COUNT } from "../game/diceSystem";
 import { RADIANITE_BUY_COST } from "../game/economy";
-import { tileIdsInArea, AREA_RADIUS } from "../game/ultimates/areaTargeting";
+import { tileIdsInArea, AREA_RADIUS, PLACEMENT_RADIUS, clampCenterToPlacementRadius } from "../game/ultimates/areaTargeting";
 import { detonateKilljoyDevices } from "../game/ultimates/tickStatus";
 import { computeEffectiveRoll, tickMovementModifiers, consumeOneShotMovementBonus, normalizePlayerLoadout, getBoardNodeIds } from "../game/boardEventBridge";
 import {
@@ -111,6 +111,7 @@ import UltimateMeter from "./UltimateMeter";
 import UltimateTargetModal, {
   type UltimateTargetSelection,
 } from "./UltimateTargetModal";
+import ChamberLootWheel from "./ChamberLootWheel";
 import PlayerInventorySidebar, {
   rotatePlayersToActive,
   type InventoryItemAction,
@@ -552,6 +553,19 @@ export default function GamePage({
     steps: number;
     fromNodeId: string;
   } | null>(null);
+  const [chamberLootWheel, setChamberLootWheel] = useState<{
+    targetName: string;
+    winningSegmentId: string;
+    winningLabel: string;
+    segments: { id: string; label: string; weight: number }[];
+    credsStolen: number;
+    radianiteStolen: number;
+  } | null>(null);
+  const [areaCursorPreview, setAreaCursorPreview] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [shopRerollAvailable, setShopRerollAvailable] = useState(false);
   const boardUltimateStateRef = useRef(boardUltimateState);
   boardUltimateStateRef.current = boardUltimateState;
 
@@ -1642,10 +1656,67 @@ export default function GamePage({
     setShopOffers(offers);
     setPendingPurchase(null);
     setPurchasedShopOfferIds([]);
+    setShopRerollAvailable((player.items ?? []).includes("lucky-backpack"));
     setCanBuyAfterLanding(true);
     setStatusTitle(`${player.name} landed on Shop`);
     setStatusSubtitle("Browse the rotating shop offers.");
     showAnnouncement(`${player.name} landed on Shop`, "Browse the rotating shop offers.");
+  }
+
+  function rerollShopOffersWithBackpack() {
+    const player = playersInGame[currentPlayerIndex];
+    if (!player || !shopRerollAvailable) return;
+    if (!(player.items ?? []).includes("lucky-backpack")) {
+      setShopRerollAvailable(false);
+      return;
+    }
+
+    updatePlayer(currentPlayerIndex, (current) => ({
+      ...current,
+      items: current.items.filter((id) => id !== "lucky-backpack"),
+    }));
+    setShopRerollAvailable(false);
+
+    const pool = getRandomItems([...rotatingShopItems], 6);
+    const offers: ShopOffer[] = pool.map((item) => {
+      const isWeapon =
+        item.id === "special-odin" || item.id === "special-operator";
+      const weaponName =
+        item.id === "special-odin"
+          ? "Odin"
+          : item.id === "special-operator"
+            ? "Operator"
+            : undefined;
+      return {
+        id: item.id,
+        type: isWeapon
+          ? ("weapon" as const)
+          : item.id === "ultimate-orb-pack"
+            ? ("ultimate" as const)
+            : ("utility" as const),
+        label: item.name,
+        price: item.price,
+        description: item.description,
+        image: item.icon,
+        weaponName,
+        weaponSlot: isWeapon ? ("primary" as const) : undefined,
+        disabled: player.creds < item.price,
+      };
+    });
+    offers.push({
+      id: "buy-radianite",
+      type: "utility",
+      label: "Radianite Point",
+      price: SHOP_RADIANITE_COST ?? RADIANITE_BUY_COST,
+      description: `Buy 1 radianite for ${SHOP_RADIANITE_COST ?? RADIANITE_BUY_COST} creds`,
+      image: "/points/Radianite_Points.png",
+      disabled: player.creds < (SHOP_RADIANITE_COST ?? RADIANITE_BUY_COST),
+    });
+    setShopOffers(offers);
+    setPurchasedShopOfferIds([]);
+    setPendingPurchase(null);
+    setStatusSubtitle("Lucky Backpack rerolled the shop offers.");
+    showAnnouncement("Lucky Backpack", "Shop offers rerolled for free.");
   }
 
   function completeDirectorIntro() {
@@ -1924,15 +1995,56 @@ export default function GamePage({
     handleDebugBoardTileClick(nodeId);
   }
 
+  function handleUltimatePlayerTarget(playerIndex: number) {
+    if (!ultimateTargeting) return;
+    if (playerIndex === currentPlayerIndex) return;
+
+    const kind = ultimateTargeting.targetKind;
+    if (kind === "player_or_choice") {
+      setUltimateTargeting(null);
+      setRazeTargetPlayerIndex(playerIndex);
+      setUltimateModalOpen(true);
+      return;
+    }
+
+    if (kind === "multi_shot") {
+      void confirmUltimateFromBoard({
+        targetPlayerIndex: playerIndex,
+        targetNodeId: playersInGame[playerIndex]?.position,
+        sovaShotsRemaining: ultimateTargeting.sovaShotsRemaining ?? 3,
+      });
+      return;
+    }
+
+    if (kind === "player") {
+      const isCypher = ultimateTargeting.ultimateId === "neural-theft";
+      void confirmUltimateFromBoard({
+        targetPlayerIndex: playerIndex,
+        stealFromPlayerIndex: isCypher ? playerIndex : undefined,
+      });
+    }
+  }
+
   function cancelUltimateTargeting() {
     setUltimateTargeting(null);
     setRazeTargetPlayerIndex(null);
     setUltimateModalOpen(false);
+    setAreaCursorPreview(null);
   }
 
   function handleUltimateBoardTileClick(nodeId: string) {
     if (!ultimateTargeting) return;
     const kind = ultimateTargeting.targetKind;
+
+    if (kind === "area") {
+      const node = getNodeById(nodeId);
+      if (!node) return;
+      void confirmUltimateFromBoard({
+        targetNodeId: nodeId,
+        areaCenter: { x: node.x, y: node.y },
+      });
+      return;
+    }
 
     if (kind === "tile" || kind === "tile_and_move") {
       void confirmUltimateFromBoard({ targetNodeId: nodeId });
@@ -1949,6 +2061,21 @@ export default function GamePage({
       return;
     }
 
+    if (kind === "multi_shot") {
+      const opponentsOnTile = playersInGame
+        .map((player, index) => ({ player, index }))
+        .filter(
+          ({ player, index }) =>
+            index !== currentPlayerIndex && player.position === nodeId
+        );
+      void confirmUltimateFromBoard({
+        targetNodeId: nodeId,
+        targetPlayerIndex: opponentsOnTile[0]?.index,
+        sovaShotsRemaining: ultimateTargeting.sovaShotsRemaining ?? 3,
+      });
+      return;
+    }
+
     if (kind === "player" || kind === "player_or_choice") {
       const opponentsOnTile = playersInGame
         .map((player, index) => ({ player, index }))
@@ -1961,33 +2088,45 @@ export default function GamePage({
     }
   }
 
+  function handleAreaPlace(point: { x: number; y: number }) {
+    if (!ultimateTargeting || ultimateTargeting.targetKind !== "area") return;
+    const caster = playersInGame[currentPlayerIndex];
+    const def = getUltimateForAgent(ultimateTargeting.agentName);
+    let center = point;
+    if (def?.placementRadius != null && caster) {
+      const owner = getNodeById(caster.position);
+      if (owner) {
+        center = clampCenterToPlacementRadius(
+          point,
+          owner,
+          def.placementRadius
+        );
+      }
+    }
+    // Nearest tile for legacy targetNodeId / KJ device anchor.
+    let nearestId = boardLayout[0]?.id ?? "start";
+    let nearestDist = Number.POSITIVE_INFINITY;
+    for (const node of boardLayout) {
+      const dx = node.x - center.x;
+      const dy = node.y - center.y;
+      const d = dx * dx + dy * dy;
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestId = node.id;
+      }
+    }
+    void confirmUltimateFromBoard({
+      targetNodeId: nearestId,
+      areaCenter: center,
+    });
+  }
+
   function handleUltimateEdgeClick(from: string, to: string) {
     if (!ultimateTargeting || ultimateTargeting.targetKind !== "edge") return;
     void confirmUltimateFromBoard({
       targetNodeId: from,
       targetNodeId2: to,
     });
-  }
-
-  function handleUltimatePlayerTarget(playerIndex: number) {
-    if (!ultimateTargeting) return;
-    if (playerIndex === currentPlayerIndex) return;
-
-    const kind = ultimateTargeting.targetKind;
-    if (kind === "player_or_choice") {
-      setUltimateTargeting(null);
-      setRazeTargetPlayerIndex(playerIndex);
-      setUltimateModalOpen(true);
-      return;
-    }
-
-    if (kind === "player") {
-      const isCypher = ultimateTargeting.ultimateId === "neural-theft";
-      void confirmUltimateFromBoard({
-        targetPlayerIndex: playerIndex,
-        stealFromPlayerIndex: isCypher ? playerIndex : undefined,
-      });
-    }
   }
 
   function confirmUltimateFromBoard(selection: UltimateTargetSelection) {
@@ -3339,6 +3478,19 @@ export default function GamePage({
         : randomDiceRollDetailed();
     const rawRoll = detailed.sum;
     const player = playersInGameRef.current[currentPlayerIndex];
+
+    // Dice Holder: store highest face from this roll (item kept until reuse).
+    if (player?.diceHolderArmed) {
+      updatePlayer(currentPlayerIndex, (current) => ({
+        ...current,
+        diceHolderArmed: false,
+        storedDie: detailed.highest,
+      }));
+      showAnnouncement(
+        "Dice Holder",
+        `Stored die face ${detailed.highest}. Use Dice Holder again to reuse it.`
+      );
+    }
     // Sync Viper pit flag from board before computing roll.
     if (player) {
       const inPit = isInPoisonCloud(
@@ -3790,6 +3942,52 @@ export default function GamePage({
     const effect = item?.boardEffect;
     if (!effect) return false;
 
+    if (effect.kind === "dice_holder") {
+      const stored = player.storedDie;
+      if (stored != null && stored > 0) {
+        // Reuse stored die instead of rolling — lands on result phase.
+        updatePlayer(currentPlayerIndex, (current) => ({
+          ...current,
+          items: current.items.filter((id) => id !== itemId),
+          storedDie: null,
+          diceHolderArmed: false,
+        }));
+        setPendingInventoryItemId(null);
+        setLastRoll(stored);
+        setDiceDisplayValue(stored);
+        setHasRolledThisTurn(true);
+        setDiceFlowPhase("result");
+        setStatusTitle(`${player.name} used Dice Holder`);
+        setStatusSubtitle(`Reused stored die: ${stored}. Confirm to move.`);
+        showAnnouncement("Dice Holder", `Stored die ${stored} — confirm movement.`);
+        return true;
+      }
+
+      // Arm to capture highest die from next roll.
+      updatePlayer(currentPlayerIndex, (current) => ({
+        ...current,
+        diceHolderArmed: true,
+      }));
+      setPendingInventoryItemId(null);
+      setStatusTitle(`${player.name} armed Dice Holder`);
+      setStatusSubtitle("Next roll's highest die will be stored.");
+      showAnnouncement(
+        "Dice Holder armed",
+        "Roll normally — highest die is saved for later."
+      );
+      return true;
+    }
+
+    if (effect.kind === "shop_reroll") {
+      setStatusTitle("Lucky Backpack");
+      setStatusSubtitle("Use this free reroll when you land on a shop.");
+      showAnnouncement(
+        "Lucky Backpack",
+        "Automatic free reroll available on your next shop visit."
+      );
+      return false;
+    }
+
     if (effect.kind === "dice_bonus") {
       updatePlayer(currentPlayerIndex, (current) => ({
         ...current,
@@ -3965,6 +4163,21 @@ export default function GamePage({
       return;
     }
 
+    // Cypher configurator + reactive arm use the choice modal (not board).
+    if (
+      def.targetKind === "match_config" ||
+      def.targetKind === "reactive" ||
+      def.targetKind === "choice" ||
+      def.targetKind === "sequential_opponents"
+    ) {
+      if (isOnlineGuest && multiplayer?.yourPlayerIndex !== currentPlayerIndex) {
+        return;
+      }
+      setUltimateTargeting(null);
+      setUltimateModalOpen(true);
+      return;
+    }
+
     if (usesBoardTargeting(def.targetKind)) {
       if (isOnlineGuest && multiplayer?.yourPlayerIndex !== currentPlayerIndex) {
         return;
@@ -3975,11 +4188,13 @@ export default function GamePage({
         ultimateId: def.id,
         ultimateName: def.name,
         targetKind: def.targetKind,
+        sovaShotsRemaining:
+          def.targetKind === "multi_shot" ? 3 : undefined,
       });
+      setAreaCursorPreview(null);
       return;
     }
 
-    // Choice / sequential (Sage, Killjoy) — keep modal.
     if (isOnlineGuest && multiplayer?.yourPlayerIndex !== currentPlayerIndex) {
       return;
     }
@@ -4016,14 +4231,22 @@ export default function GamePage({
     if (!def) return;
 
     let areaNodeIds: string[] | undefined;
+    const areaCenter = selection.areaCenter;
     if (
       (def.targetKind === "area" ||
         def.id === "orbital-strike" ||
         def.id === "vipers-pit" ||
         def.id === "lockdown") &&
-      selection.targetNodeId
+      (areaCenter || selection.targetNodeId)
     ) {
-      const center = getNodeById(selection.targetNodeId);
+      const centerPoint =
+        areaCenter ??
+        (() => {
+          const node = selection.targetNodeId
+            ? getNodeById(selection.targetNodeId)
+            : null;
+          return node ? { x: node.x, y: node.y } : null;
+        })();
       const radius =
         def.areaRadius ??
         (def.id === "lockdown"
@@ -4031,9 +4254,9 @@ export default function GamePage({
           : def.id === "vipers-pit"
             ? AREA_RADIUS.viper
             : AREA_RADIUS.brimstone);
-      if (center) {
+      if (centerPoint) {
         areaNodeIds = tileIdsInArea({
-          center: { x: center.x, y: center.y },
+          center: centerPoint,
           radius,
         });
       }
@@ -4056,6 +4279,8 @@ export default function GamePage({
       opponentChoices: selection.opponentChoices,
       razeMode: selection.razeMode,
       stealFromPlayerIndex: selection.stealFromPlayerIndex,
+      cypherMatchConfig: selection.cypherMatchConfig,
+      sovaShotsRemaining: selection.sovaShotsRemaining,
     });
 
     if (result.incomplete) {
@@ -4070,11 +4295,14 @@ export default function GamePage({
           ultimateId: def.id,
           ultimateName: def.name,
           targetKind: def.targetKind,
+          sovaShotsRemaining: selection.sovaShotsRemaining,
         });
       } else if (
         def.targetKind === "choice" ||
         def.targetKind === "sequential_opponents" ||
-        def.targetKind === "player_or_choice"
+        def.targetKind === "player_or_choice" ||
+        def.targetKind === "match_config" ||
+        def.targetKind === "reactive"
       ) {
         setUltimateModalOpen(true);
       }
@@ -4082,14 +4310,32 @@ export default function GamePage({
     }
 
     setUltimateModalOpen(false);
-    setUltimateTargeting(null);
-    setRazeTargetPlayerIndex(null);
+    setAreaCursorPreview(null);
     setPlayersInGame(mergeUltimatePlayers(playersInGameRef.current, result.players));
     setBoardUltimateState(result.board);
     setStatusTitle(result.headline);
     setStatusSubtitle(result.description);
     showAnnouncement(result.headline, result.description);
     publishGameEventChat(`${caster.name} used ${result.headline}: ${result.description}`);
+
+    // Sova: force continue targeting for remaining shots.
+    if (
+      def.id === "hunters-fury" &&
+      result.sovaShotsRemaining != null &&
+      result.sovaShotsRemaining > 0
+    ) {
+      setUltimateTargeting({
+        agentName,
+        ultimateId: def.id,
+        ultimateName: def.name,
+        targetKind: "multi_shot",
+        sovaShotsRemaining: result.sovaShotsRemaining,
+      });
+      setRazeTargetPlayerIndex(null);
+    } else {
+      setUltimateTargeting(null);
+      setRazeTargetPlayerIndex(null);
+    }
 
     const orbsBefore = caster.ultimateOrbs ?? 0;
     const orbsAfter = result.players[casterIndex]?.ultimateOrbs ?? orbsBefore;
@@ -4107,6 +4353,18 @@ export default function GamePage({
       lastPlayedCastIdRef.current = cue.id;
       setUltimateCast(cue);
       await sleep(Math.min(900, cue.durationMs));
+    }
+
+    // Chamber Tour de Force loot wheel presentation.
+    if (result.chamberLoot) {
+      setChamberLootWheel({
+        targetName: result.chamberLoot.targetName,
+        winningSegmentId: result.chamberLoot.segmentId,
+        winningLabel: result.chamberLoot.label,
+        segments: result.chamberLoot.segments,
+        credsStolen: result.chamberLoot.credsStolen,
+        radianiteStolen: result.chamberLoot.radianiteStolen,
+      });
     }
 
     for (const change of result.positionChanges) {
@@ -5136,6 +5394,8 @@ export default function GamePage({
           onConfirmPurchase={confirmPurchase}
           onContinue={() => void finishShopPhase()}
           renderOfferButton={renderShopOfferButton}
+          canRerollOffers={shopRerollAvailable}
+          onRerollOffers={rerollShopOffersWithBackpack}
           purchasePreview={
             pendingPurchase ? (
               <div className="flex w-full flex-col items-center">
@@ -5458,16 +5718,52 @@ export default function GamePage({
                 onTileClick={handleBoardTileClick}
                 onEdgeClick={handleUltimateEdgeClick}
                 onPlayerTokenClick={handleUltimatePlayerTarget}
+                onAreaPlace={handleAreaPlace}
+                onAreaCursorMove={setAreaCursorPreview}
+                areaPlacement={
+                  ultimateTargeting?.targetKind === "area"
+                    ? {
+                        radius:
+                          getUltimateForAgent(ultimateTargeting.agentName)
+                            ?.areaRadius ?? AREA_RADIUS.brimstone,
+                        placementRadius:
+                          getUltimateForAgent(ultimateTargeting.agentName)
+                            ?.placementRadius ??
+                          (ultimateTargeting.ultimateId === "vipers-pit"
+                            ? PLACEMENT_RADIUS.viper
+                            : ultimateTargeting.ultimateId === "lockdown"
+                              ? PLACEMENT_RADIUS.killjoy
+                              : undefined),
+                        ownerNodeId:
+                          playersInGame[currentPlayerIndex]?.position,
+                        previewNodeIds: areaCursorPreview
+                          ? tileIdsInArea({
+                              center: areaCursorPreview,
+                              radius:
+                                getUltimateForAgent(ultimateTargeting.agentName)
+                                  ?.areaRadius ?? AREA_RADIUS.brimstone,
+                            })
+                          : [],
+                      }
+                    : null
+                }
                 debugClickable={debugMode && debugBoardAction !== null}
                 selectableNodeIds={
-                  ultimateTargeting
-                    ? getSelectableTileIdsForUltimate(ultimateTargeting.targetKind, {
-                        opponentPositions: playersInGame
-                          .filter((_, index) => index !== currentPlayerIndex)
-                          .map((p) => p.position),
-                        paths: ULTIMATE_BOARD_PATHS,
+                  ultimateTargeting?.targetKind === "area" && areaCursorPreview
+                    ? tileIdsInArea({
+                        center: areaCursorPreview,
+                        radius:
+                          getUltimateForAgent(ultimateTargeting.agentName)
+                            ?.areaRadius ?? AREA_RADIUS.brimstone,
                       })
-                    : pendingPathChoice?.options ?? []
+                    : ultimateTargeting
+                      ? getSelectableTileIdsForUltimate(ultimateTargeting.targetKind, {
+                          opponentPositions: playersInGame
+                            .filter((_, index) => index !== currentPlayerIndex)
+                            .map((p) => p.position),
+                          paths: ULTIMATE_BOARD_PATHS,
+                        })
+                      : pendingPathChoice?.options ?? []
                 }
                 selectableEdges={
                   ultimateTargeting
@@ -5477,7 +5773,8 @@ export default function GamePage({
                 selectablePlayerIndices={
                   ultimateTargeting &&
                   (ultimateTargeting.targetKind === "player" ||
-                    ultimateTargeting.targetKind === "player_or_choice")
+                    ultimateTargeting.targetKind === "player_or_choice" ||
+                    ultimateTargeting.targetKind === "multi_shot")
                     ? playersInGame
                         .map((_, index) => index)
                         .filter((index) => index !== currentPlayerIndex)
@@ -5487,13 +5784,22 @@ export default function GamePage({
                 targetingBanner={
                   ultimateTargeting
                     ? {
-                        title: getUltimateTargetingPrompt(
-                          ultimateTargeting.ultimateName,
-                          ultimateTargeting.targetKind
-                        ),
-                        subtitle: getUltimateTargetingSubtitle(
-                          ultimateTargeting.targetKind
-                        ),
+                        title:
+                          ultimateTargeting.targetKind === "multi_shot"
+                            ? `${getUltimateTargetingPrompt(
+                                ultimateTargeting.ultimateName,
+                                ultimateTargeting.targetKind
+                              )} (${4 - (ultimateTargeting.sovaShotsRemaining ?? 3)}/3)`
+                            : getUltimateTargetingPrompt(
+                                ultimateTargeting.ultimateName,
+                                ultimateTargeting.targetKind
+                              ),
+                        subtitle:
+                          ultimateTargeting.targetKind === "multi_shot"
+                            ? `${ultimateTargeting.sovaShotsRemaining ?? 3} shot(s) remaining — click a tile or opponent`
+                            : getUltimateTargetingSubtitle(
+                                ultimateTargeting.targetKind
+                              ),
                         onCancel: cancelUltimateTargeting,
                       }
                     : null
@@ -5616,6 +5922,19 @@ export default function GamePage({
           />
         );
       })()}
+
+      {chamberLootWheel && (
+        <ChamberLootWheel
+          open
+          targetName={chamberLootWheel.targetName}
+          winningSegmentId={chamberLootWheel.winningSegmentId}
+          winningLabel={chamberLootWheel.winningLabel}
+          segments={chamberLootWheel.segments}
+          credsStolen={chamberLootWheel.credsStolen}
+          radianiteStolen={chamberLootWheel.radianiteStolen}
+          onComplete={() => setChamberLootWheel(null)}
+        />
+      )}
 
       {phoenixChoiceOpen && (
         <div className="fixed inset-0 z-[86] flex animate-fadeIn items-center justify-center bg-black/60 p-4">

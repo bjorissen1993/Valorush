@@ -44,6 +44,15 @@ export type BoardHazardState = {
   slowZones?: { nodeId: string; roundsLeft: number }[];
 };
 
+export type BoardAreaPlacement = {
+  radius: number;
+  /** Optional max distance from owner tile (layout units). */
+  placementRadius?: number;
+  ownerNodeId?: string;
+  /** Highlighted tile ids under the preview circle. */
+  previewNodeIds?: string[];
+};
+
 type Props = {
   players: PlayerInGame[];
   currentPlayerIndex: number;
@@ -57,6 +66,10 @@ type Props = {
   onTileClick?: (nodeId: string) => void;
   onEdgeClick?: (from: string, to: string) => void;
   onPlayerTokenClick?: (playerIndex: number) => void;
+  /** Free-cursor area placement (layout-space point). */
+  onAreaPlace?: (point: { x: number; y: number }) => void;
+  onAreaCursorMove?: (point: { x: number; y: number } | null) => void;
+  areaPlacement?: BoardAreaPlacement | null;
   debugClickable?: boolean;
   selectableNodeIds?: string[];
   selectableEdges?: BoardSelectableEdge[];
@@ -102,6 +115,14 @@ function scaleX(x: number) {
 
 function scaleY(y: number) {
   return scaleValue(y, LAYOUT_MIN_Y, LAYOUT_MAX_Y, RENDER_MIN_Y, RENDER_MAX_Y);
+}
+
+function unscaleX(renderX: number) {
+  return scaleValue(renderX, RENDER_MIN_X, RENDER_MAX_X, LAYOUT_MIN_X, LAYOUT_MAX_X);
+}
+
+function unscaleY(renderY: number) {
+  return scaleValue(renderY, RENDER_MIN_Y, RENDER_MAX_Y, LAYOUT_MIN_Y, LAYOUT_MAX_Y);
 }
 
 function getTileLabel(type: TileType) {
@@ -213,6 +234,9 @@ function BoardMap({
   onTileClick,
   onEdgeClick,
   onPlayerTokenClick,
+  onAreaPlace,
+  onAreaCursorMove,
+  areaPlacement = null,
   debugClickable = false,
   selectableNodeIds = [],
   selectableEdges = [],
@@ -263,6 +287,9 @@ function BoardMap({
     dimNonSelectable &&
     (hasSelectableTiles || hasSelectableEdges || hasSelectablePlayers);
   const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null);
+  const [areaCursor, setAreaCursor] = useState<{ x: number; y: number } | null>(
+    null
+  );
   const [flyingSpikePosition, setFlyingSpikePosition] = useState<{
     x: number;
     y: number;
@@ -555,6 +582,66 @@ function BoardMap({
           );
         })}
       </svg>
+
+      {areaPlacement && (
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="absolute inset-0 z-[2] h-full w-full cursor-crosshair"
+          style={{ pointerEvents: "auto" }}
+          onMouseMove={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return;
+            const renderX = ((event.clientX - rect.left) / rect.width) * 100;
+            const renderY = ((event.clientY - rect.top) / rect.height) * 100;
+            const point = { x: unscaleX(renderX), y: unscaleY(renderY) };
+            setAreaCursor(point);
+            onAreaCursorMove?.(point);
+          }}
+          onMouseLeave={() => {
+            setAreaCursor(null);
+            onAreaCursorMove?.(null);
+          }}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return;
+            const renderX = ((event.clientX - rect.left) / rect.width) * 100;
+            const renderY = ((event.clientY - rect.top) / rect.height) * 100;
+            onAreaPlace?.({ x: unscaleX(renderX), y: unscaleY(renderY) });
+          }}
+        >
+          {areaCursor && (
+            <circle
+              cx={scaleX(areaCursor.x)}
+              cy={scaleY(areaCursor.y)}
+              r={Math.max(
+                2,
+                scaleValue(
+                  areaPlacement.radius,
+                  0,
+                  LAYOUT_MAX_X - LAYOUT_MIN_X,
+                  0,
+                  RENDER_MAX_X - RENDER_MIN_X
+                )
+              )}
+              fill="rgba(248,113,113,0.18)"
+              stroke="rgba(252,165,165,0.85)"
+              strokeWidth="0.45"
+              strokeDasharray="1.2 0.8"
+              style={{ pointerEvents: "none" }}
+            />
+          )}
+          {areaCursor && (
+            <circle
+              cx={scaleX(areaCursor.x)}
+              cy={scaleY(areaCursor.y)}
+              r="0.7"
+              fill="#fecaca"
+              style={{ pointerEvents: "none" }}
+            />
+          )}
+        </svg>
+      )}
 
       {boardLayout.map((node) => {
         const playersOnNode = players.filter((player) => {

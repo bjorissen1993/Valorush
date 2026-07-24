@@ -355,7 +355,7 @@ export const ULTIMATE_BOARD_PATHS: UltimatePathOption[] = [
   },
   {
     id: "mid-ring",
-    label: "Mid Shortcuts",
+    label: "Mid Ring",
     nodeIds: [
       "m-top-1",
       "m-top-2",
@@ -373,15 +373,16 @@ export const ULTIMATE_BOARD_PATHS: UltimatePathOption[] = [
   },
   {
     id: "inner-hub",
-    label: "Inner Hub",
+    label: "Inner Ring",
     nodeIds: [
       "inner-n",
+      "inner-ne",
       "inner-e",
+      "inner-se",
       "inner-s",
+      "inner-sw",
       "inner-w",
-      "inner-hub",
-      "inner-exit-ne",
-      "inner-exit-sw",
+      "inner-nw",
     ],
   },
 ];

@@ -8,7 +8,8 @@ export type BoardGraphIssue = {
     | "dead_end"
     | "orphan_inbound"
     | "empty_next"
-    | "self_loop_only";
+    | "self_loop_only"
+    | "visual_crossing";
   message: string;
   nodeId?: string;
 };
@@ -33,7 +34,85 @@ function buildInboundMap(nodes: BoardNode[]): Map<string, string[]> {
   return inbound;
 }
 
-/** Validate board connectivity. Safe to call in production; intended for dev/debug. */
+type Seg = {
+  fromId: string;
+  toId: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
+function orient(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number
+): number {
+  const v = (by - ay) * (cx - bx) - (bx - ax) * (cy - by);
+  if (Math.abs(v) < 1e-9) return 0;
+  return v > 0 ? 1 : 2;
+}
+
+function onSegment(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number
+): boolean {
+  return (
+    bx <= Math.max(ax, cx) + 1e-9 &&
+    bx >= Math.min(ax, cx) - 1e-9 &&
+    by <= Math.max(ay, cy) + 1e-9 &&
+    by >= Math.min(ay, cy) - 1e-9
+  );
+}
+
+/** Proper segment intersection (shared endpoints do not count). */
+function segmentsCross(a: Seg, b: Seg): boolean {
+  const endpoints = new Set([a.fromId, a.toId, b.fromId, b.toId]);
+  if (endpoints.size < 4) return false;
+
+  const o1 = orient(a.x1, a.y1, a.x2, a.y2, b.x1, b.y1);
+  const o2 = orient(a.x1, a.y1, a.x2, a.y2, b.x2, b.y2);
+  const o3 = orient(b.x1, b.y1, b.x2, b.y2, a.x1, a.y1);
+  const o4 = orient(b.x1, b.y1, b.x2, b.y2, a.x2, a.y2);
+
+  if (o1 !== o2 && o3 !== o4) return true;
+
+  if (o1 === 0 && onSegment(a.x1, a.y1, b.x1, b.y1, a.x2, a.y2)) return true;
+  if (o2 === 0 && onSegment(a.x1, a.y1, b.x2, b.y2, a.x2, a.y2)) return true;
+  if (o3 === 0 && onSegment(b.x1, b.y1, a.x1, a.y1, b.x2, b.y2)) return true;
+  if (o4 === 0 && onSegment(b.x1, b.y1, a.x2, a.y2, b.x2, b.y2)) return true;
+
+  return false;
+}
+
+function collectDirectedEdges(nodes: BoardNode[]): Seg[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const segs: Seg[] = [];
+  for (const node of nodes) {
+    for (const nextId of node.next) {
+      const next = byId.get(nextId);
+      if (!next) continue;
+      segs.push({
+        fromId: node.id,
+        toId: nextId,
+        x1: node.x,
+        y1: node.y,
+        x2: next.x,
+        y2: next.y,
+      });
+    }
+  }
+  return segs;
+}
+
+/** Validate board connectivity + planar (non-crossing) visual edges. */
 export function validateBoardGraph(
   nodes: BoardNode[] = boardLayout
 ): BoardGraphReport {
@@ -75,10 +154,7 @@ export function validateBoardGraph(
       }
     }
 
-    if (
-      node.next.length === 1 &&
-      node.next[0] === node.id
-    ) {
+    if (node.next.length === 1 && node.next[0] === node.id) {
       issues.push({
         code: "self_loop_only",
         message: `Node ${node.id} only loops to itself`,
@@ -128,6 +204,21 @@ export function validateBoardGraph(
         message: `No inbound edges to ${node.id}`,
         nodeId: node.id,
       });
+    }
+  }
+
+  const segs = collectDirectedEdges(nodes);
+  for (let i = 0; i < segs.length; i += 1) {
+    for (let j = i + 1; j < segs.length; j += 1) {
+      const a = segs[i]!;
+      const b = segs[j]!;
+      if (segmentsCross(a, b)) {
+        issues.push({
+          code: "visual_crossing",
+          message: `Roads cross visually: ${a.fromId}→${a.toId} × ${b.fromId}→${b.toId}`,
+          nodeId: a.fromId,
+        });
+      }
     }
   }
 

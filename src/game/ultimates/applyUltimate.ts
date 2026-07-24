@@ -392,10 +392,9 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
 
     case "hunters-fury": {
       const damage = def.creditDamage ?? 250;
-      const shotsLeft =
-        input.sovaShotsRemaining != null
-          ? input.sovaShotsRemaining
-          : 2; // first shot of 3 → 2 remaining after
+      // First shot starts at 3; each apply consumes one.
+      const shotsBefore = input.sovaShotsRemaining ?? 3;
+      const remaining = Math.max(0, shotsBefore - 1);
       const parts: string[] = [];
       const hitIndices = new Set<number>();
 
@@ -436,7 +435,6 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
         });
       }
 
-      const remaining = Math.max(0, shotsLeft);
       // Only spend orbs on first shot — already spent above. Subsequent shots
       // should be called with ultimateOrbs already 0; re-grant temporarily if needed.
       return {
@@ -814,6 +812,9 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
           radianiteStolen: radStolen,
           intendedCreds,
           intendedRadianite,
+          targetPlayerIndex: targetIdx,
+          targetName: target.name,
+          segments,
         },
       };
     }

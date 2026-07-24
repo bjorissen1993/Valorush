@@ -6,6 +6,8 @@ export type ItemAcquisition = "shop" | "event" | "minigame" | "black_market";
 
 export type BoardItemEffect =
   | { kind: "dice_bonus"; amount: number }
+  | { kind: "dice_holder" }
+  | { kind: "shop_reroll" }
   | { kind: "steal_creds"; amount: number }
   | { kind: "swap_position"; targetPlayerIndex: number }
   | { kind: "hit_anywhere"; steps: number }

@@ -85,16 +85,18 @@ export const itemRegistry: ItemDefinition[] = [
     category: "weapon",
     price: 350,
     acquisition: ["shop", "minigame"],
+    boardEffect: { kind: "shop_reroll" },
     icon: "/weapons/Classic.png",
   },
   {
     id: "dice-holder",
     name: "Dice Holder",
-    description: "Store a rolled die and reuse it once instead of rolling.",
+    description:
+      "Arm to store your next roll's highest die, then reuse that die once instead of rolling.",
     category: "weapon",
     price: 550,
     acquisition: ["shop"],
-    boardEffect: { kind: "dice_bonus", amount: 1 },
+    boardEffect: { kind: "dice_holder" },
     icon: "/abilities/breach/Rolling_Thunder.png",
   },
   // Legacy / event loot retained for inventory compatibility

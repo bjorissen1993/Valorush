@@ -58,9 +58,9 @@ export function getUltimateTargetingSubtitle(
     case "tile_and_move":
       return "Click a highlighted tile on the board";
     case "area":
-      return "Click a tile to place the area (partial hits count fully)";
+      return "Move the cursor to place the circle, then click to confirm";
     case "multi_shot":
-      return "Click a tile or opponent to aim this shot";
+      return "Click a tile or opponent to aim this shot — re-aim after each hit";
     case "player":
     case "player_or_choice":
       return "Click an opponent's token on the board";
@@ -68,6 +68,8 @@ export function getUltimateTargetingSubtitle(
       return "Click any tile on the path you want to fire along";
     case "edge":
       return "Click a highlighted connection between two tiles";
+    case "match_config":
+      return "Configure the next custom match";
     default:
       return "Click a valid target on the board";
   }
@@ -118,4 +120,6 @@ export type UltimateBoardTargeting = {
   ultimateId: string;
   ultimateName: string;
   targetKind: UltimateTargetKind;
+  /** Sova Hunter's Fury — shots left including the one about to be fired. */
+  sovaShotsRemaining?: number;
 };

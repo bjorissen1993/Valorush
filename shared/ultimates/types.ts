@@ -318,6 +318,9 @@ export type UltimateApplyResult = {
     radianiteStolen: number;
     intendedCreds: number;
     intendedRadianite: number;
+    targetPlayerIndex: number;
+    targetName: string;
+    segments: { id: string; label: string; weight: number }[];
   };
   /** Phoenix: wait for post-turn choice. */
   awaitPhoenixChoice?: boolean;

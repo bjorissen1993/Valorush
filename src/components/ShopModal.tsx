@@ -38,6 +38,9 @@ type ShopModalProps = {
   onContinue: () => void;
   renderOfferButton: (offer: ShopOffer) => React.ReactNode;
   purchasePreview?: React.ReactNode;
+  /** Lucky Backpack free reroll. */
+  canRerollOffers?: boolean;
+  onRerollOffers?: () => void;
 };
 
 export default function ShopModal({
@@ -51,6 +54,8 @@ export default function ShopModal({
   onContinue,
   renderOfferButton,
   purchasePreview,
+  canRerollOffers = false,
+  onRerollOffers,
 }: ShopModalProps) {
   const keeperName = shopKeeper?.name ?? "Shopkeeper";
   const dialogue = useMemo(
@@ -209,11 +214,20 @@ export default function ShopModal({
               )}
             </div>
 
-            <div className="mt-4 shrink-0 border-t border-white/10 pt-4">
+            <div className="mt-4 flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-white/10 pt-4">
+              {canRerollOffers && onRerollOffers && (
+                <button
+                  type="button"
+                  onClick={onRerollOffers}
+                  className="w-full rounded-2xl border border-amber-400/40 bg-amber-500/15 px-6 py-3 font-bold text-amber-100 transition hover:bg-amber-500/25 md:w-auto"
+                >
+                  Lucky Backpack Reroll
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onContinue}
-                className="w-full rounded-2xl bg-emerald-400 py-3 font-bold text-black transition hover:brightness-110 md:float-right md:w-auto md:px-8"
+                className="w-full rounded-2xl bg-emerald-400 py-3 font-bold text-black transition hover:brightness-110 md:w-auto md:px-8"
               >
                 Continue
               </button>
