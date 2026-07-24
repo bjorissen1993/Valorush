@@ -11,7 +11,11 @@ export type UltimateTargetKind =
   | "choice"
   | "tile_and_move"
   | "player_or_choice"
-  | "sequential_opponents";
+  | "sequential_opponents"
+  | "area"
+  | "multi_shot"
+  | "match_config"
+  | "reactive";
 
 export type UltimateChoiceOption = {
   id: string;
@@ -28,13 +32,28 @@ export type UltimateDefinition = {
   description: string;
   targetKind: UltimateTargetKind;
   choices?: UltimateChoiceOption[];
-  /** Max mini-move steps after teleport (Omen). */
+  /** Max mini-move steps after teleport (legacy Omen). */
   miniMoveSteps?: number;
   /** Approximate tile range for KAY/O NULL/CMD. */
   rangeTiles?: number;
+  /** Area radius in layout units (Brimstone / Viper / Killjoy). */
+  areaRadius?: number;
+  /** Placement radius around caster (Viper / Killjoy). */
+  placementRadius?: number;
+  /** Configurable credit loss for area strikes. */
+  creditDamage?: number;
   implementation: UltimateImplementation;
   /** Ability icon under /abilities when available. */
   icon?: string;
+};
+
+/** Status effect keyed by activation so debuffs apply once per ultimate cast. */
+export type StatusEffectInstance = {
+  activationId: string;
+  kind: "movement_debuff" | "revealed" | "slow_zone";
+  /** Movement delta (negative = slower). */
+  amount?: number;
+  roundsLeft: number;
 };
 
 /** Per-player status / buffs applied by ultimates. */
@@ -62,6 +81,26 @@ export type PlayerUltimateStatus = {
   extraTurnPending: boolean;
   /** Half movement while standing in Viper's Pit (computed each roll; flag for UI). */
   inViperPit: boolean;
+  /** Phoenix/Sage reactive: prompt before applying a negative effect. */
+  reactiveUltArmed: boolean;
+  reactiveUltAgent: "Phoenix" | "Sage" | null;
+  /** Snapshot for full rollback when reactive ult confirms. */
+  reactiveSnapshot: ReactivePlayerSnapshot | null;
+  /** Revealed status (Sova) — rounds left. */
+  revealedRounds: number;
+  /** Activation-scoped status effects. */
+  statusEffects: StatusEffectInstance[];
+  /** ActivationIds already applied for movement debuffs (once per cast). */
+  appliedActivationIds: string[];
+};
+
+export type ReactivePlayerSnapshot = {
+  position: string;
+  creds: number;
+  radianitePoints: number;
+  items: string[];
+  ultimateOrbs: number;
+  status: PlayerUltimateStatus;
 };
 
 export function createEmptyPlayerUltimateStatus(): PlayerUltimateStatus {
@@ -78,14 +117,45 @@ export function createEmptyPlayerUltimateStatus(): PlayerUltimateStatus {
     skipNextTurn: false,
     extraTurnPending: false,
     inViperPit: false,
+    reactiveUltArmed: false,
+    reactiveUltAgent: null,
+    reactiveSnapshot: null,
+    revealedRounds: 0,
+    statusEffects: [],
+    appliedActivationIds: [],
   };
 }
 
 /** Board-level ultimate hazards (separate from director Cosmic Divide event). */
 export type PoisonCloud = {
   nodeId: string;
+  /** All tiles in the poison zone. */
+  nodeIds?: string[];
   roundsLeft: number;
   ownerPlayerIndex: number;
+  activationId: string;
+  /** Movement debuff applied once per activationId when entering. */
+  movementDebuff: number;
+};
+
+/** Killjoy Lockdown device — detonates at start of KJ's next turn. */
+export type KilljoyDevice = {
+  centerNodeId: string;
+  nodeIds: string[];
+  ownerPlayerIndex: number;
+  activationId: string;
+  /** Detonate when this player's turn starts (same as owner). */
+  detonateOnOwnerTurn: boolean;
+  armed: boolean;
+};
+
+/** Chamber slow zone on a tile. */
+export type SlowZone = {
+  nodeId: string;
+  roundsLeft: number;
+  ownerPlayerIndex: number;
+  activationId: string;
+  movementDebuff: number;
 };
 
 /** Astra ultimate wall — blocks passage between two connected nodes. */
@@ -115,6 +185,8 @@ export type BoardUltimateState = {
   walls: UltimateWall[];
   traps: UltimateTrap[];
   detainZones: DetainZone[];
+  killjoyDevices: KilljoyDevice[];
+  slowZones: SlowZone[];
 };
 
 export function createEmptyBoardUltimateState(): BoardUltimateState {
@@ -123,6 +195,8 @@ export function createEmptyBoardUltimateState(): BoardUltimateState {
     walls: [],
     traps: [],
     detainZones: [],
+    killjoyDevices: [],
+    slowZones: [],
   };
 }
 
@@ -147,6 +221,8 @@ export type UltimateApplyInput = {
   targetNodeId?: string;
   /** Second node for edge walls / Omen mini-move destination. */
   targetNodeId2?: string;
+  /** Area ultimate: all node ids inside the circle. */
+  areaNodeIds?: string[];
   choiceId?: string;
   /** Killjoy: map of opponentIndex → "pay" | "skip". */
   opponentChoices?: Record<number, "pay" | "skip">;
@@ -158,6 +234,23 @@ export type UltimateApplyInput = {
   diceRolls?: number[];
   /** Nodes the caster passed during Blade Storm movement (filled by GamePage). */
   passedOpponentIndices?: number[];
+  /** Unique id for this cast (status effect once-per-activation). */
+  activationId?: string;
+  /** Cypher match configurator payload. */
+  cypherMatchConfig?: CypherMatchConfig;
+  /** Chamber loot wheel segment id. */
+  chamberLootId?: string;
+  /** Sova multi-shot: remaining shots after this one. */
+  sovaShotsRemaining?: number;
+};
+
+export type CypherMatchConfig = {
+  matchup: string;
+  teams: string;
+  mode: string;
+  weapons: string;
+  agents: string;
+  modifiers: string[];
 };
 
 export type UltimatePlayerState = {
@@ -193,8 +286,12 @@ export type UltimateApplyResult = {
   incomplete?: boolean;
   /** Jett: start special movement with this step count. */
   jettMoveSteps?: number;
-  /** Omen: after teleport, allow mini-move up to N. */
+  /** Omen: after teleport, allow mini-move up to N. (legacy — new Omen ends turn). */
   omenMiniMoveSteps?: number;
+  /** Omen: end turn immediately after teleport (no land activate). */
+  endTurnImmediately?: boolean;
+  /** Skip landing activation for position changes. */
+  skipLandingActivation?: boolean;
   /** Cypher reveal payload for UI. */
   cypherReveal?: {
     players: {
@@ -205,13 +302,31 @@ export type UltimateApplyResult = {
       ultimateOrbs: number;
     }[];
   };
+  /** Cypher match config for next custom match only. */
+  cypherMatchConfig?: CypherMatchConfig;
   /** Chamber duel outcome. */
   chamberDuel?: {
     casterRoll: number;
     targetRoll: number;
     winnerPlayerIndex: number;
   };
+  /** Chamber loot wheel result. */
+  chamberLoot?: {
+    segmentId: string;
+    label: string;
+    credsStolen: number;
+    radianiteStolen: number;
+    intendedCreds: number;
+    intendedRadianite: number;
+  };
   /** Phoenix: wait for post-turn choice. */
   awaitPhoenixChoice?: boolean;
+  /** Open reactive ultimate prompt for a pending negative. */
+  awaitReactivePrompt?: {
+    playerIndex: number;
+    agent: "Phoenix" | "Sage";
+  };
+  /** Sova: continue aiming (shots remaining). */
+  sovaShotsRemaining?: number;
   stub?: boolean;
 };

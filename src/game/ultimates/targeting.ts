@@ -14,6 +14,8 @@ export const BOARD_TARGET_KINDS: ReadonlySet<UltimateTargetKind> = new Set([
   "player_or_choice",
   "path",
   "edge",
+  "area",
+  "multi_shot",
 ]);
 
 export function usesBoardTargeting(kind: UltimateTargetKind): boolean {
@@ -28,6 +30,10 @@ export function getUltimateTargetingPrompt(
     case "tile":
     case "tile_and_move":
       return `Select a tile for ${ultimateName}`;
+    case "area":
+      return `Place ${ultimateName} on the board`;
+    case "multi_shot":
+      return `Aim a shot for ${ultimateName}`;
     case "player":
     case "player_or_choice":
       return `Select a player for ${ultimateName}`;
@@ -35,6 +41,10 @@ export function getUltimateTargetingPrompt(
       return `Select a path for ${ultimateName}`;
     case "edge":
       return `Select a path connection for ${ultimateName}`;
+    case "match_config":
+      return `Configure match for ${ultimateName}`;
+    case "reactive":
+      return `${ultimateName} arms automatically`;
     default:
       return `Select a target for ${ultimateName}`;
   }
@@ -47,6 +57,10 @@ export function getUltimateTargetingSubtitle(
     case "tile":
     case "tile_and_move":
       return "Click a highlighted tile on the board";
+    case "area":
+      return "Click a tile to place the area (partial hits count fully)";
+    case "multi_shot":
+      return "Click a tile or opponent to aim this shot";
     case "player":
     case "player_or_choice":
       return "Click an opponent's token on the board";
@@ -67,7 +81,12 @@ export function getSelectableTileIdsForUltimate(
   }
 ): string[] {
   const paths = options?.paths ?? ULTIMATE_BOARD_PATHS;
-  if (kind === "tile" || kind === "tile_and_move") {
+  if (
+    kind === "tile" ||
+    kind === "tile_and_move" ||
+    kind === "area" ||
+    kind === "multi_shot"
+  ) {
     return getBoardNodeIds();
   }
   if (kind === "path") {

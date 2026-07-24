@@ -614,10 +614,10 @@ export default function DebugPanel({
 
           <DebugSection title="Dice">
             <div className="debug-panel__dice-grid">
-              {[1, 2, 3, 4, 5, 6].map((value) => (
+              {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((value) => (
                 <HoverTooltip
                   key={value}
-                  content={`Force the next dice roll to land on ${value}.`}
+                  content={`Force the next 2d6 movement total to ${value}.`}
                   className="hover-tooltip--block hover-tooltip--fill"
                 >
                   <button
@@ -676,6 +676,18 @@ export default function DebugPanel({
                 }
               >
                 Land on event
+              </DebugButton>
+              <DebugButton
+                onClick={() => onLandOnTile("normal")}
+                tooltip="Simulate landing on a normal tile (credit roll)."
+              >
+                Land on normal
+              </DebugButton>
+              <DebugButton
+                onClick={() => onLandOnTile("start")}
+                tooltip="Teleport selected player to Start for board checks."
+              >
+                Land on start
               </DebugButton>
             </div>
           </DebugSection>

@@ -57,9 +57,9 @@ export function mergeUltimatePlayers(
 export function withDefaultUltimateFields(player: PlayerInGame): PlayerInGame {
   return {
     ...player,
+    position: player.position, // migrated by callers when loading saves
     ultimateOrbs: clampOrbs(player.ultimateOrbs ?? 0),
-    ultimateStatus:
-      player.ultimateStatus ?? createEmptyPlayerUltimateStatus(),
+    ultimateStatus: ensureUltimateStatus(player.ultimateStatus),
   };
 }
 

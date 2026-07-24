@@ -16,6 +16,23 @@ import {
   moveBackSpaces,
   moveTowardNode,
 } from "./boardHelpers";
+import {
+  applyNegativeEffect,
+  isUntargetable,
+  tryConsumeCloveShield,
+} from "./negativeEffects";
+import {
+  stealCredits,
+  stealRadianite,
+  formatStealMessage,
+  CHAMBER_LOOT_FALLBACK_CREDS,
+} from "../economy";
+import { tileIdsInArea, AREA_RADIUS } from "./areaTargeting";
+import { getNodeById } from "../boardLayout";
+
+function newActivationId(): string {
+  return `ult-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+}
 
 function clonePlayers(players: UltimatePlayerState[]): UltimatePlayerState[] {
   return players.map((p) => ({
@@ -27,31 +44,26 @@ function clonePlayers(players: UltimatePlayerState[]): UltimatePlayerState[] {
 
 function cloneBoard(board: BoardUltimateState): BoardUltimateState {
   return {
-    poisonClouds: board.poisonClouds.map((c) => ({ ...c })),
+    poisonClouds: board.poisonClouds.map((c) => ({
+      ...c,
+      nodeIds: c.nodeIds ? [...c.nodeIds] : undefined,
+    })),
     walls: board.walls.map((w) => ({ ...w })),
     traps: board.traps.map((t) => ({ ...t })),
     detainZones: (board.detainZones ?? []).map((z) => ({ ...z })),
+    killjoyDevices: (board.killjoyDevices ?? []).map((d) => ({
+      ...d,
+      nodeIds: [...d.nodeIds],
+    })),
+    slowZones: (board.slowZones ?? []).map((z) => ({ ...z })),
   };
-}
-
-function isUntargetable(player: UltimatePlayerState): boolean {
-  return (player.status.yoruDriftRounds ?? 0) > 0;
-}
-
-function tryConsumeCloveShield(player: UltimatePlayerState): boolean {
-  if (!player.status.cloveShield) return false;
-  player.status = { ...player.status, cloveShield: false };
-  return true;
 }
 
 function applyNegativeToPlayer(
   player: UltimatePlayerState,
   apply: (p: UltimatePlayerState) => void
 ): boolean {
-  if (isUntargetable(player)) return false;
-  if (tryConsumeCloveShield(player)) return false;
-  apply(player);
-  return true;
+  return applyNegativeEffect(player, apply).applied;
 }
 
 function loseRandomItem(player: UltimatePlayerState): string | null {
@@ -129,17 +141,33 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
   }
 
   if (caster.ultimateOrbs < 3) {
-    return incompleteResult(
-      input,
-      "Ultimate not ready",
-      "Need 3/3 ultimate orbs."
-    );
+    // Sova follow-up shots reuse the same cast (orbs already spent).
+    const sovaFollowUp =
+      def.id === "hunters-fury" &&
+      input.sovaShotsRemaining != null &&
+      input.sovaShotsRemaining < 3;
+    if (!sovaFollowUp) {
+      return incompleteResult(
+        input,
+        "Ultimate not ready",
+        "Need 3/3 ultimate orbs."
+      );
+    }
   }
 
   // Validate required targeting before spending orbs.
   switch (def.id) {
     case "orbital-strike":
     case "vipers-pit":
+    case "lockdown": {
+      const hasArea =
+        (input.areaNodeIds && input.areaNodeIds.length > 0) ||
+        Boolean(input.targetNodeId);
+      if (!hasArea) {
+        return incompleteResult(input, def.name, "Place the area on the board.");
+      }
+      break;
+    }
     case "from-the-shadows":
     case "steel-garden":
     case "thrash":
@@ -148,7 +176,12 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
         return incompleteResult(input, def.name, "Pick a tile.");
       }
       break;
-    case "hunters-fury":
+    case "hunters-fury": {
+      if (!input.targetNodeId && !input.targetPlayerIndex && !input.choiceId) {
+        return incompleteResult(input, def.name, "Aim a shot.");
+      }
+      break;
+    }
     case "reckoning":
     case "saturating-fire": {
       const pathId = input.choiceId ?? input.targetNodeId;
@@ -160,14 +193,12 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
       }
       break;
     }
+    case "neural-theft":
+      // Match configurator — allow empty config (uses defaults).
+      break;
+    case "run-it-back":
     case "resurrection":
-      if (
-        input.choiceId !== "to-start" &&
-        input.choiceId !== "extra-turn" &&
-        input.choiceId !== "cleanse"
-      ) {
-        return incompleteResult(input, def.name, "Choose an effect.");
-      }
+      // Reactive arm — no target required.
       break;
     case "showstopper":
     case "tour-de-force":
@@ -193,30 +224,45 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
       break;
   }
 
-  caster.ultimateOrbs = spendUltimate(caster.ultimateOrbs);
+  // Spend orbs only on confirm of a fresh cast (not Sova follow-up shots).
+  const sovaFollowUp =
+    def.id === "hunters-fury" &&
+    input.sovaShotsRemaining != null &&
+    input.sovaShotsRemaining < 3;
+  if (!sovaFollowUp) {
+    caster.ultimateOrbs = spendUltimate(caster.ultimateOrbs);
+  }
   const positionChanges: UltimateApplyResult["positionChanges"] = [];
+  const activationId = input.activationId ?? newActivationId();
 
   switch (def.id) {
     case "orbital-strike": {
-      const center = input.targetNodeId!;
-      const affected = new Set([center, ...getAdjacentNodeIds(center)]);
-      const hitNames: string[] = [];
+      const centerId = input.targetNodeId;
+      const centerNode = centerId ? getNodeById(centerId) : null;
+      const radius = def.areaRadius ?? AREA_RADIUS.brimstone;
+      const damage = def.creditDamage ?? 400;
+      const affected = new Set(
+        input.areaNodeIds?.length
+          ? input.areaNodeIds
+          : centerNode
+            ? tileIdsInArea({
+                center: { x: centerNode.x, y: centerNode.y },
+                radius,
+              })
+            : centerId
+              ? [centerId, ...getAdjacentNodeIds(centerId)]
+              : []
+      );
+      const hitParts: string[] = [];
       for (let i = 0; i < players.length; i += 1) {
         if (i === input.casterPlayerIndex) continue;
         const p = players[i]!;
         if (!affected.has(p.position)) continue;
         applyNegativeToPlayer(p, (target) => {
-          const from = target.position;
-          target.creds = Math.max(0, target.creds - 300);
-          target.position = moveBackSpaces(target.position, 2);
-          if (from !== target.position) {
-            positionChanges.push({
-              playerIndex: i,
-              fromNodeId: from,
-              toNodeId: target.position,
-            });
-          }
-          hitNames.push(target.name);
+          const stolen = stealCredits(target.creds, caster.creds, damage);
+          target.creds = stolen.fromCredsAfter;
+          caster.creds = stolen.toCredsAfter;
+          hitParts.push(formatStealMessage(target.name, stolen));
         });
       }
       return {
@@ -224,34 +270,47 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
         board,
         headline: "Orbital Strike",
         description:
-          hitNames.length > 0
-            ? `Strike hits ${hitNames.join(", ")} — −300 creds, back 2.`
-            : `Orbital strike on ${center} — no agents in the blast.`,
+          hitParts.length > 0
+            ? `Orbital strike: ${hitParts.join("; ")}.`
+            : "Orbital strike — no agents in the blast.",
         positionChanges,
       };
     }
 
     case "vipers-pit": {
-      const nodeId = input.targetNodeId!;
-      // One active pit only — replace any existing clouds.
+      const centerId = input.targetNodeId!;
+      const centerNode = getNodeById(centerId);
+      const radius = def.areaRadius ?? AREA_RADIUS.viper;
+      const nodeIds = input.areaNodeIds?.length
+        ? input.areaNodeIds
+        : centerNode
+          ? tileIdsInArea({
+              center: { x: centerNode.x, y: centerNode.y },
+              radius,
+            })
+          : [centerId];
       board.poisonClouds = [
         {
-          nodeId,
+          nodeId: centerId,
+          nodeIds,
           roundsLeft: 1,
           ownerPlayerIndex: input.casterPlayerIndex,
+          activationId,
+          movementDebuff: 2,
         },
       ];
       for (const p of players) {
+        const inZone = nodeIds.includes(p.position);
         p.status = {
           ...p.status,
-          inViperPit: p.position === nodeId,
+          inViperPit: inZone && p !== caster,
         };
       }
       return {
         players,
         board,
         headline: "Viper's Pit",
-        description: `Poison cloud covers ${nodeId} for 1 round. Half movement while inside.`,
+        description: `Poison zone covers ${nodeIds.length} tiles for 1 round (−2 move once per cast).`,
         positionChanges: [],
       };
     }
@@ -271,154 +330,141 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
         players,
         board,
         headline: "From The Shadows",
-        description: `Omen emerges on ${dest}. Mini-move up to ${def.miniMoveSteps ?? 3} spaces.`,
+        description: `Omen emerges on ${dest}. Turn ends — landing not activated.`,
         positionChanges,
-        omenMiniMoveSteps: def.miniMoveSteps ?? 3,
+        endTurnImmediately: true,
+        skipLandingActivation: true,
       };
     }
 
     case "lockdown": {
-      const choices = input.opponentChoices ?? {};
-      const parts: string[] = [];
-      for (let i = 0; i < players.length; i += 1) {
-        if (i === input.casterPlayerIndex) continue;
-        const p = players[i]!;
-        if (isUntargetable(p)) {
-          parts.push(`${p.name} drifted away`);
-          continue;
-        }
-        if (tryConsumeCloveShield(p)) {
-          parts.push(`${p.name}'s shield held`);
-          continue;
-        }
-        const choice = choices[i] ?? (p.creds >= 300 ? "pay" : "skip");
-        if (choice === "pay" && p.creds >= 300) {
-          p.creds -= 300;
-          parts.push(`${p.name} paid 300`);
-        } else {
-          p.status = { ...p.status, skipNextTurn: true };
-          parts.push(`${p.name} will skip next turn`);
-        }
-      }
+      const centerId = input.targetNodeId!;
+      const centerNode = getNodeById(centerId);
+      const radius = def.areaRadius ?? AREA_RADIUS.killjoy;
+      const nodeIds = input.areaNodeIds?.length
+        ? input.areaNodeIds
+        : centerNode
+          ? tileIdsInArea({
+              center: { x: centerNode.x, y: centerNode.y },
+              radius,
+            })
+          : [centerId];
+      board.killjoyDevices = [
+        ...(board.killjoyDevices ?? []).filter(
+          (d) => d.ownerPlayerIndex !== input.casterPlayerIndex
+        ),
+        {
+          centerNodeId: centerId,
+          nodeIds,
+          ownerPlayerIndex: input.casterPlayerIndex,
+          activationId,
+          detonateOnOwnerTurn: true,
+          armed: true,
+        },
+      ];
       return {
         players,
         board,
         headline: "Lockdown",
-        description: parts.join(". ") || "No opponents affected.",
+        description: `Device armed on ${centerId} (${nodeIds.length} tiles). Detonates at the start of your next turn.`,
         positionChanges: [],
       };
     }
 
     case "neural-theft": {
-      const reveal = {
-        players: players
-          .map((p, playerIndex) => ({
-            playerIndex,
-            name: p.name,
-            creds: p.creds,
-            items: [...p.items],
-            ultimateOrbs: p.ultimateOrbs,
-          }))
-          .filter((p) => p.playerIndex !== input.casterPlayerIndex),
+      const config = input.cypherMatchConfig ?? {
+        matchup: "standard",
+        teams: "auto",
+        mode: "Spike Rush",
+        weapons: "standard",
+        agents: "all",
+        modifiers: [],
       };
-      const stealIdx = input.stealFromPlayerIndex ?? input.targetPlayerIndex;
-      let stealMsg = "Intel gathered.";
-      if (stealIdx != null && stealIdx !== input.casterPlayerIndex) {
-        const victim = players[stealIdx];
-        if (victim && !isUntargetable(victim) && !tryConsumeCloveShield(victim)) {
-          const stolen = loseRandomItem(victim);
-          if (stolen) {
-            caster.items = [...caster.items, stolen];
-            stealMsg = `Stole ${stolen} from ${victim.name}.`;
-          } else {
-            stealMsg = `${victim.name} had no items to steal.`;
-          }
-        }
-      }
       return {
         players,
         board,
         headline: "Neural Theft",
-        description: stealMsg,
+        description: `Next custom match configured: ${config.mode} (${config.matchup}). Resets after that match.`,
         positionChanges: [],
-        cypherReveal: reveal,
+        cypherMatchConfig: config,
       };
     }
 
     case "hunters-fury": {
-      const pathId = input.choiceId ?? input.targetNodeId;
-      const path =
-        ULTIMATE_BOARD_PATHS.find((p) => p.id === pathId) ??
-        input.paths.find((p) => p.id === pathId)!;
-      const hitSet = new Set(path.nodeIds);
+      const damage = def.creditDamage ?? 250;
+      const shotsLeft =
+        input.sovaShotsRemaining != null
+          ? input.sovaShotsRemaining
+          : 2; // first shot of 3 → 2 remaining after
       const parts: string[] = [];
-      for (let i = 0; i < players.length; i += 1) {
-        if (i === input.casterPlayerIndex) continue;
-        const p = players[i]!;
-        if (!hitSet.has(p.position)) continue;
-        applyNegativeToPlayer(p, (target) => {
-          const item = loseRandomItem(target);
-          if (item) {
-            parts.push(`${target.name} lost ${item}`);
-          } else {
-            target.creds = Math.max(0, target.creds - 250);
-            parts.push(`${target.name} −250 creds`);
+      const hitIndices = new Set<number>();
+
+      if (input.targetPlayerIndex != null) {
+        hitIndices.add(input.targetPlayerIndex);
+      } else if (input.targetNodeId) {
+        for (let i = 0; i < players.length; i += 1) {
+          if (i === input.casterPlayerIndex) continue;
+          if (players[i]!.position === input.targetNodeId) hitIndices.add(i);
+        }
+      } else {
+        const pathId = input.choiceId;
+        const path =
+          ULTIMATE_BOARD_PATHS.find((p) => p.id === pathId) ??
+          input.paths.find((p) => p.id === pathId);
+        if (path) {
+          const hitSet = new Set(path.nodeIds);
+          for (let i = 0; i < players.length; i += 1) {
+            if (i === input.casterPlayerIndex) continue;
+            if (hitSet.has(players[i]!.position)) hitIndices.add(i);
           }
+        }
+      }
+
+      for (const i of hitIndices) {
+        const p = players[i]!;
+        applyNegativeToPlayer(p, (target) => {
+          const stolen = stealCredits(target.creds, caster.creds, damage);
+          target.creds = stolen.fromCredsAfter;
+          caster.creds = stolen.toCredsAfter;
+          target.status = {
+            ...target.status,
+            revealedRounds: Math.max(target.status.revealedRounds ?? 0, 1),
+          };
+          parts.push(
+            `${formatStealMessage(target.name, stolen)}; Revealed 1 round`
+          );
         });
       }
+
+      const remaining = Math.max(0, shotsLeft);
+      // Only spend orbs on first shot — already spent above. Subsequent shots
+      // should be called with ultimateOrbs already 0; re-grant temporarily if needed.
       return {
         players,
         board,
         headline: "Hunter's Fury",
         description:
           parts.length > 0
-            ? `Bolt along ${path.label}: ${parts.join("; ")}.`
-            : `Bolt along ${path.label} — no one in the lane.`,
+            ? `Shot hits: ${parts.join("; ")}.${remaining > 0 ? ` ${remaining} shot(s) left.` : ""}`
+            : `Shot missed.${remaining > 0 ? ` ${remaining} shot(s) left.` : ""}`,
         positionChanges: [],
+        sovaShotsRemaining: remaining,
       };
     }
 
     case "resurrection": {
-      const choice = input.choiceId;
-      if (choice === "to-start") {
-        const from = caster.position;
-        caster.position = "start";
-        if (from !== "start") {
-          positionChanges.push({
-            playerIndex: input.casterPlayerIndex,
-            fromNodeId: from,
-            toNodeId: "start",
-          });
-        }
-        return {
-          players,
-          board,
-          headline: "Resurrection",
-          description: `${caster.name} returns to Start.`,
-          positionChanges,
-        };
-      }
-      if (choice === "extra-turn") {
-        caster.status = {
-          ...caster.status,
-          skipNextTurn: false,
-          extraTurnPending: true,
-        };
-        return {
-          players,
-          board,
-          headline: "Resurrection",
-          description: `${caster.name} will take an extra turn.`,
-          positionChanges: [],
-        };
-      }
-      // cleanse
-      caster.status = clearStatusEffects(caster.status);
+      caster.status = {
+        ...caster.status,
+        reactiveUltArmed: true,
+        reactiveUltAgent: "Sage",
+        reactiveSnapshot: null,
+      };
       return {
         players,
         board,
         headline: "Resurrection",
-        description: `${caster.name}'s status effects were cleared.`,
+        description:
+          "Reactive ultimate armed. When a negative effect hits you, choose to fully roll it back.",
         positionChanges: [],
       };
     }
@@ -426,6 +472,10 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
     case "run-it-back": {
       caster.status = {
         ...caster.status,
+        reactiveUltArmed: true,
+        reactiveUltAgent: "Phoenix",
+        reactiveSnapshot: null,
+        // Keep legacy post-turn restore as secondary option.
         phoenixRunItBack: true,
         turnStartPosition: caster.position,
       };
@@ -434,7 +484,7 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
         board,
         headline: "Run It Back",
         description:
-          "After this turn, choose to keep your end position or return to turn start.",
+          "Reactive ultimate armed. Negatives can be fully rolled back. Post-turn restore also available.",
         positionChanges: [],
         awaitPhoenixChoice: true,
       };
@@ -642,21 +692,128 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
           positionChanges: [],
         };
       }
-      const casterRoll = input.diceRolls?.[0] ?? rollDie();
-      const targetRoll = input.diceRolls?.[1] ?? rollDie();
-      const winnerIdx =
-        casterRoll >= targetRoll ? input.casterPlayerIndex : targetIdx;
-      players[winnerIdx]!.creds += 500;
+
+      // Slow zone on target's tile.
+      board.slowZones = [
+        ...(board.slowZones ?? []).filter((z) => z.nodeId !== target.position),
+        {
+          nodeId: target.position,
+          roundsLeft: 1,
+          ownerPlayerIndex: input.casterPlayerIndex,
+          activationId,
+          movementDebuff: 2,
+        },
+      ];
+
+      // Weighted loot wheel — segments proportional to holdings.
+      const radAvailable = Math.max(0, target.radianitePoints);
+      const segments: { id: string; label: string; weight: number }[] = [
+        {
+          id: "creds-small",
+          label: "Steal 500 creds",
+          weight: Math.max(1, Math.floor(target.creds / 500)),
+        },
+        {
+          id: "creds-large",
+          label: "Steal 1500 creds",
+          weight: Math.max(1, Math.floor(target.creds / 1500)),
+        },
+        {
+          id: "rad-1",
+          label: "Steal 1 radianite",
+          weight: radAvailable > 0 ? radAvailable * 3 : 0,
+        },
+        {
+          id: "rad-all",
+          label: "Steal all radianite",
+          weight: radAvailable > 0 ? radAvailable : 0,
+        },
+        {
+          id: "fallback",
+          label: `Fallback +${CHAMBER_LOOT_FALLBACK_CREDS} creds`,
+          weight: radAvailable === 0 ? 4 : 1,
+        },
+      ].filter((s) => s.weight > 0);
+
+      const totalWeight = segments.reduce((sum, s) => sum + s.weight, 0);
+      let pick = Math.random() * totalWeight;
+      let chosen = segments[segments.length - 1]!;
+      for (const seg of segments) {
+        pick -= seg.weight;
+        if (pick <= 0) {
+          chosen = seg;
+          break;
+        }
+      }
+      if (input.chamberLootId) {
+        chosen = segments.find((s) => s.id === input.chamberLootId) ?? chosen;
+      }
+
+      let credsStolen = 0;
+      let radStolen = 0;
+      let intendedCreds = 0;
+      let intendedRadianite = 0;
+
+      applyNegativeToPlayer(target, (t) => {
+        if (chosen.id === "creds-small") {
+          intendedCreds = 500;
+          const r = stealCredits(t.creds, caster.creds, 500);
+          t.creds = r.fromCredsAfter;
+          caster.creds = r.toCredsAfter;
+          credsStolen = r.actual;
+        } else if (chosen.id === "creds-large") {
+          intendedCreds = 1500;
+          const r = stealCredits(t.creds, caster.creds, 1500);
+          t.creds = r.fromCredsAfter;
+          caster.creds = r.toCredsAfter;
+          credsStolen = r.actual;
+        } else if (chosen.id === "rad-1") {
+          intendedRadianite = 1;
+          const r = stealRadianite(t.radianitePoints, caster.radianitePoints, 1);
+          t.radianitePoints = r.fromCredsAfter;
+          caster.radianitePoints = r.toCredsAfter;
+          radStolen = r.actual;
+          if (r.actual === 0) {
+            intendedCreds = CHAMBER_LOOT_FALLBACK_CREDS;
+            const fallback = stealCredits(
+              t.creds,
+              caster.creds,
+              CHAMBER_LOOT_FALLBACK_CREDS
+            );
+            t.creds = fallback.fromCredsAfter;
+            caster.creds = fallback.toCredsAfter;
+            credsStolen = fallback.actual;
+          }
+        } else if (chosen.id === "rad-all") {
+          intendedRadianite = t.radianitePoints;
+          const r = stealRadianite(
+            t.radianitePoints,
+            caster.radianitePoints,
+            t.radianitePoints
+          );
+          t.radianitePoints = r.fromCredsAfter;
+          caster.radianitePoints = r.toCredsAfter;
+          radStolen = r.actual;
+        } else {
+          intendedCreds = CHAMBER_LOOT_FALLBACK_CREDS;
+          caster.creds += CHAMBER_LOOT_FALLBACK_CREDS;
+          credsStolen = CHAMBER_LOOT_FALLBACK_CREDS;
+        }
+      });
+
       return {
         players,
         board,
         headline: "Tour de Force",
-        description: `${players[input.casterPlayerIndex]!.name} rolled ${casterRoll}, ${target.name} rolled ${targetRoll}. ${players[winnerIdx]!.name} wins +500.`,
+        description: `Slow Zone on ${target.position}. Loot: ${chosen.label} (creds ${credsStolen}/${intendedCreds}, rad ${radStolen}/${intendedRadianite}).`,
         positionChanges: [],
-        chamberDuel: {
-          casterRoll,
-          targetRoll,
-          winnerPlayerIndex: winnerIdx,
+        chamberLoot: {
+          segmentId: chosen.id,
+          label: chosen.label,
+          credsStolen,
+          radianiteStolen: radStolen,
+          intendedCreds,
+          intendedRadianite,
         },
       };
     }
@@ -787,10 +944,10 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
         };
       }
       const from = target.position;
-      target.position = moveTowardNode(from, caster.position, 3);
-      const stolen = Math.min(150, target.creds);
-      target.creds -= stolen;
-      caster.creds += stolen;
+      const to = caster.position;
+      const result = applyNegativeEffect(target, (t) => {
+        t.position = to;
+      });
       if (from !== target.position) {
         positionChanges.push({
           playerIndex: targetIdx,
@@ -802,8 +959,17 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
         players,
         board,
         headline: "Annihilation",
-        description: `Pulled ${target.name} to ${target.position} and stole ${stolen} creds.`,
+        description: `Pulled ${target.name} to ${to}. Landing not activated.${
+          result.deferredReactive ? " Reactive ultimate pending…" : ""
+        }`,
         positionChanges,
+        skipLandingActivation: true,
+        awaitReactivePrompt: result.deferredReactive
+          ? {
+              playerIndex: targetIdx,
+              agent: target.status.reactiveUltAgent ?? "Phoenix",
+            }
+          : undefined,
       };
     }
 

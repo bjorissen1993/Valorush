@@ -24,7 +24,7 @@ function updateAt(
 function pickRandomNode(ctx: EventApplyContext, exclude?: string): string {
   const ids =
     ctx.boardNodeIds?.filter(
-      (id) => id !== "start" && id !== exclude && !id.includes("split") && !id.includes("merge")
+      (id) => id !== "start" && id !== exclude
     ) ?? ["start"];
   return ids[Math.floor(Math.random() * ids.length)] ?? "start";
 }

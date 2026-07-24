@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { boardLayout, type TileType } from "../game/boardLayout";
+import { getPlayerTokenPosition } from "../game/tokenLayout";
 import type { PlayerInGame } from "../types/Game";
 import type { AnimatedTokenState } from "./GamePage";
 import {
@@ -9,6 +10,9 @@ import {
 } from "../game/assetPaths";
 
 export const SPIKE_PLANT_ANIMATION_MS = 1400;
+
+/** Circular tile diameter as % of the board viewBox. */
+const TILE_SIZE_PERCENT = 5.4;
 
 export type BoardSelectableEdge = {
   from: string;
@@ -28,10 +32,16 @@ export type BoardCastFx = {
 };
 
 export type BoardHazardState = {
-  poisonClouds: { nodeId: string; roundsLeft: number }[];
+  poisonClouds: {
+    nodeId: string;
+    nodeIds?: string[];
+    roundsLeft: number;
+  }[];
   walls: { fromNodeId: string; toNodeId: string; roundsLeft: number }[];
   traps: { nodeId: string; armed: boolean }[];
   detainZones?: { nodeId: string; armed: boolean }[];
+  killjoyDevices?: { centerNodeId: string; nodeIds: string[]; armed: boolean }[];
+  slowZones?: { nodeId: string; roundsLeft: number }[];
 };
 
 type Props = {
@@ -105,14 +115,31 @@ function getTileLabel(type: TileType) {
     case "event":
       return "Event";
     case "minigame":
-      return "Minigame";
-    case "split":
-      return "Split";
-    case "merge":
-      return "Merge";
+      return "Mini";
+    case "normal":
+      return "";
     case "empty":
     default:
-      return "Empty";
+      return "";
+  }
+}
+
+function getTileShortMark(type: TileType) {
+  switch (type) {
+    case "start":
+      return "S";
+    case "spike":
+      return "⚡";
+    case "shop":
+      return "$";
+    case "event":
+      return "?";
+    case "minigame":
+      return "◆";
+    case "normal":
+    case "empty":
+    default:
+      return "";
   }
 }
 
@@ -156,19 +183,17 @@ function edgeKey(from: string, to: string) {
 function getTileClasses(type: TileType) {
   switch (type) {
     case "start":
-      return "bg-zinc-900/85 border-emerald-500/35";
+      return "bg-zinc-900/85 border-emerald-500/45";
     case "event":
-      return "bg-zinc-900/85 border-violet-500/35";
+      return "bg-zinc-900/85 border-violet-500/45";
     case "shop":
-      return "bg-zinc-900/85 border-cyan-500/35";
+      return "bg-zinc-900/85 border-cyan-500/45";
     case "spike":
-      return "bg-zinc-900/85 border-orange-500/35";
+      return "bg-zinc-900/85 border-orange-500/45";
     case "minigame":
-      return "bg-zinc-900/85 border-yellow-500/35";
-    case "split":
-      return "bg-zinc-900/85 border-fuchsia-500/35";
-    case "merge":
-      return "bg-zinc-900/85 border-indigo-500/35";
+      return "bg-zinc-900/85 border-yellow-500/45";
+    case "normal":
+      return "bg-zinc-950/75 border-white/14";
     case "empty":
     default:
       return "bg-zinc-950/80 border-white/10";
@@ -210,7 +235,9 @@ function BoardMap({
   const poisonNodeSet = new Set(
     (hazards?.poisonClouds ?? [])
       .filter((c) => c.roundsLeft > 0)
-      .map((c) => c.nodeId)
+      .flatMap((c) =>
+        c.nodeIds && c.nodeIds.length > 0 ? c.nodeIds : [c.nodeId]
+      )
   );
   const trapNodeSet = new Set(
     (hazards?.traps ?? []).filter((t) => t.armed).map((t) => t.nodeId)
@@ -562,9 +589,15 @@ function BoardMap({
 
         const tokenCount = playersOnNode.length;
         const tokenSizeClass =
-          tokenCount <= 1 ? "h-11 w-11" : tokenCount === 2 ? "h-9 w-9" : "h-8 w-8";
+          tokenCount <= 1
+            ? "h-[42%] w-[42%]"
+            : tokenCount === 2
+              ? "h-[36%] w-[36%]"
+              : "h-[32%] w-[32%]";
         const tokenTextClass =
-          tokenCount <= 1 ? "text-xs" : tokenCount === 2 ? "text-[10px]" : "text-[9px]";
+          tokenCount <= 1 ? "text-[9px]" : "text-[8px]";
+        const tileLabel = getTileLabel(node.type);
+        const tileMark = getTileShortMark(node.type);
 
         return (
           <div
@@ -575,15 +608,15 @@ function BoardMap({
               }
               onTileClick?.(node.id);
             }}
-            className={`tile-pulse-host absolute z-[2] flex h-28 w-28 flex-col items-center justify-center rounded-[22px] border text-center text-[13px] text-zinc-100 before:pointer-events-none before:absolute before:inset-0 before:rounded-[22px] before:bg-gradient-to-b before:from-white/5 before:to-transparent ${getTileClasses(
+            className={`tile-pulse-host absolute z-[2] flex flex-col items-center justify-center rounded-full border text-center text-[10px] text-zinc-100 before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-gradient-to-b before:from-white/8 before:to-transparent ${getTileClasses(
               node.type
             )} ${
               isCurrentPlayerTile && !isTargetingMode
                 ? "animate-boardCurrentPulse z-[3] border-cyan-300/80 ring-2 ring-cyan-300/50"
-                : "shadow-[0_8px_24px_rgba(0,0,0,0.22)]"
+                : "shadow-[0_6px_18px_rgba(0,0,0,0.28)]"
             } ${
               isActiveSpikeTile
-                ? "ring-2 ring-red-400/70 shadow-[0_0_30px_rgba(239,68,68,0.28)]"
+                ? "ring-2 ring-red-400/70 shadow-[0_0_24px_rgba(239,68,68,0.28)]"
                 : ""
             } ${
               isSpikePlantTarget
@@ -592,8 +625,8 @@ function BoardMap({
             } ${
               isPathChoiceOption
                 ? isTargetingMode
-                  ? "animate-ultimateTargetPulse z-[3] cursor-pointer border-red-300/80 ring-2 ring-red-300/55 transition-transform hover:scale-[1.04]"
-                  : "animate-pathChoicePulse z-[3] cursor-pointer border-yellow-300/80 ring-2 ring-yellow-300/60 transition-transform hover:scale-[1.04]"
+                  ? "animate-ultimateTargetPulse z-[3] cursor-pointer border-red-300/80 ring-2 ring-red-300/55 transition-transform hover:scale-[1.08]"
+                  : "animate-pathChoicePulse z-[3] cursor-pointer border-yellow-300/80 ring-2 ring-yellow-300/60 transition-transform hover:scale-[1.08]"
                 : ""
             } ${
               isCastFxTile
@@ -609,14 +642,18 @@ function BoardMap({
               isDimmed ? "pointer-events-none opacity-35 saturate-50" : ""
             } ${
               debugClickable && !isPathChoiceOption
-                ? "cursor-pointer transition-transform hover:scale-[1.03] hover:ring-2 hover:ring-cyan-300/60"
+                ? "cursor-pointer transition-transform hover:scale-[1.06] hover:ring-2 hover:ring-cyan-300/60"
                 : ""
             }`}
             style={{
               left: `${scaleX(node.x)}%`,
               top: `${scaleY(node.y)}%`,
+              width: `${TILE_SIZE_PERCENT}%`,
+              height: `${TILE_SIZE_PERCENT}%`,
               transform: "translate(-50%, -50%)",
+              aspectRatio: "1 / 1",
             }}
+            title={tileLabel || node.type}
           >
             {isPoisonTile && (
               <div className="board-hazard-poison" aria-hidden>
@@ -651,7 +688,7 @@ function BoardMap({
               </div>
             )}
             {isActiveSpikeTile && (
-              <div className="absolute -right-3 -top-3 z-[5] flex h-12 w-12 items-center justify-center">
+              <div className="absolute -right-[18%] -top-[18%] z-[5] flex h-[48%] w-[48%] items-center justify-center">
                 <img
                   src={
                     activeSpikeStatus === "half-defused"
@@ -665,20 +702,26 @@ function BoardMap({
                 />
               </div>
             )}
-            <div className="font-bold leading-none drop-shadow-md">
-              {getTileLabel(node.type)}
-            </div>
+            {(tileLabel || tileMark) && (
+              <div className="pointer-events-none absolute left-1/2 top-[28%] z-[1] -translate-x-1/2 -translate-y-1/2 font-bold leading-none drop-shadow-md">
+                <span className="hidden sm:inline">{tileLabel || tileMark}</span>
+                <span className="sm:hidden">{tileMark || tileLabel}</span>
+              </div>
+            )}
             {(debugClickable || SHOW_NODE_IDS) && (
-              <p className="text-[10px] text-cyan-300">{node.id}</p>
+              <p className="pointer-events-none absolute left-1/2 top-[8%] z-[1] -translate-x-1/2 text-[7px] text-cyan-300">
+                {node.id}
+              </p>
             )}
 
-            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-              {playersOnNode.map((player) => {
+            <div className="pointer-events-none absolute inset-0">
+              {playersOnNode.map((player, stackIndex) => {
                 const playerIndex = players.findIndex((p) => p.id === player.id);
                 const isCurrent = playerIndex === currentPlayerIndex;
                 const isMoving = playerIndex === movingPlayerIndex;
                 const isSelectablePlayer = selectablePlayerSet.has(playerIndex);
                 const isCastFxPlayer = castFxPlayerSet.has(playerIndex);
+                const pos = getPlayerTokenPosition(node, stackIndex, tokenCount);
                 const status = player.ultimateStatus;
                 const statusClasses = [
                   (status?.yoruDriftRounds ?? 0) > 0
@@ -719,12 +762,12 @@ function BoardMap({
                     }}
                     className={[
                       tokenSizeClass,
-                      "board-token relative overflow-hidden rounded-full border-2 shadow transition-all duration-150",
+                      "board-token pointer-events-auto absolute overflow-hidden rounded-full border-2 shadow transition-all duration-150",
                       statusClasses,
                       isSelectablePlayer
-                        ? "animate-ultimateTargetPulse cursor-pointer border-red-200 shadow-[0_0_22px_rgba(248,113,113,0.65)] ring-4 ring-red-400/45 hover:scale-110"
+                        ? "animate-ultimateTargetPulse cursor-pointer border-red-200 shadow-[0_0_22px_rgba(248,113,113,0.65)] ring-2 ring-red-400/45 hover:scale-110"
                         : isCurrent
-                          ? "scale-[1.15] border-cyan-200 shadow-[0_0_22px_rgba(34,211,238,0.65)] ring-4 ring-cyan-400/40"
+                          ? "scale-[1.08] border-cyan-200 shadow-[0_0_18px_rgba(34,211,238,0.65)] ring-2 ring-cyan-400/40"
                           : "border-white/85",
                       isMoving && !isSelectablePlayer ? "ring-2 ring-white/50" : "",
                       isCastFxPlayer
@@ -736,6 +779,11 @@ function BoardMap({
                         ? "opacity-40"
                         : "",
                     ].join(" ")}
+                    style={{
+                      left: `calc(50% + ${pos.offsetXPercent}%)`,
+                      top: `calc(50% + ${pos.offsetYPercent}%)`,
+                      transform: "translate(-50%, -50%)",
+                    }}
                     title={player.name}
                   >
                     {player.avatar ? (

@@ -2,6 +2,8 @@ import type { GameEvent, GameEventStory } from "../types/Game";
 import type { BoardEventDefinition, EventApplyContext, PlayerBoardState } from "../../shared/events";
 import type { PlayerInGame } from "../types/Game";
 import { boardLayout } from "./boardLayout";
+import { computeFinalMovement } from "./diceSystem";
+import { migrateBoardPosition } from "./boardLayout";
 
 export function toPlayerBoardState(player: PlayerInGame): PlayerBoardState {
   const primary =
@@ -55,6 +57,11 @@ export function mergeBoardStateIntoPlayer(
 
 export function getBoardNodeIds(): string[] {
   return boardLayout.map((node) => node.id);
+}
+
+/** Ensure a player position exists on the current board graph. */
+export function sanitizePlayerPosition(position: string): string {
+  return migrateBoardPosition(position);
 }
 
 export function boardEventToGameEvent(
@@ -139,21 +146,13 @@ export function computeEffectiveRoll(
   baseRoll: number,
   player: PlayerInGame
 ): number {
-  let roll = baseRoll + (player.movementBonus ?? 0);
-  const penalty = player.ultimateStatus?.movementPenalty ?? 0;
-  if (penalty > 0) {
-    roll -= penalty;
-  }
-  if (player.ultimateStatus?.neonOverdrive) {
-    roll *= 2;
-  }
-  if (player.ultimateStatus?.inViperPit) {
-    roll = Math.floor(roll / 2);
-  }
-  if (player.maxStepsPerTurn != null) {
-    roll = Math.min(roll, player.maxStepsPerTurn);
-  }
-  return Math.max(1, roll);
+  return computeFinalMovement(baseRoll, {
+    bonuses: player.movementBonus ?? 0,
+    debuffs: player.ultimateStatus?.movementPenalty ?? 0,
+    doubleMovement: Boolean(player.ultimateStatus?.neonOverdrive),
+    halfMovement: Boolean(player.ultimateStatus?.inViperPit),
+    maxSteps: player.maxStepsPerTurn ?? null,
+  });
 }
 
 /** Clear one-shot movement bonus after it has been applied to a roll. */

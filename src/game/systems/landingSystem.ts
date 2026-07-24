@@ -2,6 +2,7 @@ import { getNodeById, type TileType } from "../boardLayout";
 import type { GameEvent, PlayerInGame } from "../../types/Game";
 import { getResolvedEventEffect } from "../eventResolution";
 import { getRandomEvent } from "../eventPool";
+import { rollNormalTileCredits } from "../economy";
 
 export { getRandomEvent };
 
@@ -22,6 +23,7 @@ export type LandingResolution =
   | {
       kind: "normal";
       tileType: TileType;
+      creditReward?: number;
     };
 
 type ResolveLandingTileArgs = {
@@ -39,6 +41,7 @@ export function resolveLandingTile({
     return {
       kind: "normal",
       tileType: "empty",
+      creditReward: 0,
     };
   }
 
@@ -67,14 +70,22 @@ export function resolveLandingTile({
     };
   }
 
+  // start / empty / normal → credit roll on normal (and empty aliases)
+  const isCreditTile =
+    landedNode.type === "normal" || landedNode.type === "empty";
+
   return {
     kind: "normal",
     tileType: landedNode.type,
+    creditReward: isCreditTile ? rollNormalTileCredits() : 0,
   };
 }
 
 /** Human-readable landing message for tiles without a special phase. */
-export function getNormalTileMessage(tileType: TileType): {
+export function getNormalTileMessage(
+  tileType: TileType,
+  creditReward?: number
+): {
   title: string;
   subtitle: string;
 } {
@@ -82,16 +93,18 @@ export function getNormalTileMessage(tileType: TileType): {
     case "start":
       return {
         title: "Start",
-        subtitle: "Spawn tile , no effect.",
+        subtitle: "Spawn tile — no effect.",
       };
-    case "merge":
-      return {
-        title: "Merge",
-        subtitle: "Shortcut routes reunite here.",
-      };
+    case "normal":
     case "empty":
+      if (creditReward && creditReward > 0) {
+        return {
+          title: "Credits",
+          subtitle: `Collected +${creditReward} creds.`,
+        };
+      }
       return {
-        title: "Empty",
+        title: "Normal",
         subtitle: "Nothing happens on this tile.",
       };
     default:

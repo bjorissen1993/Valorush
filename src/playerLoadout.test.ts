@@ -6,6 +6,7 @@ import {
   tickMovementModifiers,
 } from "./game/boardEventBridge";
 import type { PlayerInGame } from "./types/Game";
+import { createEmptyPlayerUltimateStatus } from "../shared/ultimates";
 
 function basePlayer(overrides: Partial<PlayerInGame> = {}): PlayerInGame {
   return {
@@ -26,20 +27,7 @@ function basePlayer(overrides: Partial<PlayerInGame> = {}): PlayerInGame {
     maxStepsPerTurn: null,
     maxStepsTurns: 0,
     ultimateOrbs: 0,
-    ultimateStatus: {
-      reynaBuffRounds: 0,
-      yoruDriftRounds: 0,
-      cloveShield: false,
-      movementPenalty: 0,
-      movementPenaltyTurns: 0,
-      neonOverdrive: false,
-      phoenixRunItBack: false,
-      turnStartPosition: null,
-      itemsLockedTurns: 0,
-      skipNextTurn: false,
-      extraTurnPending: false,
-      inViperPit: false,
-    },
+    ultimateStatus: createEmptyPlayerUltimateStatus(),
     ...overrides,
   };
 }

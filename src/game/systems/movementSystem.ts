@@ -23,9 +23,11 @@ export type UpdatePlayerPosition = (
 ) => void;
 
 export type MovementResult = {
+  /** True when the token paused at a branch (next.length > 1). */
   blockedBySplit: boolean;
   finalNodeId: string;
   remainingSteps?: number;
+  /** Exit node ids available at the branch. */
   splitOptions?: string[];
   stoppedBySpikeDefuse?: boolean;
 };
@@ -159,17 +161,32 @@ export async function traverseMovement({
     const node = getNodeById(currentNodeId);
     if (!node || node.next.length === 0) break;
 
-    // stop bij split zodat GamePage de keuze kan tonen
-    if (node.type === "split" && node.next.length > 1) {
-      return {
-        blockedBySplit: true,
-        finalNodeId: currentNodeId,
-        remainingSteps,
-        splitOptions: node.next,
-      };
+    // Route choice: any tile with multiple exits pauses mid-movement.
+    // Landing effects only run on the final tile (handled by GamePage).
+    const openExits = node.next.filter(
+      (nextId) => !isEdgeBlocked?.(currentNodeId, nextId)
+    );
+
+    if (node.next.length > 1) {
+      if (openExits.length === 0) {
+        return {
+          blockedBySplit: false,
+          finalNodeId: currentNodeId,
+          remainingSteps,
+        };
+      }
+      if (openExits.length > 1) {
+        return {
+          blockedBySplit: true,
+          finalNodeId: currentNodeId,
+          remainingSteps,
+          splitOptions: openExits,
+        };
+      }
+      // Exactly one unblocked exit — auto-take it without prompting.
     }
 
-    const nextNodeId = node.next[0];
+    const nextNodeId = openExits[0] ?? node.next[0]!;
     if (isEdgeBlocked?.(currentNodeId, nextNodeId)) {
       return {
         blockedBySplit: false,

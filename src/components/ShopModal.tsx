@@ -73,6 +73,17 @@ export default function ShopModal({
     (o) => o.weaponSlot === "primary" || o.description === "Primary"
   );
   const shieldOffers = shopOffers.filter((o) => o.type === "shield");
+  const utilityOffers = shopOffers.filter(
+    (o) =>
+      !sidearmOffers.includes(o) &&
+      !primaryOffers.includes(o) &&
+      !shieldOffers.includes(o)
+  );
+  const useRotatingLayout =
+    utilityOffers.length > 0 &&
+    sidearmOffers.length === 0 &&
+    primaryOffers.length <= 2 &&
+    shieldOffers.length === 0;
   const offerRowCount = Math.max(
     sidearmOffers.length,
     primaryOffers.length,
@@ -145,6 +156,18 @@ export default function ShopModal({
             </div>
 
             <div className="mt-6 flex min-h-0 flex-1 flex-col">
+              {useRotatingLayout ? (
+                <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto md:grid-cols-3">
+                  <p className="col-span-full shrink-0 text-sm font-semibold text-white">
+                    Rotating Offers
+                  </p>
+                  {shopOffers.map((offer) => (
+                    <div key={offer.id} className="min-h-0 overflow-visible">
+                      {renderOfferButton(offer)}
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <div
                 className="grid min-h-0 flex-1 gap-x-4 gap-y-3 md:grid-cols-3"
                 style={{
@@ -183,6 +206,7 @@ export default function ShopModal({
                   </Fragment>
                 ))}
               </div>
+              )}
             </div>
 
             <div className="mt-4 shrink-0 border-t border-white/10 pt-4">

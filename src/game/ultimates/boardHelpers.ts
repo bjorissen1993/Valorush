@@ -90,9 +90,54 @@ export function isInPoisonCloud(
   board: BoardUltimateState,
   nodeId: string
 ): boolean {
-  return board.poisonClouds.some(
-    (cloud) => cloud.nodeId === nodeId && cloud.roundsLeft > 0
-  );
+  return board.poisonClouds.some((cloud) => {
+    if (cloud.roundsLeft <= 0) return false;
+    if (cloud.nodeIds && cloud.nodeIds.length > 0) {
+      return cloud.nodeIds.includes(nodeId);
+    }
+    return cloud.nodeId === nodeId;
+  });
+}
+
+/** Apply Viper movement debuff once per activationId when entering/standing in pit. */
+export function applyViperPitDebuffOnce(
+  player: {
+    status: {
+      movementPenalty: number;
+      movementPenaltyTurns: number;
+      appliedActivationIds: string[];
+      inViperPit: boolean;
+    };
+  },
+  board: BoardUltimateState,
+  isOwner: boolean
+): void {
+  if (isOwner) return;
+  for (const cloud of board.poisonClouds) {
+    if (cloud.roundsLeft <= 0) continue;
+    const inZone =
+      cloud.nodeIds?.includes(
+        // position checked by caller via inViperPit / isInPoisonCloud
+        cloud.nodeId
+      ) || cloud.nodeId;
+    if (!player.status.inViperPit && !inZone) continue;
+    if (player.status.appliedActivationIds.includes(cloud.activationId)) {
+      continue;
+    }
+    const debuff = cloud.movementDebuff ?? 2;
+    player.status.movementPenalty = Math.max(
+      player.status.movementPenalty,
+      debuff
+    );
+    player.status.movementPenaltyTurns = Math.max(
+      player.status.movementPenaltyTurns,
+      1
+    );
+    player.status.appliedActivationIds = [
+      ...player.status.appliedActivationIds,
+      cloud.activationId,
+    ];
+  }
 }
 
 /** BFS pull toward a destination, up to `steps` tiles. */

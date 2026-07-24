@@ -1,146 +1,63 @@
-# ValoRush Expansion Roadmap (Phase 2+)
+# ValoRush Expansion (Board / Economy / Ultimates)
 
-Phase 1 delivered the architecture and playable foundations below. This document tracks what remains.
+## Shipped in this expansion
 
-## Completed in Phase 1
+| Phase | Status | Notes |
+|-------|--------|-------|
+| **A — Board** | Done | ~50-tile network; branching via `next.length > 1` only; no `split`/`merge` types; route-choice pause mid-move; `boardValidator` (dev); legacy position remap |
+| **B — Circular tiles + stacking** | Done | Smaller circular tiles; `getPlayerTokenPosition` fans 1–4 tokens on bottom arc |
+| **C — Normal tiles + economy** | Done | Weighted credit roll; `stealCredits` helper; `RADIANITE_BUY_COST = 3000` |
+| **D — Two dice** | Done | Default 2d6; `computeFinalMovement = max(0, rolled + bonuses − debuffs)` |
+| **E — Shop revision** | Done | Rotating shop (dice, agent dice, ult orb, Odin, Operator, defuse items, backpack, dice holder); no normal weapon catalog; no teleports |
+| **F — Ultimate reworks** | Partial | Priority agents reworked (see below); full Cypher match-config UI + Sova 3-shot UX still thin |
 
-| Area | Path | Status |
-|------|------|--------|
-| Event registry | `shared/events/` | 20 choice-based events across 6 categories |
-| Custom matches | `shared/customMatches/` | 9 Valorant modes + map registry + category UI |
-| Items | `shared/items/` | 8 items (4 board + 4 spike defuse) |
-| Minigames | `shared/minigames/` | Neon Race, Cypher Seek, Quick Roll (stub play) |
-| Duel tiles | — | **Removed** — replaced by events/minigames/custom matches |
-| Spike defuse | `src/game/systems/spikeSystem.ts` | 2-dice + difficulty + item hooks |
-| Director wiring | `shared/director/` | Agent/Kingdom bindings updated |
-| **Ultimate Orb System** | `shared/ultimates/` + `src/game/ultimates/` | Meter 0–3, per-agent ultimates, board hazards, online sync |
+### Ultimate reworks landed
 
-## Ultimate Orb System
+- **Brimstone** — area circle, partial tiles count, credit drain, no knockback, immune
+- **Omen** — teleport any tile, no land activate, end turn immediately
+- **Viper** — placement-radius area, 1-round zone, −2 move once per `activationId`, immune
+- **Killjoy** — device with radius, detonates at start of KJ’s next turn, −2 once
+- **Chamber** — slow zone + weighted loot wheel with steal clamps / 3000 fallback
+- **Deadlock** — pull to Deadlock tile, no land activate, reactive hook
+- **Phoenix / Sage** — reactive ultimate arm + rollback pipeline (`negativeEffects.ts`)
+- **Sova** — multi-shot apply path (3 shots); UI re-aim loop still basic (tile click)
+- **Cypher** — match-config payload on apply; dedicated configurator modal deferred
 
-### Architecture
+### New modules
 
-```
-shared/ultimates/     — types, registry (one entry per agent), path defs
-src/game/ultimates/   — applyUltimate(), orb helpers, board helpers, ticks
-PlayerInGame          — ultimateOrbs + ultimateStatus
-OnlineGameSnapshot    — boardUltimateState + player orbs/status
-OnlineGameAction      — use_ultimate (host-authoritative)
-```
+- `src/game/boardValidator.ts`
+- `src/game/economy.ts`
+- `src/game/diceSystem.ts`
+- `src/game/tokenLayout.ts`
+- `src/game/ultimates/areaTargeting.ts`
+- `src/game/ultimates/negativeEffects.ts`
+- `src/expansion.test.ts`
 
-- **Orbs:** start 0; +1 after completing a turn (cap 3); activate at 3/3 → spend all → 0.
-- **Hooks:** `grantUltimateOrbs()` / `minigameOrbReward()` / `SHOP_ULTIMATE_ORB_STUB` for events, minigames, shop.
-- **Board hazards:** Viper pit, Astra ultimate wall (separate from director Cosmic Divide event), Vyse trap.
-- **UI:** meter on sidebar + top strip; **ULT READY** + Activate when full; target modal for tile/player/path/edge/choice.
+## Remaining / deferred
 
-### Adding a new ultimate
+- [ ] Cypher match configurator modal (matchup/teams/mode/weapons/agents/modifiers UI)
+- [ ] Sova full 3-shot re-aim UX (progress bar + force continue targeting after each shot)
+- [ ] Free-cursor area placement (pixel cursor) — currently tile-click approximates center
+- [ ] Brimstone big orbital VFX pass
+- [ ] Chamber Tour de Force + loot wheel presentation UI
+- [ ] Phoenix/Sage reactive prompt modal polish (green theme for Sage)
+- [ ] Online: sync `killjoyDevices` / `slowZones` / `areaNodeIds` on `use_ultimate` actions
+- [ ] Shop: Lucky Backpack reroll + Dice Holder store/reuse flows
+- [ ] Spike item integration polish for Advanced Defuse Kit / Defuse Drone in defuse modal
 
-1. Add an `UltimateDefinition` to `shared/ultimates/registry.ts` (`implementation: "full"` or `"stub"`).
-2. If playable, add a `case` in `src/game/ultimates/applyUltimate.ts` matching `def.id`.
-3. If new status fields are needed, extend `PlayerUltimateStatus` / `BoardUltimateState` in `shared/ultimates/types.ts` and tick them in `tickStatus.ts`.
-4. Activate UI appears automatically for roster agents whose ultimate is `implementation: "full"`.
+## Save / migration
 
-Director event **Cosmic Divide** (`astra-cosmic-divide`) stays a separate board event — do not conflate with Astra's ultimate wall (`cosmic-divide-ult`).
-
-## Phase 2 — Items & Shop
-
-- [ ] Sell agent/weapon items in `ShopModal` from `shared/items/registry.ts`
-- [ ] Black market tile/event hook for `ghost-steal` and contraband items
-- [ ] Use items from inventory during movement (`jett-dice`, `knife-swap`, `operator-scope`)
-- [ ] Item earn paths from minigame/custom match rewards
-- [ ] Sync `items[]` fully in online snapshots (partial — field exists on `SyncedPlayerInGame`)
-
-## Phase 3 — Minigames (full play)
-
-- [ ] **Neon Race** — timed lane dodge stub → dedicated UI with Sunset map backdrop
-- [ ] **Cypher Seek** — hidden node pick / deduction instead of dice roll
-- [ ] Minigame picker when board tile or custom match triggers `playMode: "full"`
-- [ ] Register new minigames by adding one entry to `shared/minigames/registry.ts` only
-
-## Phase 4 — Custom Matches (full play)
-
-- [ ] Per-mode rules: Spike Rush plants, TDM elimination bracket, Escalation weapon tiers
-- [ ] Standard / Retake / All Random One Site — 1v3 site hold flow
-- [ ] Skirmish 2v2 bracket and map-specific arenas (A–E)
-- [ ] Host-authoritative custom match phase in `OnlineGameSnapshot`
-- [ ] Post-match standings animation
-
-## Map & mode reference
-
-Valorant ships **9 custom-game modes**. ValoRush groups them into three categories for board scheduling:
-
-| Category | Modes | Player format |
-|----------|-------|---------------|
-| **Free for All** | Deathmatch, Escalation | FFA |
-| **2v2** | Spike Rush, Team Deathmatch, Skirmish | 2v2 |
-| **1v3** | Standard, Retake, All Random One Site, Swiftplay | 1 attacker vs 3 defenders |
-
-Registry: `shared/customMatches/registry.ts` · Map pools: `shared/customMatches/mapRegistry.ts`
-
-### Map pools & local assets
-
-Map splashes live in `public/maps/` and are **not** auto-fetched (unlike agent portraits from the Valorant API). Add images manually from the Valorant wiki or Riot CDN.
-
-| Pool | Maps | Asset pattern |
-|------|------|---------------|
-| Competitive | Abyss, Ascent, Bind, Breeze, Corrode, Fracture, Haven, Icebox, Lotus, Pearl, Split, Summit, Sunset | `Loading_Screen_{Map}.png` |
-| All Random One Site | Abyss, Ascent, Breeze, District, Icebox, Pearl, Split, Sunset | Loading screen or `{Map}_Splash.png` |
-| Retake | Ascent, Bind, Haven, Summit, Sunset | `Loading_Screen_{Map}.png` |
-| Team Deathmatch | District, Drift, Glitch, Kasbah, Piazza | `{Map}_Splash.png` |
-| Skirmish | Skirmish A–E | `Skirmish_Splash.png` (shared until per-arena art added) |
-
-**Maps with assets today:** Abyss, Ascent, Bind, Breeze, District, Drift, Fracture, Glitch, Haven, Icebox, Kasbah, Lotus, Pearl, Piazza, Split, Sunset, Skirmish (A–E share one splash).
-
-**Missing assets (excluded from random picks):** Corrode, Summit.
-
-### Adding Summit (or Corrode)
-
-1. Obtain a loading-screen splash (e.g. from [Valorant wiki](https://valorant.fandom.com/wiki/Summit) or Riot media).
-2. Save as `public/maps/Loading_Screen_Summit.png` (match existing competitive maps like `Loading_Screen_Ascent.png`).
-3. In `shared/customMatches/mapRegistry.ts`, set Summit's `splashFile` to `"Loading_Screen_Summit.png"` (currently `null`).
-4. Redeploy — Summit enters competitive and retake random pools automatically.
-
-Gamemode icons (optional UI): `public/gamemodes/` — Deathmatch, Escalation, Skirmish, Spike_Rush, Plant_Defuse_Mode.
-
-
-## Phase 5 — Events polish
-
-- [ ] Multi-step event UI polish (Deadlock target pick, Fade paranoia flow)
-- [ ] Agent-specific event weighting when trigger player's agent matches `sourceAgent`
-- [ ] Kingdom protocol events force `presentation: "briefing"` consistently
-
-## Phase 6 — Spike & board
-
-- [ ] Owl Drone true preview (show dice before commit, hide without item)
-- [ ] Stim Beacon reroll UX (re-roll button, consume item)
-- [ ] Spike difficulty scaling by round / planter agent
-- [ ] Defuse sync for online guests (currently host-local spike state)
-
-## Phase 7 — Online sync hardening
-
-- [ ] Sync `scheduledCustomMatch`, `pendingEventChoice`, `activeSpike`, `customMatchPhase`
-- [ ] Remote actions for event choices and defuse choices
-- [ ] Snapshot version bumps on movement modifiers tick
+- Legacy node ids (`top-split`, `right-merge`, …) remap via `migrateBoardPosition`
+- Legacy `split`/`merge` tile types → `normal`
+- `BoardUltimateState` normalized for missing `killjoyDevices` / `slowZones` / poison `activationId`
+- Invalid saved positions fall back to `start`
 
 ## Architecture reference
 
 ```
-shared/
-  events/          — BoardEventDefinition + applyEffect + playerChoices
-  customMatches/   — Match types, map pools, rewards
-  items/           — Collectible/buyable items
-  minigames/       — Register-only minigame defs
-  director/        — Agent + Kingdom narration bindings
-  ultimates/       — Agent ultimate defs + orb/status types
+boardLayout.next.length > 1  → route choice (not a tile type)
+economy.stealCredits         → intended vs actual
+diceSystem.computeFinalMovement
+ultimates/areaTargeting      → circle ∩ tile
+ultimates/negativeEffects    → reactive Phoenix/Sage
 ```
-
-## Adding a new board event
-
-1. Add `BoardEventDefinition` to `shared/events/registry.ts`
-2. Bind agent in `shared/director/agentRegistry.ts` (optional)
-3. No GamePage changes required if using existing choice kinds
-
-## Adding a new ultimate
-
-1. Add `UltimateDefinition` to `shared/ultimates/registry.ts`
-2. Implement `case` in `src/game/ultimates/applyUltimate.ts` (or leave `implementation: "stub"`)
-3. Extend status types/ticks only if the ability needs new buffs or board hazards

@@ -54,6 +54,12 @@ import {
   applyEventChoice,
   type PendingEventChoiceState,
 } from "../game/eventChoiceHandler";
+import { boardLayout, getNodeById, migrateBoardPosition, type TileType } from "../game/boardLayout";
+import { assertBoardGraphValidInDev } from "../game/boardValidator";
+import { rollDice, DEFAULT_DICE_COUNT } from "../game/diceSystem";
+import { RADIANITE_BUY_COST } from "../game/economy";
+import { tileIdsInArea, AREA_RADIUS } from "../game/ultimates/areaTargeting";
+import { detonateKilljoyDevices } from "../game/ultimates/tickStatus";
 import { computeEffectiveRoll, tickMovementModifiers, consumeOneShotMovementBonus, normalizePlayerLoadout, getBoardNodeIds } from "../game/boardEventBridge";
 import {
   customMatchRegistry,
@@ -64,7 +70,7 @@ import {
 import { minigameById, minigameRegistry } from "../../shared/minigames";
 import { boardEventRegistry } from "../../shared/events";
 import { agentDirectorRegistry } from "../../shared/director";
-import { itemById, itemRegistry } from "../../shared/items";
+import { itemById, itemRegistry, rotatingShopItems, RADIANITE_BUY_COST as SHOP_RADIANITE_COST } from "../../shared/items";
 import {
   ULTIMATE_BOARD_PATHS,
   createEmptyPlayerUltimateStatus,
@@ -92,6 +98,8 @@ import {
   isEdgeBlockedByWall,
   isInPoisonCloud,
   mergeUltimatePlayers,
+  mergeUltimateIntoPlayer,
+  normalizeBoardUltimateState,
   tickBoardUltimateState,
   tickPlayerUltimateStatus,
   toUltimatePlayerState,
@@ -107,7 +115,6 @@ import PlayerInventorySidebar, {
   rotatePlayersToActive,
   type InventoryItemAction,
 } from "./PlayerInventorySidebar";
-import { boardLayout, type TileType } from "../game/boardLayout";
 import type { MinigameId } from "../../shared/minigames/types";
 import type {
   ScheduledCustomMatch,
@@ -325,7 +332,11 @@ function mergeCustomMatchPhase(
 }
 
 function randomDiceRoll() {
-  return Math.floor(Math.random() * 6) + 1;
+  return rollDice(DEFAULT_DICE_COUNT).sum;
+}
+
+function randomDiceRollDetailed() {
+  return rollDice(DEFAULT_DICE_COUNT);
 }
 
 function AnimatedNumber({ value }: { value: number }) {
@@ -480,7 +491,12 @@ export default function GamePage({
   const [playersInGame, setPlayersInGame] = useState<PlayerInGame[]>(() => {
     if (initialSnapshot?.players?.length) {
       return initialSnapshot.players.map((player) =>
-        withDefaultUltimateFields(normalizePlayerLoadout(player as PlayerInGame))
+        withDefaultUltimateFields({
+          ...normalizePlayerLoadout(player as PlayerInGame),
+          position: migrateBoardPosition(
+            (player as PlayerInGame).position
+          ),
+        })
       );
     }
     return players.map((player, index): PlayerInGame => {
@@ -511,8 +527,12 @@ export default function GamePage({
     });
   });
 
+  useEffect(() => {
+    assertBoardGraphValidInDev();
+  }, []);
+
   const [boardUltimateState, setBoardUltimateState] = useState<BoardUltimateState>(
-    () => initialSnapshot?.boardUltimateState ?? emptyBoardUltimateState()
+    () => normalizeBoardUltimateState(initialSnapshot?.boardUltimateState)
   );
   const [ultimateCast, setUltimateCast] = useState<UltimateCastCue | null>(
     () => initialSnapshot?.ultimateCast ?? null
@@ -616,7 +636,7 @@ export default function GamePage({
       )
     );
     if (snapshot.boardUltimateState) {
-      setBoardUltimateState(snapshot.boardUltimateState);
+      setBoardUltimateState(normalizeBoardUltimateState(snapshot.boardUltimateState));
     }
     if (snapshot.ultimateCast) {
       const cue = snapshot.ultimateCast;
@@ -1394,11 +1414,13 @@ export default function GamePage({
     switch (def.targetKind) {
       case "tile":
       case "tile_and_move":
-        return { targetNodeId: "top-2" };
+      case "area":
+      case "multi_shot":
+        return { targetNodeId: "o4" };
       case "path":
-        return { choiceId: "top-row", targetNodeId: "top-row" };
+        return { choiceId: "outer-top", targetNodeId: "outer-top" };
       case "edge":
-        return { targetNodeId: "start", targetNodeId2: "top-1" };
+        return { targetNodeId: "start", targetNodeId2: "o1" };
       case "player":
         return {
           targetPlayerIndex,
@@ -1412,6 +1434,9 @@ export default function GamePage({
         };
       case "choice":
         return { choiceId: def.choices?.[0]?.id ?? "cleanse" };
+      case "match_config":
+      case "reactive":
+        return {};
       case "sequential_opponents": {
         const opponentChoices: Record<number, "pay" | "skip"> = {};
         for (const index of opponents) {
@@ -1574,111 +1599,53 @@ export default function GamePage({
 
     const selectedShopKeeper = getRandomShopKeeper();
     setShopKeeper(selectedShopKeeper);
-    const randomSidearms = getRandomItems(sidearmWeapons, 3).sort((a, b) => {
-      const priceA = getWeaponFinalPrice({
-        weapon: a,
-        player,
-        isOnShopTile: true,
-      });
-      const priceB = getWeaponFinalPrice({
-        weapon: b,
-        player,
-        isOnShopTile: true,
-      });
-      return priceA - priceB;
-    });
 
-    const randomPrimaries = getRandomItems(primaryWeapons, 3).sort((a, b) => {
-      const priceA = getWeaponFinalPrice({
-        weapon: a,
-        player,
-        isOnShopTile: true,
-      });
-      const priceB = getWeaponFinalPrice({
-        weapon: b,
-        player,
-        isOnShopTile: true,
-      });
-      return priceA - priceB;
-    });
-
-    const sidearmOffers: ShopOffer[] = randomSidearms.map((weapon) => {
-      const price = getWeaponFinalPrice({
-        weapon,
-        player,
-        isOnShopTile: true,
-      });
-
+    // Rotating expansion shop: special weapons + gadgets (no normal weapon catalog).
+    const pool = getRandomItems([...rotatingShopItems], 6);
+    const offers: ShopOffer[] = pool.map((item) => {
+      const isWeapon =
+        item.id === "special-odin" || item.id === "special-operator";
+      const weaponName =
+        item.id === "special-odin"
+          ? "Odin"
+          : item.id === "special-operator"
+            ? "Operator"
+            : undefined;
       return {
-        id: `weapon-${weapon}`,
-        type: "weapon",
-        label: weapon,
-        weaponName: weapon,
-        weaponSlot: "secondary",
-        price,
-        description: "Sidearm",
-        image: getWeaponImage(weapon),
-        disabled: player.creds < price,
+        id: item.id,
+        type: isWeapon
+          ? "weapon"
+          : item.id === "ultimate-orb-pack"
+            ? "ultimate"
+            : "utility",
+        label: item.name,
+        price: item.price,
+        description: item.description,
+        image: item.icon,
+        weaponName,
+        weaponSlot: isWeapon ? ("primary" as const) : undefined,
+        disabled: player.creds < item.price,
       };
     });
 
-    const primaryOffers: ShopOffer[] = randomPrimaries.map((weapon) => {
-      const price = getWeaponFinalPrice({
-        weapon,
-        player,
-        isOnShopTile: true,
-      });
-
-      return {
-        id: `weapon-${weapon}`,
-        type: "weapon",
-        label: weapon,
-        weaponName: weapon,
-        weaponSlot: "primary",
-        price,
-        description: "Primary",
-        image: getWeaponImage(weapon),
-        disabled: player.creds < price,
-      };
+    // Radianite purchase — expensive config constant, not a cheap filler.
+    offers.push({
+      id: "buy-radianite",
+      type: "utility",
+      label: "Radianite Point",
+      price: SHOP_RADIANITE_COST ?? RADIANITE_BUY_COST,
+      description: `Buy 1 radianite for ${SHOP_RADIANITE_COST ?? RADIANITE_BUY_COST} creds`,
+      image: "/points/Radianite_Points.png",
+      disabled: player.creds < (SHOP_RADIANITE_COST ?? RADIANITE_BUY_COST),
     });
 
-    const shieldOffers: ShopOffer[] = [
-      {
-        id: "shield-light",
-        type: "shield",
-        label: "Light Shields",
-        price: 400,
-        description: "Basic protection",
-        image: getShieldImage("Light Shields"),
-        disabled: player.creds < 400,
-      },
-      {
-        id: "shield-regen",
-        type: "shield",
-        label: "Regen Shield",
-        price: 650,
-        description: "Regenerates over time",
-        image: getShieldImage("Regen Shield"),
-        disabled: player.creds < 650,
-      },
-      {
-        id: "shield-heavy",
-        type: "shield",
-        label: "Heavy Shields",
-        price: 1000,
-        description: "Maximum protection",
-        image: getShieldImage("Heavy Shields"),
-        disabled: player.creds < 1000,
-      },
-    ];
-
-    setShopOffers([...sidearmOffers, ...primaryOffers, ...shieldOffers]);
+    setShopOffers(offers);
     setPendingPurchase(null);
     setPurchasedShopOfferIds([]);
     setCanBuyAfterLanding(true);
     setStatusTitle(`${player.name} landed on Shop`);
-    setStatusSubtitle("Browse the shop offers.");
-    showAnnouncement(`${player.name} landed on Shop`, "Browse the shop offers.");
+    setStatusSubtitle("Browse the rotating shop offers.");
+    showAnnouncement(`${player.name} landed on Shop`, "Browse the rotating shop offers.");
   }
 
   function completeDirectorIntro() {
@@ -2827,11 +2794,8 @@ export default function GamePage({
       }
     }
 
-    if (wrapsRound) {
-      setBoardUltimateState((board) => tickBoardUltimateState(board));
-    }
-
     if (wrapsRound && scheduledCustomMatch && !customMatchPhase) {
+      setBoardUltimateState((board) => tickBoardUltimateState(board));
       setPlayersInGame(latestPlayers);
       setPendingRoundWrap({ title, subtitle });
       beginCustomMatchFlow(scheduledCustomMatch);
@@ -2874,6 +2838,30 @@ export default function GamePage({
     setPhase("playing");
 
     {
+      let boardForTick = wrapsRound
+        ? tickBoardUltimateState(boardUltimateStateRef.current)
+        : boardUltimateStateRef.current;
+
+      // Killjoy Lockdown detonates at the start of KJ's next turn.
+      const kjDetonation = detonateKilljoyDevices(
+        boardForTick,
+        latestPlayers.map(toUltimatePlayerState),
+        nextPlayerIndex
+      );
+      if (kjDetonation.description) {
+        for (let i = 0; i < latestPlayers.length; i += 1) {
+          const ult = kjDetonation.players[i];
+          if (!ult) continue;
+          latestPlayers[i] = mergeUltimateIntoPlayer(latestPlayers[i]!, ult);
+        }
+        boardForTick = kjDetonation.board;
+        setBoardUltimateState(boardForTick);
+        showAnnouncement("Lockdown", kjDetonation.description);
+        publishGameEventChat(kjDetonation.description);
+      } else if (wrapsRound) {
+        setBoardUltimateState(boardForTick);
+      }
+
       const nextPlayer = latestPlayers[nextPlayerIndex];
       if (nextPlayer) {
         const afterMoveTick = tickMovementModifiers(nextPlayer);
@@ -2882,9 +2870,7 @@ export default function GamePage({
           ultimateStatus: tickPlayerUltimateStatus(
             afterMoveTick.ultimateStatus ?? createEmptyPlayerUltimateStatus(),
             afterMoveTick.position,
-            wrapsRound
-              ? tickBoardUltimateState(boardUltimateStateRef.current)
-              : boardUltimateStateRef.current
+            boardForTick
           ),
         };
       }
@@ -3285,13 +3271,29 @@ export default function GamePage({
       return;
     }
 
-    const tileMessage = getNormalTileMessage(resolution.tileType);
-    setStatusTitle(`${player.name} rolled ${rolledValue}`);
-    setStatusSubtitle(`Landed on ${tileMessage.title}. ${tileMessage.subtitle}`);
-    showAnnouncement(
-      `${player.name} , ${tileMessage.title}`,
-      tileMessage.subtitle
+    const tileMessage = getNormalTileMessage(
+      resolution.tileType,
+      resolution.creditReward
     );
+    if (resolution.creditReward && resolution.creditReward > 0) {
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        creds: p.creds + resolution.creditReward!,
+      }));
+      setStatusTitle(`${player.name} +${resolution.creditReward} creds`);
+      setStatusSubtitle(tileMessage.subtitle);
+      showAnnouncement(
+        `+${resolution.creditReward} Creds`,
+        `${player.name} collected credits`
+      );
+    } else {
+      setStatusTitle(`${player.name} rolled ${rolledValue}`);
+      setStatusSubtitle(`Landed on ${tileMessage.title}. ${tileMessage.subtitle}`);
+      showAnnouncement(
+        `${player.name} — ${tileMessage.title}`,
+        tileMessage.subtitle
+      );
+    }
     await sleep(AUTO_ADVANCE_DELAY);
     await advanceToNextPlayer(
       `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
@@ -3326,11 +3328,16 @@ export default function GamePage({
 
     setDiceFlowPhase("rolling");
     setLastEventTitle(null);
-    setDiceDisplayValue(randomDiceRoll());
+    const preview = randomDiceRollDetailed();
+    setDiceDisplayValue(preview.sum);
 
     await sleep(DICE_ROLL_DURATION_MS);
 
-    const rawRoll = debugForcedRoll ?? randomDiceRoll();
+    const detailed =
+      debugForcedRoll != null
+        ? { dice: [debugForcedRoll], sum: debugForcedRoll, highest: debugForcedRoll }
+        : randomDiceRollDetailed();
+    const rawRoll = detailed.sum;
     const player = playersInGameRef.current[currentPlayerIndex];
     // Sync Viper pit flag from board before computing roll.
     if (player) {
@@ -3373,9 +3380,15 @@ export default function GamePage({
       );
       if ((syncedPlayer.movementBonusTurns ?? 0) === 0) {
         setStatusSubtitle(
-          `Rolled ${rawRoll} + ${bonus} bonus = ${finalRoll}`
+          `Rolled ${detailed.dice.join("+")} (${rawRoll}) + ${bonus} bonus = ${finalRoll}`
         );
       }
+    } else {
+      setStatusSubtitle(
+        `Rolled ${detailed.dice.join("+")} = ${rawRoll}${
+          finalRoll !== rawRoll ? ` → ${finalRoll} after modifiers` : ""
+        }`
+      );
     }
 
     // Consume Neon Overdrive after it has been applied to this roll.
@@ -3630,7 +3643,75 @@ export default function GamePage({
       setStatusTitle(title);
       setStatusSubtitle(subtitle);
       showAnnouncement(title, subtitle);
+      return;
     }
+
+    // Utility / ultimate / radianite / inventory items
+    if (currentPlayer.creds < offer.price) {
+      const title = "Not enough Creds";
+      const subtitle = `${currentPlayer.name} needs ${offer.price} Creds for ${offer.label}.`;
+      setStatusTitle(title);
+      setStatusSubtitle(subtitle);
+      showAnnouncement(title, subtitle);
+      return;
+    }
+
+    if (offer.id === "buy-radianite") {
+      updatePlayer(currentPlayerIndex, (player) => ({
+        ...player,
+        creds: player.creds - offer.price,
+        radianitePoints: player.radianitePoints + 1,
+      }));
+    } else if (offer.type === "ultimate" || offer.id === "ultimate-orb-pack") {
+      updatePlayer(currentPlayerIndex, (player) => ({
+        ...player,
+        creds: player.creds - offer.price,
+        ultimateOrbs: gainOrb(player.ultimateOrbs ?? 0, 1),
+      }));
+    } else if (offer.id === "special-odin" || offer.id === "special-operator") {
+      const weaponName = offer.weaponName as WeaponName;
+      const result = buyWeaponForPlayer({
+        weapon: weaponName,
+        player: currentPlayer,
+        isOnShopTile: true,
+        slot: "primary",
+      });
+      if (!result.success) {
+        setStatusTitle("Not enough Creds");
+        setStatusSubtitle(
+          `${currentPlayer.name} needs ${result.finalPrice} Creds for ${offer.label}.`
+        );
+        return;
+      }
+      updatePlayer(currentPlayerIndex, () => result.updatedPlayer);
+      setPurchasedShopOfferIds((current) =>
+        current.includes(offer.id) ? current : [...current, offer.id]
+      );
+      setPendingPurchase(null);
+      setStatusTitle(`${currentPlayer.name} bought ${offer.label}`);
+      setStatusSubtitle(`Spent ${result.finalPrice} Creds.`);
+      showAnnouncement(
+        `${currentPlayer.name} bought ${offer.label}`,
+        `Spent ${result.finalPrice} Creds.`
+      );
+      return;
+    } else {
+      updatePlayer(currentPlayerIndex, (player) => ({
+        ...player,
+        creds: player.creds - offer.price,
+        items: [...(player.items ?? []), offer.id],
+      }));
+    }
+
+    setPurchasedShopOfferIds((current) =>
+      current.includes(offer.id) ? current : [...current, offer.id]
+    );
+    setPendingPurchase(null);
+    const title = `${currentPlayer.name} bought ${offer.label}`;
+    const subtitle = `Spent ${offer.price} Creds.`;
+    setStatusTitle(title);
+    setStatusSubtitle(subtitle);
+    showAnnouncement(title, subtitle);
   }
 
   async function finishShopPhase() {
@@ -3934,6 +4015,30 @@ export default function GamePage({
     const def = getUltimateForAgent(agentName);
     if (!def) return;
 
+    let areaNodeIds: string[] | undefined;
+    if (
+      (def.targetKind === "area" ||
+        def.id === "orbital-strike" ||
+        def.id === "vipers-pit" ||
+        def.id === "lockdown") &&
+      selection.targetNodeId
+    ) {
+      const center = getNodeById(selection.targetNodeId);
+      const radius =
+        def.areaRadius ??
+        (def.id === "lockdown"
+          ? AREA_RADIUS.killjoy
+          : def.id === "vipers-pit"
+            ? AREA_RADIUS.viper
+            : AREA_RADIUS.brimstone);
+      if (center) {
+        areaNodeIds = tileIdsInArea({
+          center: { x: center.x, y: center.y },
+          radius,
+        });
+      }
+    }
+
     const result = applyUltimate({
       casterPlayerIndex: casterIndex,
       agentName,
@@ -3946,6 +4051,7 @@ export default function GamePage({
       targetPlayerIndex: selection.targetPlayerIndex,
       targetNodeId: selection.targetNodeId,
       targetNodeId2: selection.targetNodeId2,
+      areaNodeIds,
       choiceId: selection.choiceId,
       opponentChoices: selection.opponentChoices,
       razeMode: selection.razeMode,
@@ -4020,6 +4126,14 @@ export default function GamePage({
           result.players[casterIndex]?.position ??
           caster.position,
       });
+    }
+
+    if (result.endTurnImmediately) {
+      await advanceToNextPlayer(
+        `Next player: ${getResolvedNextPlayerName(casterIndex)}`,
+        `${getResolvedNextPlayerName(casterIndex)} is now up`
+      );
+      return;
     }
 
     if (result.jettMoveSteps != null) {

@@ -6,3 +6,5 @@ export * from "./tickStatus";
 export * from "./playerBridge";
 export * from "./gainHooks";
 export * from "./targeting";
+export * from "./areaTargeting";
+export * from "./negativeEffects";

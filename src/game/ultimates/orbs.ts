@@ -42,5 +42,11 @@ export function ensureUltimateStatus(
     ...base,
     ...status,
     turnStartPosition: status.turnStartPosition ?? null,
+    reactiveUltAgent: status.reactiveUltAgent ?? null,
+    reactiveSnapshot: status.reactiveSnapshot ?? null,
+    statusEffects: status.statusEffects ?? [],
+    appliedActivationIds: status.appliedActivationIds ?? [],
+    revealedRounds: status.revealedRounds ?? 0,
+    reactiveUltArmed: status.reactiveUltArmed ?? false,
   };
 }

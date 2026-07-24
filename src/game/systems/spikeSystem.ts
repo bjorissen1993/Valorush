@@ -186,16 +186,12 @@ export type LegacySpikeDefuseRollOutcome =
     };
 
 export function getSpikeCandidateNodeIds(): string[] {
+  const spikes = boardLayout
+    .filter((node) => node.type === "spike")
+    .map((node) => node.id);
+  if (spikes.length > 0) return spikes;
   return boardLayout
-    .filter((node) => {
-      // start nooit
-      if (node.type === "start") return false;
-
-      // merge/split liever niet als spike locatie
-      if (node.type === "merge" || node.type === "split") return false;
-
-      return true;
-    })
+    .filter((node) => node.type !== "start")
     .map((node) => node.id);
 }
 
