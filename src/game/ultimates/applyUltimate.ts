@@ -373,18 +373,16 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
 
     case "neural-theft": {
       const config = input.cypherMatchConfig ?? {
-        matchup: "standard",
-        teams: "auto",
-        mode: "Spike Rush",
-        weapons: "standard",
-        agents: "all",
-        modifiers: [],
+        matchup: "free_for_all" as const,
+        modeId: "deathmatch" as const,
+        weaponRule: "full_progression" as const,
+        weaponTier: 1,
       };
       return {
         players,
         board,
         headline: "Neural Theft",
-        description: `Next custom match configured: ${config.mode} (${config.matchup}). Resets after that match.`,
+        description: `Next custom match configured: ${config.modeId} (${config.matchup}). Resets after that match.`,
         positionChanges: [],
         cypherMatchConfig: config,
       };

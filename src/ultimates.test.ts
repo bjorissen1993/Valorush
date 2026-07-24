@@ -175,7 +175,7 @@ describe("applyUltimate — all playable agents", () => {
       ).headline
     ).toBe("Lockdown");
     expect(
-      applyUltimate(baseInput("Cypher", {})).cypherMatchConfig?.mode
+      applyUltimate(baseInput("Cypher", {})).cypherMatchConfig?.modeId
     ).toBeTruthy();
     expect(
       applyUltimate(

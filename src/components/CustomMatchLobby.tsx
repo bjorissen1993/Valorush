@@ -1,5 +1,6 @@
 import {
   CUSTOM_MATCH_CATEGORY_LABELS,
+  describeCypherWeaponRule,
   getCustomMatchDefinition,
 } from "../../shared/customMatches";
 import type {
@@ -312,6 +313,16 @@ export default function CustomMatchLobby({
             {definition?.durationLabel && (
               <p className="mt-2 text-xs text-zinc-500">
                 Duration: {definition.durationLabel}
+              </p>
+            )}
+            {match.weaponRule && (
+              <p className="mt-2 text-xs text-cyan-300/90">
+                Weapons:{" "}
+                {describeCypherWeaponRule(
+                  match.weaponRule,
+                  match.weaponTier ?? 1
+                )}{" "}
+                (Neural Theft)
               </p>
             )}
           </div>

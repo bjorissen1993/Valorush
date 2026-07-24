@@ -56,7 +56,7 @@ export const ultimateRegistry: UltimateDefinition[] = [
     id: "neural-theft",
     name: "Neural Theft",
     description:
-      "Configure the next custom match (matchup, teams, mode, weapons, agents, modifiers). Applies once, then resets. Map is not chosen here.",
+      "Configure the next custom match: matchup, gamemode, teams, and TDM-style weapons. Applies once, then resets. Map cannot be changed.",
     targetKind: "match_config",
     implementation: "full",
     icon: "/abilities/cypher/Neural_Theft.png",

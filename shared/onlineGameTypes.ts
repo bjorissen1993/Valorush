@@ -64,6 +64,8 @@ export type SyncedScheduledCustomMatch = {
   winnerPlayerIndex?: number;
   winnerTeam?: "alpha" | "bravo";
   winnerSide?: "attackers" | "defenders";
+  weaponRule?: "full_progression" | "start_tier" | "locked_tier";
+  weaponTier?: number;
 };
 
 export type SyncedCustomMatchPhase =
@@ -154,6 +156,7 @@ export type OnlineGameAction =
       razeMode?: "creds" | "spaces";
       stealFromPlayerIndex?: number;
       diceRolls?: number[];
+      cypherMatchConfig?: Record<string, unknown>;
     }
   | { type: "finish_event" }
   | {

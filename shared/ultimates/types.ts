@@ -1,5 +1,12 @@
 /** Ultimate Orb System — shared types & effect descriptors. */
 
+import type {
+  CypherMatchConfig,
+  CypherMatchup,
+} from "../customMatches/cypherOverride";
+
+export type { CypherMatchConfig, CypherMatchup };
+
 export const MAX_ULTIMATE_ORBS = 3;
 
 export type UltimateTargetKind =
@@ -242,15 +249,6 @@ export type UltimateApplyInput = {
   chamberLootId?: string;
   /** Sova multi-shot: remaining shots after this one. */
   sovaShotsRemaining?: number;
-};
-
-export type CypherMatchConfig = {
-  matchup: string;
-  teams: string;
-  mode: string;
-  weapons: string;
-  agents: string;
-  modifiers: string[];
 };
 
 export type UltimatePlayerState = {

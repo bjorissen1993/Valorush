@@ -66,6 +66,12 @@ import {
   getCustomMatchDefinition,
   pickRandomMapForMatch,
   assignTeamsForCategory,
+  applyCypherMatchOverride,
+  describeCypherWeaponRule,
+  type CypherMatchConfig,
+  type CustomMatchId,
+  type ScheduledCustomMatch,
+  type ValorantMapId,
 } from "../../shared/customMatches";
 import { minigameById, minigameRegistry } from "../../shared/minigames";
 import { boardEventRegistry } from "../../shared/events";
@@ -117,11 +123,6 @@ import PlayerInventorySidebar, {
   type InventoryItemAction,
 } from "./PlayerInventorySidebar";
 import type { MinigameId } from "../../shared/minigames/types";
-import type {
-  ScheduledCustomMatch,
-  CustomMatchId,
-} from "../../shared/customMatches/types";
-import type { ValorantMapId } from "../../shared/customMatches/types";
 import { pickDirectorEvent, buildDirectorPickForEventId } from "../game/director";
 import type {
   ActiveSpike,
@@ -250,13 +251,14 @@ function buildScheduledCustomMatch(
   mapId: ValorantMapId,
   scheduledAtRound: number,
   players: Pick<PlayerInGame, "name">[],
+  cypherOverride?: CypherMatchConfig | null,
 ): ScheduledCustomMatch {
   const definition = getCustomMatchDefinition(matchId);
   const teamLayout = definition
     ? assignTeamsForCategory(definition.category, players.length)
     : {};
 
-  return {
+  const base: ScheduledCustomMatch = {
     matchId,
     mapId,
     scheduledAtRound,
@@ -264,6 +266,9 @@ function buildScheduledCustomMatch(
     participants: players.map((player) => player.name),
     ...teamLayout,
   };
+
+  if (!cypherOverride) return base;
+  return applyCypherMatchOverride(base, cypherOverride);
 }
 
 function toSyncedScheduledCustomMatch(
@@ -283,6 +288,8 @@ function toSyncedScheduledCustomMatch(
     winnerPlayerIndex: match.winnerPlayerIndex,
     winnerTeam: match.winnerTeam,
     winnerSide: match.winnerSide,
+    weaponRule: match.weaponRule,
+    weaponTier: match.weaponTier,
   };
 }
 
@@ -302,6 +309,8 @@ function fromSyncedScheduledCustomMatch(
     winnerPlayerIndex: synced.winnerPlayerIndex,
     winnerTeam: synced.winnerTeam,
     winnerSide: synced.winnerSide,
+    weaponRule: synced.weaponRule as ScheduledCustomMatch["weaponRule"],
+    weaponTier: synced.weaponTier,
   };
 }
 
@@ -1003,6 +1012,27 @@ export default function GamePage({
         ? fromSyncedScheduledCustomMatch(initialSnapshot.scheduledCustomMatch)
         : null
     );
+  /** Cypher Neural Theft — applies to the next custom match only, then clears. */
+  const pendingCypherMatchConfigRef = useRef<CypherMatchConfig | null>(null);
+
+  function storeCypherMatchOverride(config: CypherMatchConfig | null) {
+    pendingCypherMatchConfigRef.current = config;
+  }
+
+  function scheduleCustomMatchWithOverride(
+    matchId: CustomMatchId,
+    mapId: ValorantMapId,
+    scheduledAtRound: number,
+    players: Pick<PlayerInGame, "name">[],
+  ): ScheduledCustomMatch {
+    return buildScheduledCustomMatch(
+      matchId,
+      mapId,
+      scheduledAtRound,
+      players,
+      pendingCypherMatchConfigRef.current,
+    );
+  }
   const [customMatchPhase, setCustomMatchPhase] = useState<CustomMatchPhase | null>(
     () => {
       if (!initialSnapshot?.customMatchPhase) return null;
@@ -1749,7 +1779,7 @@ export default function GamePage({
         setEventEffectsApplied(true);
         if (result.scheduleCustomMatch) {
           setScheduledCustomMatch(
-            buildScheduledCustomMatch(
+            scheduleCustomMatchWithOverride(
               result.scheduleCustomMatch.matchId as CustomMatchId,
               result.scheduleCustomMatch.mapId as ValorantMapId,
               round,
@@ -2250,7 +2280,7 @@ export default function GamePage({
   function debugScheduleCustomMatch(matchId: string) {
     const mapId = pickRandomMapForMatch(matchId) as ValorantMapId;
     setScheduledCustomMatch(
-      buildScheduledCustomMatch(
+      scheduleCustomMatchWithOverride(
         matchId as CustomMatchId,
         mapId,
         round,
@@ -2266,7 +2296,7 @@ export default function GamePage({
   function debugPlayCustomMatch(matchId: string) {
     const mapId = pickRandomMapForMatch(matchId) as ValorantMapId;
     beginCustomMatchFlow(
-      buildScheduledCustomMatch(
+      scheduleCustomMatchWithOverride(
         matchId as CustomMatchId,
         mapId,
         round,
@@ -2283,14 +2313,14 @@ export default function GamePage({
     debugScheduleCustomMatch("spike-rush");
     const mapId = pickRandomMapForMatch("spike-rush") as ValorantMapId;
     beginCustomMatchFlow(
-      buildScheduledCustomMatch("spike-rush", mapId, round, playersInGame)
+      scheduleCustomMatchWithOverride("spike-rush", mapId, round, playersInGame)
     );
   }
 
   function debugTriggerMapReveal() {
     const match =
       scheduledCustomMatch ??
-      buildScheduledCustomMatch(
+      scheduleCustomMatchWithOverride(
         "spike-rush",
         pickRandomMapForMatch("spike-rush") as ValorantMapId,
         round,
@@ -2424,7 +2454,7 @@ export default function GamePage({
         result.scheduleCustomMatch.matchId
       );
       setScheduledCustomMatch(
-        buildScheduledCustomMatch(
+        scheduleCustomMatchWithOverride(
           result.scheduleCustomMatch.matchId as CustomMatchId,
           result.scheduleCustomMatch.mapId as ValorantMapId,
           round,
@@ -2456,16 +2486,29 @@ export default function GamePage({
   }
 
   function beginCustomMatchFlow(match: ScheduledCustomMatch) {
-    const definition = getCustomMatchDefinition(match.matchId);
-    const withTeams: ScheduledCustomMatch = {
-      ...match,
-      ...assignTeamsForCategory(definition?.category ?? "free_for_all", playersInGame.length),
-    };
+    const override = pendingCypherMatchConfigRef.current;
+    let withTeams: ScheduledCustomMatch;
+    if (override) {
+      withTeams = applyCypherMatchOverride(match, override);
+    } else {
+      const definition = getCustomMatchDefinition(match.matchId);
+      withTeams = {
+        ...match,
+        ...assignTeamsForCategory(
+          definition?.category ?? "free_for_all",
+          playersInGame.length
+        ),
+      };
+    }
     setScheduledCustomMatch(withTeams);
     setCustomMatchPhase({ step: "format", match: withTeams });
     const matchDef = getCustomMatchDefinition(withTeams.matchId);
     setStatusTitle(`${matchDef?.name ?? "Custom Match"} — Format Reveal`);
-    setStatusSubtitle("Deploying engagement parameters");
+    setStatusSubtitle(
+      override
+        ? `Neural Theft override · ${describeCypherWeaponRule(override.weaponRule, override.weaponTier)}`
+        : "Deploying engagement parameters"
+    );
     showAnnouncement(
       "Custom Match",
       `${matchDef?.name ?? "Custom Match"} on ${withTeams.mapId}`
@@ -2574,6 +2617,7 @@ export default function GamePage({
 
     setCustomMatchPhase(null);
     setScheduledCustomMatch(null);
+    storeCypherMatchOverride(null);
 
     const nextPlayerIndex = turnOrder[currentTurnOrderIndex] ?? 0;
     setPlayersInGame((current) =>
@@ -4216,6 +4260,9 @@ export default function GamePage({
         opponentChoices: selection.opponentChoices,
         razeMode: selection.razeMode,
         stealFromPlayerIndex: selection.stealFromPlayerIndex,
+        cypherMatchConfig: selection.cypherMatchConfig as
+          | Record<string, unknown>
+          | undefined,
       });
       setUltimateModalOpen(false);
       setUltimateTargeting(null);
@@ -4317,6 +4364,15 @@ export default function GamePage({
     setStatusSubtitle(result.description);
     showAnnouncement(result.headline, result.description);
     publishGameEventChat(`${caster.name} used ${result.headline}: ${result.description}`);
+
+    if (result.cypherMatchConfig) {
+      storeCypherMatchOverride(result.cypherMatchConfig);
+      setScheduledCustomMatch((current) =>
+        current
+          ? applyCypherMatchOverride(current, result.cypherMatchConfig!)
+          : current
+      );
+    }
 
     // Sova: force continue targeting for remaining shots.
     if (
@@ -4721,6 +4777,9 @@ export default function GamePage({
               opponentChoices: action.opponentChoices,
               razeMode: action.razeMode,
               stealFromPlayerIndex: action.stealFromPlayerIndex,
+              cypherMatchConfig: action.cypherMatchConfig as
+                | CypherMatchConfig
+                | undefined,
             },
             { fromRemote: true }
           );
@@ -5914,8 +5973,18 @@ export default function GamePage({
                 creds: p.creds,
                 items: p.items ?? [],
                 ultimateOrbs: p.ultimateOrbs ?? 0,
+                avatar: p.avatar,
               }))
               .filter((p) => p.index !== currentPlayerIndex)}
+            allPlayers={playersInGame.map((p, index) => ({
+              index,
+              name: p.name,
+              avatar:
+                p.avatar ??
+                agents.find((agent) => agent.uuid === p.selectedAgentId)
+                  ?.displayIcon ??
+                undefined,
+            }))}
             razeTargetPlayer={razePlayer}
             onConfirm={(selection) => void resolveUltimateUse(selection)}
             onCancel={cancelUltimateTargeting}
