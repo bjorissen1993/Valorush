@@ -19,6 +19,8 @@ export type CypherConfiguratorPlayer = {
   index: number;
   name: string;
   avatar?: string;
+  /** Agent display name for team-slot player cards. */
+  agentName?: string;
 };
 
 type CypherMatchConfiguratorProps = {
@@ -84,6 +86,52 @@ function PlayerChip({
         </span>
       )}
       <span className="cypher-config__chip-name">{player.name}</span>
+    </button>
+  );
+}
+
+/** Compact lobby-style card for team slots / FFA preview (avatar + name + agent). */
+function PlayerCard({
+  player,
+  draggable,
+  onDragStart,
+  onClick,
+  selected,
+}: {
+  player: CypherConfiguratorPlayer;
+  draggable: boolean;
+  onDragStart?: (event: DragEvent) => void;
+  onClick?: () => void;
+  selected?: boolean;
+}) {
+  const agentLabel = player.agentName?.trim() || "No agent";
+  return (
+    <button
+      type="button"
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onClick={onClick}
+      className={`cypher-config__player-card ${
+        selected ? "cypher-config__player-card--selected" : ""
+      } ${draggable ? "" : "cypher-config__player-card--static"}`}
+      title={`${player.name} · ${agentLabel}`}
+      style={draggable ? undefined : { cursor: "default" }}
+    >
+      {player.avatar ? (
+        <img
+          src={player.avatar}
+          alt=""
+          className="cypher-config__player-card-avatar"
+        />
+      ) : (
+        <span className="cypher-config__player-card-fallback">
+          {player.name.charAt(0).toUpperCase()}
+        </span>
+      )}
+      <span className="cypher-config__player-card-meta">
+        <span className="cypher-config__player-card-name">{player.name}</span>
+        <span className="cypher-config__player-card-agent">{agentLabel}</span>
+      </span>
     </button>
   );
 }
@@ -292,7 +340,7 @@ export default function CypherMatchConfigurator({
                       tone="slate"
                       onDropPlayer={() => undefined}
                     >
-                      <PlayerChip player={player} draggable={false} />
+                      <PlayerCard player={player} draggable={false} />
                     </DropSlot>
                   ))}
                 </div>
@@ -339,7 +387,7 @@ export default function CypherMatchConfigurator({
                         }}
                       >
                         {playersFromIndices(teamAlpha).map((player) => (
-                          <PlayerChip
+                          <PlayerCard
                             key={player.index}
                             player={player}
                             draggable
@@ -359,7 +407,7 @@ export default function CypherMatchConfigurator({
                         }}
                       >
                         {playersFromIndices(teamBravo).map((player) => (
-                          <PlayerChip
+                          <PlayerCard
                             key={player.index}
                             player={player}
                             draggable
@@ -383,7 +431,7 @@ export default function CypherMatchConfigurator({
                       >
                         {attackerIndex != null &&
                           playersFromIndices([attackerIndex]).map((player) => (
-                            <PlayerChip
+                            <PlayerCard
                               key={player.index}
                               player={player}
                               draggable
@@ -403,7 +451,7 @@ export default function CypherMatchConfigurator({
                         }}
                       >
                         {playersFromIndices(defenderIndices).map((player) => (
-                          <PlayerChip
+                          <PlayerCard
                             key={player.index}
                             player={player}
                             draggable

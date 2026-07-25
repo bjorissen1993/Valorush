@@ -5984,6 +5984,7 @@ export default function GamePage({
                 agents.find((agent) => agent.uuid === p.selectedAgentId)
                   ?.displayIcon ??
                 undefined,
+              agentName: getAgentName(p),
             }))}
             razeTargetPlayer={razePlayer}
             onConfirm={(selection) => void resolveUltimateUse(selection)}

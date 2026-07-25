@@ -3571,7 +3571,9 @@ body {
   flex-direction: column;
   width: min(96vw, 88rem);
   max-width: 96vw;
-  max-height: min(96vh, 62rem);
+  min-height: min(92vh, 58rem);
+  max-height: min(98vh, 72rem);
+  height: min(96vh, 68rem);
   padding: 1.15rem 1.35rem 1.2rem;
   border-color: rgba(34, 211, 238, 0.28);
   background:
@@ -3712,7 +3714,7 @@ body {
 .cypher-config__ffa-preview {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   gap: 0.5rem;
 }
 
@@ -3782,6 +3784,85 @@ body {
   font-weight: 700;
 }
 
+.cypher-config__player-card {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(135deg, rgba(24, 24, 27, 0.92), rgba(9, 12, 20, 0.95));
+  padding: 0.45rem 0.65rem 0.45rem 0.45rem;
+  color: #fff;
+  cursor: grab;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.cypher-config__player-card:active {
+  cursor: grabbing;
+}
+
+.cypher-config__player-card--selected {
+  border-color: rgba(34, 211, 238, 0.75);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35);
+}
+
+.cypher-config__player-card--static {
+  cursor: default;
+}
+
+.cypher-config__player-card-avatar,
+.cypher-config__player-card-fallback {
+  height: 2.75rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cypher-config__player-card-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #27272a;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #e4e4e7;
+}
+
+.cypher-config__player-card-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.cypher-config__player-card-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #f8fafc;
+}
+
+.cypher-config__player-card-agent {
+  display: block;
+  margin-top: 0.12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.2;
+  color: rgba(212, 212, 216, 0.9);
+}
+
 .cypher-config__slots {
   display: grid;
   width: 100%;
@@ -3791,7 +3872,7 @@ body {
 }
 
 .cypher-config__slot {
-  min-height: 4.75rem;
+  min-height: 6.5rem;
   border-radius: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.28);
@@ -3810,26 +3891,26 @@ body {
 }
 
 .cypher-config__slot--red {
-  border-color: rgba(244, 114, 182, 0.4);
+  border-color: rgba(248, 113, 113, 0.55);
   background: linear-gradient(
     160deg,
-    rgba(239, 68, 68, 0.22),
-    rgba(168, 85, 247, 0.14),
-    rgba(0, 0, 0, 0.3)
+    rgba(127, 29, 29, 0.72),
+    rgba(185, 28, 28, 0.38),
+    rgba(0, 0, 0, 0.42)
   );
 }
 
 .cypher-config__slot--red .cypher-config__slot-title {
-  color: #fda4af;
+  color: #fca5a5;
 }
 
 .cypher-config__slot--emerald {
-  border-color: rgba(45, 212, 191, 0.4);
+  border-color: rgba(45, 212, 191, 0.5);
   background: linear-gradient(
     160deg,
-    rgba(20, 184, 166, 0.2),
-    rgba(16, 185, 129, 0.14),
-    rgba(0, 0, 0, 0.3)
+    rgba(19, 78, 74, 0.72),
+    rgba(15, 118, 110, 0.38),
+    rgba(0, 0, 0, 0.42)
   );
 }
 
@@ -3858,10 +3939,10 @@ body {
 
 .cypher-config__slot-body {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.4rem;
-  min-height: 1.75rem;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+  min-height: 3.2rem;
 }
 
 .cypher-config__error {
@@ -4141,7 +4222,9 @@ body {
 @media (max-width: 720px) {
   .ultimate-modal--cypher {
     width: min(98vw, 42rem);
-    max-height: 96vh;
+    min-height: min(94vh, 52rem);
+    max-height: 98vh;
+    height: min(96vh, 56rem);
     padding: 0.95rem 1rem 1rem;
   }
 
