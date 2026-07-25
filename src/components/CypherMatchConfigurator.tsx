@@ -179,7 +179,7 @@ function DropSlot({
 /**
  * Cypher Neural Theft — configure the next custom match only.
  * Map cannot be changed here. Cancel spends no orbs.
- * Vertical stack: matchup → teams → modes → weapons → confirm.
+ * Vertical stack: matchup → gamemodes → teams → weapons → confirm.
  */
 export default function CypherMatchConfigurator({
   ultimate,
@@ -213,6 +213,7 @@ export default function CypherMatchConfigurator({
   }, [matchup, teamAlpha, teamBravo, attackerIndex, defenderIndices]);
 
   const pool = players.filter((player) => !assigned.has(player.index));
+  const showUnassigned = matchup !== "free_for_all" && pool.length > 0;
 
   const weaponPayload = showWeapons
     ? selectionToRule(weaponSelection)
@@ -325,6 +326,46 @@ export default function CypherMatchConfigurator({
             </div>
           </section>
 
+          <section className="cypher-config__panel cypher-config__panel--modes">
+            <p className="cypher-config__label">Gamemodes</p>
+            <div
+              className={`cypher-config__mode-grid ${
+                availableModes.length <= 2
+                  ? "cypher-config__mode-grid--few"
+                  : availableModes.length <= 4
+                    ? "cypher-config__mode-grid--mid"
+                    : "cypher-config__mode-grid--many"
+              }`}
+            >
+              {availableModes.map((mode) => {
+                const splashMap = mode.eligibleMaps[0];
+                const splashPath = splashMap
+                  ? getMapSplashPath(splashMap)
+                  : undefined;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    className={`cypher-config__mode ${
+                      modeId === mode.id ? "cypher-config__mode--active" : ""
+                    }`}
+                    onClick={() => setModeId(mode.id)}
+                  >
+                    {splashPath ? (
+                      <span
+                        className="cypher-config__mode-bg"
+                        style={{ backgroundImage: `url(${splashPath})` }}
+                        aria-hidden
+                      />
+                    ) : null}
+                    <span className="cypher-config__mode-veil" aria-hidden />
+                    <span className="cypher-config__mode-name">{mode.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           <section className="cypher-config__panel cypher-config__panel--teams">
             <p className="cypher-config__label">
               {matchup === "free_for_all" ? "Team Preview" : "Teams"}
@@ -346,22 +387,25 @@ export default function CypherMatchConfigurator({
                 </div>
               ) : (
                 <>
-                  <div>
-                    <p className="cypher-config__sublabel">Unassigned</p>
-                    <div
-                      className="cypher-config__pool"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        handleDrop("pool");
-                      }}
-                    >
-                      {pool.length === 0 ? (
-                        <span className="cypher-config__pool-empty">
-                          All players assigned
-                        </span>
-                      ) : (
-                        pool.map((player) => (
+                  <div
+                    className={`cypher-config__reveal ${
+                      showUnassigned
+                        ? "cypher-config__reveal--open"
+                        : "cypher-config__reveal--closed"
+                    }`}
+                    aria-hidden={!showUnassigned}
+                  >
+                    <div className="cypher-config__reveal-inner">
+                      <p className="cypher-config__sublabel">Unassigned</p>
+                      <div
+                        className="cypher-config__pool"
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          handleDrop("pool");
+                        }}
+                      >
+                        {pool.map((player) => (
                           <PlayerChip
                             key={player.index}
                             player={player}
@@ -370,8 +414,8 @@ export default function CypherMatchConfigurator({
                             onDragStart={bindChipDrag(player.index)}
                             onClick={() => handleChipClick(player.index)}
                           />
-                        ))
-                      )}
+                        ))}
+                      </div>
                     </div>
                   </div>
 
@@ -472,112 +516,68 @@ export default function CypherMatchConfigurator({
             </div>
           </section>
 
-          <section className="cypher-config__panel cypher-config__panel--modes">
-            <p className="cypher-config__label">Gamemode</p>
-            <div
-              className={`cypher-config__mode-grid ${
-                availableModes.length <= 2
-                  ? "cypher-config__mode-grid--few"
-                  : availableModes.length <= 4
-                    ? "cypher-config__mode-grid--mid"
-                    : "cypher-config__mode-grid--many"
-              }`}
-            >
-              {availableModes.map((mode) => {
-                const splashMap = mode.eligibleMaps[0];
-                const splashPath = splashMap
-                  ? getMapSplashPath(splashMap)
-                  : undefined;
-                return (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    className={`cypher-config__mode ${
-                      modeId === mode.id ? "cypher-config__mode--active" : ""
-                    }`}
-                    onClick={() => setModeId(mode.id)}
-                  >
-                    {splashPath ? (
-                      <span
-                        className="cypher-config__mode-bg"
-                        style={{ backgroundImage: `url(${splashPath})` }}
-                        aria-hidden
-                      />
-                    ) : null}
-                    <span className="cypher-config__mode-veil" aria-hidden />
-                    <span className="cypher-config__mode-name">{mode.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+          <div
+            className={`cypher-config__reveal ${
+              showWeapons
+                ? "cypher-config__reveal--open"
+                : "cypher-config__reveal--closed"
+            }`}
+            aria-hidden={!showWeapons}
+          >
+            <div className="cypher-config__reveal-inner">
+              <section className="cypher-config__panel cypher-config__panel--weapons">
+                <div className="cypher-config__weapons-head">
+                  <p className="cypher-config__label cypher-config__label--inline">
+                    Weapons
+                  </p>
+                  <p className="cypher-config__weapon-summary">
+                    {describeCypherWeaponRule(
+                      weaponPayload.weaponRule,
+                      weaponPayload.weaponTier
+                    )}
+                  </p>
+                </div>
 
-          {showWeapons && (
-            <section className="cypher-config__panel cypher-config__panel--weapons">
-              <div className="cypher-config__weapons-head">
-                <p className="cypher-config__label cypher-config__label--inline">
-                  Weapons
-                </p>
-                <p className="cypher-config__weapon-summary">
-                  {describeCypherWeaponRule(
-                    weaponPayload.weaponRule,
-                    weaponPayload.weaponTier
-                  )}
-                </p>
-              </div>
-
-              <div className="cypher-config__weapon-pick">
-                <button
-                  type="button"
-                  className={`cypher-config__weapon-opt cypher-config__weapon-opt--all ${
-                    weaponSelection === "all"
-                      ? "cypher-config__weapon-opt--active"
-                      : ""
-                  }`}
-                  onClick={() => setWeaponSelection("all")}
-                >
-                  All Weapons
-                </button>
-                {TDM_WEAPON_TIERS.map((tier) => (
+                <div className="cypher-config__weapon-pick">
                   <button
-                    key={tier.tier}
                     type="button"
-                    className={`cypher-config__weapon-opt ${
-                      weaponSelection === tier.tier
+                    className={`cypher-config__weapon-opt cypher-config__weapon-opt--all ${
+                      weaponSelection === "all"
                         ? "cypher-config__weapon-opt--active"
                         : ""
                     }`}
-                    onClick={() => setWeaponSelection(tier.tier as 1 | 2 | 3 | 4)}
+                    onClick={() => setWeaponSelection("all")}
                   >
-                    <span className="cypher-config__weapon-opt-tier">T{tier.tier}</span>
-                    <span className="cypher-config__weapon-opt-name">{tier.name}</span>
+                    All Weapons
                   </button>
-                ))}
-              </div>
-
-              <div className="cypher-config__tier-list">
-                {TDM_WEAPON_TIERS.map((tier) => {
-                  const emphasized =
-                    weaponSelection === "all" || weaponSelection === tier.tier;
-                  return (
-                    <div
-                      key={tier.tier}
-                      className={`cypher-config__tier-card ${
-                        emphasized ? "cypher-config__tier-card--on" : ""
-                      }`}
-                    >
-                      <p className="cypher-config__tier-card-title">
-                        T{tier.tier} · {tier.name}
-                      </p>
-                      <p className="cypher-config__tier-card-weapons">
-                        {tier.weapons.join(" · ")}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
+                  {TDM_WEAPON_TIERS.map((tier) => {
+                    const lit =
+                      weaponSelection === "all" || weaponSelection === tier.tier;
+                    return (
+                      <button
+                        key={tier.tier}
+                        type="button"
+                        className={`cypher-config__weapon-opt ${
+                          lit ? "cypher-config__weapon-opt--active" : ""
+                        }`}
+                        onClick={() => setWeaponSelection(tier.tier as 1 | 2 | 3 | 4)}
+                      >
+                        <span className="cypher-config__weapon-opt-tier">
+                          T{tier.tier}
+                        </span>
+                        <span className="cypher-config__weapon-opt-name">
+                          {tier.name}
+                        </span>
+                        <span className="cypher-config__weapon-opt-list">
+                          {tier.weapons.join(" · ")}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          </div>
         </div>
 
         <div className="cypher-config__actions">
