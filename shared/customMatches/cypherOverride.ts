@@ -18,8 +18,9 @@ export type CypherMatchConfig = {
   /** 1v3 roster — solo attacker vs defenders. */
   attackerIndex?: number;
   defenderIndices?: number[];
+  /** "all" = full arsenal; "tier" = locked to weaponTier only. */
   weaponRule: CypherWeaponRule;
-  /** Tier 1–4; used for start_tier / locked_tier (ignored for full_progression). */
+  /** Tier 1–4 when weaponRule is "tier" (ignored for "all"). */
   weaponTier: number;
 };
 
@@ -91,14 +92,16 @@ export function applyCypherMatchOverride(
 ): ScheduledCustomMatch {
   const definition = getCustomMatchDefinition(config.modeId);
   const modeId = definition?.id ?? config.modeId;
-  const weaponTier = clampTdmWeaponTier(config.weaponTier);
+  const weaponRule = config.weaponRule === "tier" ? "tier" : "all";
+  const weaponTier =
+    weaponRule === "tier" ? clampTdmWeaponTier(config.weaponTier) : 1;
 
   const next: ScheduledCustomMatch = {
     ...match,
     matchId: modeId,
     // Map stays as scheduled — Cypher cannot change it.
     mapId: match.mapId,
-    weaponRule: config.weaponRule,
+    weaponRule,
     weaponTier,
     teamAlpha: undefined,
     teamBravo: undefined,

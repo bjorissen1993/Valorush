@@ -1,6 +1,5 @@
 import { useMemo, useState, type DragEvent, type ReactNode } from "react";
 import {
-  CYPHER_WEAPON_RULE_LABELS,
   TDM_WEAPON_TIERS,
   customMatchRegistry,
   cypherModeAllowsWeaponConfig,
@@ -35,14 +34,21 @@ const MATCHUPS: { id: CypherMatchup; label: string }[] = [
   { id: "1v3", label: "1v3" },
 ];
 
-const WEAPON_RULES: CypherWeaponRule[] = [
-  "full_progression",
-  "start_tier",
-  "locked_tier",
-];
+/** UI selection: all weapons, or one locked tier (1–4). */
+type WeaponSelection = "all" | 1 | 2 | 3 | 4;
 
 function modesForMatchup(matchup: CypherMatchup) {
   return customMatchRegistry.filter((entry) => entry.category === matchup);
+}
+
+function selectionToRule(selection: WeaponSelection): {
+  weaponRule: CypherWeaponRule;
+  weaponTier: number;
+} {
+  if (selection === "all") {
+    return { weaponRule: "all", weaponTier: 1 };
+  }
+  return { weaponRule: "tier", weaponTier: selection };
 }
 
 function PlayerChip({
@@ -138,9 +144,7 @@ export default function CypherMatchConfigurator({
   const [modeId, setModeId] = useState<CustomMatchId>(
     () => modesForMatchup("free_for_all")[0]?.id ?? "deathmatch"
   );
-  const [weaponRule, setWeaponRule] =
-    useState<CypherWeaponRule>("full_progression");
-  const [weaponTier, setWeaponTier] = useState(1);
+  const [weaponSelection, setWeaponSelection] = useState<WeaponSelection>("all");
   const [teamAlpha, setTeamAlpha] = useState<number[]>([]);
   const [teamBravo, setTeamBravo] = useState<number[]>([]);
   const [attackerIndex, setAttackerIndex] = useState<number | null>(null);
@@ -148,7 +152,6 @@ export default function CypherMatchConfigurator({
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
-  const needsTeams = matchup !== "free_for_all";
   const showWeapons = cypherModeAllowsWeaponConfig(modeId);
 
   const assigned = useMemo(() => {
@@ -163,11 +166,9 @@ export default function CypherMatchConfigurator({
 
   const pool = players.filter((player) => !assigned.has(player.index));
 
-  const effectiveWeaponRule: CypherWeaponRule = showWeapons
-    ? weaponRule
-    : "full_progression";
-  const effectiveWeaponTier =
-    showWeapons && weaponRule !== "full_progression" ? weaponTier : 1;
+  const weaponPayload = showWeapons
+    ? selectionToRule(weaponSelection)
+    : { weaponRule: "all" as const, weaponTier: 1 };
 
   const draftConfig: CypherMatchConfig = {
     matchup,
@@ -176,8 +177,8 @@ export default function CypherMatchConfigurator({
     teamBravo: matchup === "2v2" ? teamBravo : undefined,
     attackerIndex: matchup === "1v3" ? attackerIndex ?? undefined : undefined,
     defenderIndices: matchup === "1v3" ? defenderIndices : undefined,
-    weaponRule: effectiveWeaponRule,
-    weaponTier: effectiveWeaponTier,
+    weaponRule: weaponPayload.weaponRule,
+    weaponTier: weaponPayload.weaponTier,
   };
 
   const validationError =
@@ -329,8 +330,8 @@ export default function CypherMatchConfigurator({
                   {matchup === "2v2" ? (
                     <div className="cypher-config__slots">
                       <DropSlot
-                        title="Team A"
-                        tone="cyan"
+                        title="Team Alpha"
+                        tone="red"
                         active={selectedIndex != null}
                         onDropPlayer={() => handleDrop("alpha")}
                         onSelectSlot={() => {
@@ -349,8 +350,8 @@ export default function CypherMatchConfigurator({
                         ))}
                       </DropSlot>
                       <DropSlot
-                        title="Team B"
-                        tone="orange"
+                        title="Team Bravo"
+                        tone="emerald"
                         active={selectedIndex != null}
                         onDropPlayer={() => handleDrop("bravo")}
                         onSelectSlot={() => {
@@ -471,55 +472,45 @@ export default function CypherMatchConfigurator({
                 </p>
                 <p className="cypher-config__weapon-summary">
                   {describeCypherWeaponRule(
-                    weaponRule,
-                    weaponRule === "full_progression" ? 1 : weaponTier
+                    weaponPayload.weaponRule,
+                    weaponPayload.weaponTier
                   )}
                 </p>
               </div>
 
-              <div className="cypher-config__weapons-row">
-                <div className="cypher-config__rule-grid">
-                  {WEAPON_RULES.map((rule) => (
-                    <button
-                      key={rule}
-                      type="button"
-                      className={`cypher-config__rule ${
-                        weaponRule === rule ? "cypher-config__rule--active" : ""
-                      }`}
-                      onClick={() => setWeaponRule(rule)}
-                    >
-                      {CYPHER_WEAPON_RULE_LABELS[rule]}
-                    </button>
-                  ))}
-                </div>
-
-                {weaponRule !== "full_progression" && (
-                  <div className="cypher-config__tier-grid">
-                    {TDM_WEAPON_TIERS.map((tier) => (
-                      <button
-                        key={tier.tier}
-                        type="button"
-                        className={`cypher-config__tier-btn ${
-                          weaponTier === tier.tier
-                            ? "cypher-config__tier-btn--active"
-                            : ""
-                        }`}
-                        onClick={() => setWeaponTier(tier.tier)}
-                      >
-                        <span>T{tier.tier}</span>
-                        <span>{tier.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+              <div className="cypher-config__weapon-pick">
+                <button
+                  type="button"
+                  className={`cypher-config__weapon-opt cypher-config__weapon-opt--all ${
+                    weaponSelection === "all"
+                      ? "cypher-config__weapon-opt--active"
+                      : ""
+                  }`}
+                  onClick={() => setWeaponSelection("all")}
+                >
+                  All Weapons
+                </button>
+                {TDM_WEAPON_TIERS.map((tier) => (
+                  <button
+                    key={tier.tier}
+                    type="button"
+                    className={`cypher-config__weapon-opt ${
+                      weaponSelection === tier.tier
+                        ? "cypher-config__weapon-opt--active"
+                        : ""
+                    }`}
+                    onClick={() => setWeaponSelection(tier.tier as 1 | 2 | 3 | 4)}
+                  >
+                    <span className="cypher-config__weapon-opt-tier">T{tier.tier}</span>
+                    <span className="cypher-config__weapon-opt-name">{tier.name}</span>
+                  </button>
+                ))}
               </div>
 
               <div className="cypher-config__tier-list">
                 {TDM_WEAPON_TIERS.map((tier) => {
                   const emphasized =
-                    weaponRule === "full_progression" ||
-                    (weaponRule === "start_tier" && tier.tier <= weaponTier) ||
-                    (weaponRule === "locked_tier" && tier.tier === weaponTier);
+                    weaponSelection === "all" || weaponSelection === tier.tier;
                   return (
                     <div
                       key={tier.tier}

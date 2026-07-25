@@ -61,19 +61,17 @@ export const TDM_EXCLUDED_WEAPONS = ["Operator", "Odin"] as const;
 
 export const TDM_TIER_COUNT = TDM_WEAPON_TIERS.length;
 
-export type CypherWeaponRule = "full_progression" | "start_tier" | "locked_tier";
+/** Mutually exclusive Cypher weapon choice: full arsenal, or a single locked tier. */
+export type CypherWeaponRule = "all" | "tier";
 
 export const CYPHER_WEAPON_RULE_LABELS: Record<CypherWeaponRule, string> = {
-  full_progression: "Full Progression",
-  start_tier: "Starting Tier",
-  locked_tier: "Tier Lock",
+  all: "All Weapons",
+  tier: "Tier Lock",
 };
 
 export const CYPHER_WEAPON_RULE_HINTS: Record<CypherWeaponRule, string> = {
-  full_progression:
-    "Start at Tier 1 and unlock higher tiers like Team Deathmatch.",
-  start_tier: "Begin unlocked through the selected tier, then progress upward.",
-  locked_tier: "Only weapons from the selected tier — no progression.",
+  all: "Full arsenal — no tier restriction (Operator and Odin still excluded).",
+  tier: "Only weapons from the selected tier — no progression.",
 };
 
 export function getTdmWeaponTier(tier: number): TdmWeaponTier | undefined {
@@ -89,14 +87,10 @@ export function describeCypherWeaponRule(
   rule: CypherWeaponRule,
   weaponTier: number
 ): string {
+  if (rule === "all") {
+    return "All weapons (no restriction)";
+  }
   const tier = clampTdmWeaponTier(weaponTier);
   const tierName = getTdmWeaponTier(tier)?.name ?? `Tier ${tier}`;
-  switch (rule) {
-    case "full_progression":
-      return "TDM full progression (Tier 1 → 4)";
-    case "start_tier":
-      return `Start at ${tierName} (Tier ${tier})`;
-    case "locked_tier":
-      return `Locked to ${tierName} (Tier ${tier})`;
-  }
+  return `Locked to ${tierName} (Tier ${tier})`;
 }

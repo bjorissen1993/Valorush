@@ -375,7 +375,7 @@ export function applyUltimate(input: UltimateApplyInput): UltimateApplyResult {
       const config = input.cypherMatchConfig ?? {
         matchup: "free_for_all" as const,
         modeId: "deathmatch" as const,
-        weaponRule: "full_progression" as const,
+        weaponRule: "all" as const,
         weaponTier: 1,
       };
       return {

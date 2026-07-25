@@ -64,7 +64,7 @@ export type SyncedScheduledCustomMatch = {
   winnerPlayerIndex?: number;
   winnerTeam?: "alpha" | "bravo";
   winnerSide?: "attackers" | "defenders";
-  weaponRule?: "full_progression" | "start_tier" | "locked_tier";
+  weaponRule?: "all" | "tier";
   weaponTier?: number;
 };
 

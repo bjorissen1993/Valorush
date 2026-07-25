@@ -82,7 +82,7 @@ describe("Cypher match override", () => {
       modeId: "standard",
       attackerIndex: 1,
       defenderIndices: [0, 2, 3],
-      weaponRule: "locked_tier",
+      weaponRule: "tier",
       weaponTier: 3,
     };
     const next = applyCypherMatchOverride(base, config);
@@ -91,8 +91,27 @@ describe("Cypher match override", () => {
     expect(next.attackerIndex).toBe(1);
     expect(next.defenderIndices).toEqual([0, 2, 3]);
     expect(next.teamAlpha).toBeUndefined();
-    expect(next.weaponRule).toBe("locked_tier");
+    expect(next.weaponRule).toBe("tier");
     expect(next.weaponTier).toBe(3);
+  });
+
+  it("stores all-weapons as weaponRule all without requiring a tier", () => {
+    const base: ScheduledCustomMatch = {
+      matchId: "deathmatch",
+      mapId: "Bind",
+      scheduledAtRound: 1,
+      status: "scheduled",
+      participants: ["A", "B", "C", "D"],
+    };
+    const config: CypherMatchConfig = {
+      matchup: "free_for_all",
+      modeId: "deathmatch",
+      weaponRule: "all",
+      weaponTier: 1,
+    };
+    const next = applyCypherMatchOverride(base, config);
+    expect(next.weaponRule).toBe("all");
+    expect(next.weaponTier).toBe(1);
   });
 
   it("excludes Operator and Odin from TDM tiers", () => {

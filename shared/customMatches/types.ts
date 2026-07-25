@@ -90,10 +90,11 @@ export type ScheduledCustomMatch = {
   winnerSide?: "attackers" | "defenders";
   /**
    * Cypher Neural Theft weapon rule for this match only.
+   * "all" = full arsenal; "tier" = locked to weaponTier.
    * Cleared when the match completes.
    */
-  weaponRule?: "full_progression" | "start_tier" | "locked_tier";
-  /** Tier 1–4 when weaponRule is start_tier or locked_tier. */
+  weaponRule?: "all" | "tier";
+  /** Tier 1–4 when weaponRule is "tier". */
   weaponTier?: number;
   /** Future: riotLobbyId, riotMatchId, etc. */
 };
