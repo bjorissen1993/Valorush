@@ -4013,11 +4013,11 @@ body {
 }
 
 .cypher-config__mode-grid--mid {
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
 }
 
 .cypher-config__mode-grid--many {
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }
 
 .cypher-config__mode {
@@ -4031,7 +4031,7 @@ body {
   border-radius: 0.7rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.4);
-  padding: 0.9rem 0.75rem;
+  padding: 0.9rem 0.55rem;
   text-align: center;
   transition:
     border-color 0.22s ease,
@@ -4100,17 +4100,18 @@ body {
   position: relative;
   z-index: 2;
   display: block;
-  width: 50%;
-  max-width: 50%;
+  width: auto;
+  max-width: 100%;
   margin-inline: auto;
-  font-size: clamp(1.05rem, 2.4vw, 1.45rem);
+  padding-inline: 0.15rem;
+  font-size: clamp(0.92rem, 1.7vw, 1.28rem);
   font-weight: 800;
   letter-spacing: 0.01em;
   line-height: 1.15;
   color: #f8fafc;
   text-align: center;
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   transition: color 0.2s ease, text-shadow 0.2s ease;
 }
 
@@ -4323,9 +4324,9 @@ body {
   }
 
   .cypher-config__mode-name {
-    width: 55%;
-    max-width: 55%;
-    font-size: clamp(0.95rem, 3.5vw, 1.2rem);
+    width: auto;
+    max-width: 100%;
+    font-size: clamp(0.82rem, 2.8vw, 1.05rem);
   }
 
   .cypher-config__weapon-pick {

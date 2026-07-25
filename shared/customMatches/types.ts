@@ -49,6 +49,11 @@ export type CustomMatchDefinition = {
   rulesStub: string;
   /** Maps with local splash assets; one is picked at schedule time. */
   eligibleMaps: ValorantMapId[];
+  /**
+   * Representative map for Cypher mode-button splash art.
+   * Must be in `eligibleMaps` and have a local splash in `public/maps/`.
+   */
+  uiSplashMap: ValorantMapId;
   winCreds: number;
   winRadianite: number;
   durationLabel: string;

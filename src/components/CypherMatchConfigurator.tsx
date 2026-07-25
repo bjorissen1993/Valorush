@@ -338,10 +338,7 @@ export default function CypherMatchConfigurator({
               }`}
             >
               {availableModes.map((mode) => {
-                const splashMap = mode.eligibleMaps[0];
-                const splashPath = splashMap
-                  ? getMapSplashPath(splashMap)
-                  : undefined;
+                const splashPath = getMapSplashPath(mode.uiSplashMap);
                 return (
                   <button
                     key={mode.id}
