@@ -3917,7 +3917,10 @@ body {
 }
 
 .cypher-config__slot {
-  min-height: 6.5rem;
+  /* Tall enough for 3 player cards (Team of 3 full); keeps Solo/Alpha/FFA same height when emptier */
+  display: flex;
+  flex-direction: column;
+  min-height: 14rem;
   border-radius: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.28);
@@ -3988,10 +3991,12 @@ body {
 
 .cypher-config__slot-body {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 0.4rem;
   margin-top: 0.45rem;
-  min-height: 3.2rem;
+  /* 3 × player-card (~3.65rem) + 2 × gap (0.4rem) */
+  min-height: 11.75rem;
 }
 
 .cypher-config__error {
