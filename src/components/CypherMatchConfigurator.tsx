@@ -125,7 +125,7 @@ function DropSlot({
 /**
  * Cypher Neural Theft — configure the next custom match only.
  * Map cannot be changed here. Cancel spends no orbs.
- * Vertical stack: matchup → players → teams → modes → weapons → confirm.
+ * Vertical stack: matchup → teams → modes → weapons → confirm.
  */
 export default function CypherMatchConfigurator({
   ultimate,
@@ -272,24 +272,6 @@ export default function CypherMatchConfigurator({
                 >
                   <span className="cypher-config__matchup-title">{entry.label}</span>
                 </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="cypher-config__panel cypher-config__panel--players">
-            <p className="cypher-config__label">Players</p>
-            <div className="cypher-config__player-bar">
-              {players.map((player) => (
-                <PlayerChip
-                  key={player.index}
-                  player={player}
-                  draggable={needsTeams}
-                  selected={selectedIndex === player.index}
-                  onDragStart={needsTeams ? bindChipDrag(player.index) : undefined}
-                  onClick={
-                    needsTeams ? () => handleChipClick(player.index) : undefined
-                  }
-                />
               ))}
             </div>
           </section>
