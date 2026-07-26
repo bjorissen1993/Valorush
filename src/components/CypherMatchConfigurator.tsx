@@ -1,5 +1,6 @@
 import { useMemo, useState, type DragEvent, type ReactNode } from "react";
 import {
+  TDM_TIER_REPRESENTATIVE_ICON,
   TDM_WEAPON_TIERS,
   customMatchRegistry,
   cypherModeAllowsWeaponConfig,
@@ -552,11 +553,14 @@ export default function CypherMatchConfigurator({
                     }`}
                     onClick={() => setWeaponSelection("all")}
                   >
-                    All Weapons
+                    <span className="cypher-config__weapon-opt-label">
+                      All Weapons
+                    </span>
                   </button>
                   {TDM_WEAPON_TIERS.map((tier) => {
                     const lit =
                       weaponSelection === "all" || weaponSelection === tier.tier;
+                    const iconSrc = TDM_TIER_REPRESENTATIVE_ICON[tier.tier];
                     return (
                       <button
                         key={tier.tier}
@@ -566,6 +570,14 @@ export default function CypherMatchConfigurator({
                         }`}
                         onClick={() => setWeaponSelection(tier.tier as 1 | 2 | 3 | 4)}
                       >
+                        {iconSrc ? (
+                          <img
+                            className="cypher-config__weapon-opt-icon"
+                            src={iconSrc}
+                            alt=""
+                            draggable={false}
+                          />
+                        ) : null}
                         <span className="cypher-config__weapon-opt-tier">
                           T{tier.tier}
                         </span>

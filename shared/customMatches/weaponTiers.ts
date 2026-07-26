@@ -57,6 +57,14 @@ export const TDM_WEAPON_TIERS: TdmWeaponTier[] = [
   },
 ];
 
+/** Representative weapon icon shown on each Cypher tier button. */
+export const TDM_TIER_REPRESENTATIVE_ICON: Record<number, string> = {
+  1: "/weapons/Sheriff_icon.png",
+  2: "/weapons/Spectre_icon.png",
+  3: "/weapons/Guardian_icon.png",
+  4: "/weapons/Vandal_icon.png",
+};
+
 export const TDM_EXCLUDED_WEAPONS = ["Operator", "Odin"] as const;
 
 export const TDM_TIER_COUNT = TDM_WEAPON_TIERS.length;

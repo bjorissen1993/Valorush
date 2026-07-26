@@ -4146,24 +4146,54 @@ body {
 }
 
 .cypher-config__weapon-opt {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.18rem;
-  min-height: 5.5rem;
+  min-height: 6.25rem;
   border-radius: 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(0, 0, 0, 0.32);
   padding: 0.5rem 0.4rem;
   text-align: center;
   color: #d4d4d8;
+  cursor: pointer;
+  outline: none;
   transition:
     border-color 0.22s ease,
     background 0.22s ease,
     color 0.22s ease,
     box-shadow 0.22s ease,
-    transform 0.22s ease;
+    transform 0.18s ease,
+    filter 0.18s ease;
+}
+
+.cypher-config__weapon-opt::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 0 transparent;
+  opacity: 0;
+}
+
+.cypher-config__reveal--open .cypher-config__weapon-opt::after {
+  animation: cypher-weapon-opt-nudge 1.65s ease-out 0.3s 1 both;
+}
+
+.cypher-config__weapon-opt-icon {
+  width: 2.4rem;
+  height: 1.35rem;
+  object-fit: contain;
+  object-position: center;
+  margin-bottom: 0.05rem;
+  filter: brightness(0.92) saturate(0.9);
+  pointer-events: none;
+  user-select: none;
+  transition: filter 0.22s ease, transform 0.18s ease;
 }
 
 .cypher-config__weapon-opt--all {
@@ -4171,6 +4201,10 @@ body {
   font-weight: 800;
   line-height: 1.15;
   color: #e4e4e7;
+}
+
+.cypher-config__weapon-opt-label {
+  pointer-events: none;
 }
 
 .cypher-config__weapon-opt-tier {
@@ -4202,23 +4236,89 @@ body {
 }
 
 .cypher-config__weapon-opt:hover {
-  border-color: rgba(250, 204, 21, 0.35);
-  transform: translateY(-1px);
+  border-color: rgba(250, 204, 21, 0.55);
+  background: rgba(250, 204, 21, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(250, 204, 21, 0.22),
+    0 0 14px rgba(250, 204, 21, 0.18);
+  transform: translateY(-2px) scale(1.04);
+  color: #fef9c3;
+}
+
+.cypher-config__weapon-opt:hover .cypher-config__weapon-opt-icon {
+  filter: brightness(1.12) saturate(1.05);
+  transform: scale(1.06);
+}
+
+.cypher-config__weapon-opt:hover .cypher-config__weapon-opt-name {
+  color: rgba(254, 240, 138, 0.88);
+}
+
+.cypher-config__weapon-opt:hover .cypher-config__weapon-opt-list {
+  color: rgba(254, 240, 138, 0.65);
+}
+
+.cypher-config__weapon-opt:active {
+  transform: translateY(0) scale(0.97);
+  border-color: rgba(250, 204, 21, 0.75);
+  background: rgba(250, 204, 21, 0.16);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.35);
 }
 
 .cypher-config__weapon-opt--active {
-  border-color: rgba(250, 204, 21, 0.6);
-  background: rgba(250, 204, 21, 0.1);
+  border-color: rgba(250, 204, 21, 0.78);
+  background: rgba(250, 204, 21, 0.14);
   color: #fef08a;
-  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(250, 204, 21, 0.28),
+    0 0 16px rgba(250, 204, 21, 0.22);
+}
+
+.cypher-config__weapon-opt--active .cypher-config__weapon-opt-icon {
+  filter: brightness(1.15) saturate(1.08) drop-shadow(0 0 4px rgba(250, 204, 21, 0.35));
 }
 
 .cypher-config__weapon-opt--active .cypher-config__weapon-opt-name {
-  color: rgba(254, 240, 138, 0.9);
+  color: rgba(254, 240, 138, 0.95);
 }
 
 .cypher-config__weapon-opt--active .cypher-config__weapon-opt-list {
-  color: rgba(254, 240, 138, 0.72);
+  color: rgba(254, 240, 138, 0.78);
+}
+
+.cypher-config__weapon-opt--active:hover {
+  transform: translateY(-2px) scale(1.04);
+  border-color: rgba(250, 204, 21, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(250, 204, 21, 0.38),
+    0 0 18px rgba(250, 204, 21, 0.3);
+}
+
+.cypher-config__weapon-opt:focus-visible {
+  border-color: rgba(250, 204, 21, 0.85);
+  box-shadow:
+    0 0 0 2px rgba(250, 204, 21, 0.35),
+    0 0 12px rgba(250, 204, 21, 0.25);
+}
+
+@keyframes cypher-weapon-opt-nudge {
+  0%,
+  100% {
+    opacity: 0;
+    box-shadow: 0 0 0 0 rgba(250, 204, 21, 0);
+  }
+  30% {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px rgba(250, 204, 21, 0.5),
+      0 0 14px rgba(250, 204, 21, 0.3);
+  }
+  55% {
+    opacity: 0.85;
+    box-shadow:
+      0 0 0 1px rgba(250, 204, 21, 0.28),
+      0 0 8px rgba(250, 204, 21, 0.16);
+  }
 }
 
 .cypher-config__weapon-summary {
@@ -4387,9 +4487,15 @@ body {
     animation: none !important;
   }
 
+  .cypher-config__weapon-opt::after {
+    animation: none !important;
+  }
+
   .cypher-config__matchup--active,
   .cypher-config__mode--active,
-  .cypher-config__weapon-opt:hover {
+  .cypher-config__weapon-opt:hover,
+  .cypher-config__weapon-opt:active,
+  .cypher-config__weapon-opt--active:hover {
     transform: none;
   }
 
