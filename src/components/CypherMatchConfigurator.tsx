@@ -570,6 +570,14 @@ export default function CypherMatchConfigurator({
                         }`}
                         onClick={() => setWeaponSelection(tier.tier as 1 | 2 | 3 | 4)}
                       >
+                        <span className="cypher-config__weapon-opt-heading">
+                          <span className="cypher-config__weapon-opt-tier">
+                            T{tier.tier}
+                          </span>
+                          <span className="cypher-config__weapon-opt-name">
+                            {tier.name}
+                          </span>
+                        </span>
                         {iconSrc ? (
                           <img
                             className="cypher-config__weapon-opt-icon"
@@ -578,12 +586,6 @@ export default function CypherMatchConfigurator({
                             draggable={false}
                           />
                         ) : null}
-                        <span className="cypher-config__weapon-opt-tier">
-                          T{tier.tier}
-                        </span>
-                        <span className="cypher-config__weapon-opt-name">
-                          {tier.name}
-                        </span>
                         <span className="cypher-config__weapon-opt-list">
                           {tier.weapons.join(" · ")}
                         </span>
