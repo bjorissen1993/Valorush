@@ -3824,19 +3824,29 @@ body {
 }
 
 .cypher-config__player-card {
+  /* Fill slot-body: equal share of height, full width (Solo / FFA / team cards) */
   display: flex;
+  flex: 1 1 0;
   width: 100%;
   min-width: 0;
+  min-height: 0;
+  align-self: stretch;
   align-items: center;
-  gap: 0.65rem;
+  gap: clamp(0.65rem, 4cqw, 1.05rem);
   border-radius: 0.7rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background:
     linear-gradient(135deg, rgba(24, 24, 27, 0.92), rgba(9, 12, 20, 0.95));
-  padding: 0.45rem 0.65rem 0.45rem 0.45rem;
+  padding:
+    clamp(0.45rem, 6cqh, 1.05rem)
+    clamp(0.65rem, 4cqw, 1.15rem)
+    clamp(0.45rem, 6cqh, 1.05rem)
+    clamp(0.45rem, 5cqh, 0.85rem);
   color: #fff;
   cursor: grab;
   text-align: left;
+  container-type: size;
+  container-name: cypher-player-card;
   animation: cypher-config-card-in 0.3s ease both;
   transition:
     border-color 0.2s ease,
@@ -3861,10 +3871,11 @@ body {
 
 .cypher-config__player-card-avatar,
 .cypher-config__player-card-fallback {
-  height: 2.75rem;
-  width: 2.75rem;
+  /* Scale with card height; floor matches compact 3-up Team of 3 */
+  height: clamp(2.75rem, 62cqh, 5.75rem);
+  width: clamp(2.75rem, 62cqh, 5.75rem);
   flex-shrink: 0;
-  border-radius: 0.55rem;
+  border-radius: clamp(0.55rem, 8cqh, 0.9rem);
   border: 1px solid rgba(255, 255, 255, 0.1);
   object-fit: cover;
   background: rgba(255, 255, 255, 0.05);
@@ -3875,7 +3886,7 @@ body {
   align-items: center;
   justify-content: center;
   background: #27272a;
-  font-size: 0.95rem;
+  font-size: clamp(0.95rem, 22cqh, 1.85rem);
   font-weight: 800;
   color: #e4e4e7;
 }
@@ -3890,7 +3901,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.92rem;
+  font-size: clamp(0.92rem, 16cqh, 1.4rem);
   font-weight: 800;
   line-height: 1.15;
   color: #f8fafc;
@@ -3898,11 +3909,11 @@ body {
 
 .cypher-config__player-card-agent {
   display: block;
-  margin-top: 0.12rem;
+  margin-top: clamp(0.12rem, 2cqh, 0.35rem);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.72rem;
+  font-size: clamp(0.72rem, 11cqh, 1.05rem);
   font-weight: 650;
   line-height: 1.2;
   color: rgba(212, 212, 216, 0.9);
@@ -3995,8 +4006,9 @@ body {
   flex-direction: column;
   gap: 0.4rem;
   margin-top: 0.45rem;
-  /* 3 × player-card (~3.65rem) + 2 × gap (0.4rem) */
+  /* 3 × compact cards + gaps; player cards flex:1 to fill this body */
   min-height: 11.75rem;
+  align-items: stretch;
 }
 
 .cypher-config__error {
