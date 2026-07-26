@@ -3899,7 +3899,6 @@ body {
 .cypher-config__player-card-name {
   display: block;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: clamp(0.92rem, 16cqh, 1.4rem);
   font-weight: 800;
@@ -3911,7 +3910,6 @@ body {
   display: block;
   margin-top: clamp(0.12rem, 2cqh, 0.35rem);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: clamp(0.72rem, 11cqh, 1.05rem);
   font-weight: 650;

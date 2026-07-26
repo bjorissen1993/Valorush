@@ -14,6 +14,7 @@ import {
   type CustomMatchId,
 } from "../../shared/customMatches";
 import type { UltimateDefinition } from "../../shared/ultimates";
+import FitText from "./FitText";
 
 export type CypherConfiguratorPlayer = {
   index: number;
@@ -129,8 +130,14 @@ function PlayerCard({
         </span>
       )}
       <span className="cypher-config__player-card-meta">
-        <span className="cypher-config__player-card-name">{player.name}</span>
-        <span className="cypher-config__player-card-agent">{agentLabel}</span>
+        <FitText
+          text={player.name}
+          className="cypher-config__player-card-name"
+        />
+        <FitText
+          text={agentLabel}
+          className="cypher-config__player-card-agent"
+        />
       </span>
     </button>
   );
