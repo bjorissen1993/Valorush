@@ -2,10 +2,13 @@
  * Board graph — branching is via `next.length > 1` only (no split/merge tile types).
  * Coordinates are layout-space percentages (roughly 8–92).
  *
- * Layout approach: three concentric rectangles (outer / mid / inner) with
- * short radial connectors only. Roads that are not graph-adjacent never
- * visually cross — edges travel only along ring perimeters or straight
- * radials between aligned branch points.
+ * Layout approach (Mario Party–style journey):
+ * - Outer racetrack (~31) meanders as a rounded oval with gentle bulges
+ * - Mid loop (~12) sits as an offset elliptical shortcut ring
+ * - Inner loop (~8) is a compact central plaza circuit
+ * - Route choices only at cardinal connectors via `next[]`
+ * - Graph stays planar: edges follow ring perimeters or short radials
+ *   so unconnected roads never cross visually
  */
 
 export type TileType =
@@ -29,86 +32,84 @@ export type BoardNode = {
 };
 
 /**
- * ~51-tile planar network:
- * - Outer loop (31) — main track
- * - Mid loop (12) — concentric shortcut ring
- * - Inner loop (8) — core loop
- * Branches only at cardinal radials via `next[]`.
+ * ~51-tile planar network with winding organic placement:
+ * - Clear START plaza at the NW approach (players always begin here)
+ * - Multiple loops + branch choices at outer/mid/inner connectors
  */
 export const boardLayout: BoardNode[] = [
-  // ── Outer top (L→R) ──────────────────────────────────────────
-  { id: "start", type: "start", x: 10, y: 10, next: ["o1"] },
-  { id: "o1", type: "normal", x: 20, y: 10, next: ["o2"] },
-  { id: "o2", type: "event", x: 30, y: 10, next: ["o3"] },
-  { id: "o3", type: "normal", x: 40, y: 10, next: ["o4"] },
-  // Branch: stay on outer OR drop radially into mid-top
-  { id: "o4", type: "spike", x: 50, y: 10, next: ["o5", "m-top-2"] },
-  { id: "o5", type: "normal", x: 60, y: 10, next: ["o6"] },
-  { id: "o6", type: "shop", x: 70, y: 10, next: ["o7"] },
-  { id: "o7", type: "normal", x: 80, y: 10, next: ["o8"] },
-  { id: "o8", type: "event", x: 90, y: 10, next: ["o9"] },
+  // ── Outer approach & top meander (L→R) ───────────────────────
+  // START sits slightly off the track as a bright plaza entry.
+  { id: "start", type: "start", x: 12, y: 18, next: ["o1"] },
+  { id: "o1", type: "normal", x: 20, y: 12, next: ["o2"] },
+  { id: "o2", type: "event", x: 29, y: 9, next: ["o3"] },
+  { id: "o3", type: "normal", x: 39, y: 11, next: ["o4"] },
+  // Branch: stay on outer OR drop into mid-top
+  { id: "o4", type: "spike", x: 50, y: 8, next: ["o5", "m-top-2"] },
+  { id: "o5", type: "normal", x: 61, y: 11, next: ["o6"] },
+  { id: "o6", type: "shop", x: 71, y: 9, next: ["o7"] },
+  { id: "o7", type: "normal", x: 80, y: 13, next: ["o8"] },
+  { id: "o8", type: "event", x: 88, y: 18, next: ["o9"] },
 
-  // ── Outer right (T→B) ────────────────────────────────────────
-  { id: "o9", type: "normal", x: 90, y: 20, next: ["o10"] },
-  { id: "o10", type: "minigame", x: 90, y: 30, next: ["o11"] },
-  { id: "o11", type: "normal", x: 90, y: 40, next: ["o12"] },
+  // ── Outer right meander (T→B) ────────────────────────────────
+  { id: "o9", type: "normal", x: 92, y: 26, next: ["o10"] },
+  { id: "o10", type: "minigame", x: 90, y: 35, next: ["o11"] },
+  { id: "o11", type: "normal", x: 93, y: 43, next: ["o12"] },
   // Branch: stay on outer OR enter mid-right
-  { id: "o12", type: "event", x: 90, y: 50, next: ["o13", "m-right-2"] },
-  { id: "o13", type: "normal", x: 90, y: 60, next: ["o14"] },
-  { id: "o14", type: "shop", x: 90, y: 70, next: ["o15"] },
-  { id: "o15", type: "normal", x: 90, y: 80, next: ["o16"] },
+  { id: "o12", type: "event", x: 91, y: 50, next: ["o13", "m-right-2"] },
+  { id: "o13", type: "normal", x: 93, y: 58, next: ["o14"] },
+  { id: "o14", type: "shop", x: 90, y: 67, next: ["o15"] },
+  { id: "o15", type: "normal", x: 88, y: 76, next: ["o16"] },
 
-  // ── Outer bottom (R→L) ───────────────────────────────────────
-  { id: "o16", type: "spike", x: 80, y: 90, next: ["o17"] },
-  { id: "o17", type: "normal", x: 70, y: 90, next: ["o18"] },
-  { id: "o18", type: "event", x: 60, y: 90, next: ["o19"] },
+  // ── Outer bottom meander (R→L) ───────────────────────────────
+  { id: "o16", type: "spike", x: 82, y: 85, next: ["o17"] },
+  { id: "o17", type: "normal", x: 72, y: 90, next: ["o18"] },
+  { id: "o18", type: "event", x: 61, y: 88, next: ["o19"] },
   // Branch: stay on outer OR enter mid-bottom
-  { id: "o19", type: "normal", x: 50, y: 90, next: ["o20", "m-bot-2"] },
-  { id: "o20", type: "minigame", x: 40, y: 90, next: ["o21"] },
-  { id: "o21", type: "normal", x: 30, y: 90, next: ["o22"] },
-  { id: "o22", type: "shop", x: 20, y: 90, next: ["o23"] },
-  { id: "o23", type: "normal", x: 10, y: 90, next: ["o24"] },
+  { id: "o19", type: "normal", x: 50, y: 92, next: ["o20", "m-bot-2"] },
+  { id: "o20", type: "minigame", x: 39, y: 88, next: ["o21"] },
+  { id: "o21", type: "normal", x: 28, y: 90, next: ["o22"] },
+  { id: "o22", type: "shop", x: 18, y: 85, next: ["o23"] },
+  { id: "o23", type: "normal", x: 11, y: 78, next: ["o24"] },
 
-  // ── Outer left (B→T) ─────────────────────────────────────────
-  { id: "o24", type: "event", x: 10, y: 80, next: ["o25"] },
-  { id: "o25", type: "normal", x: 10, y: 70, next: ["o26"] },
-  { id: "o26", type: "spike", x: 10, y: 60, next: ["o27"] },
+  // ── Outer left meander (B→T) ─────────────────────────────────
+  { id: "o24", type: "event", x: 8, y: 69, next: ["o25"] },
+  { id: "o25", type: "normal", x: 11, y: 60, next: ["o26"] },
+  { id: "o26", type: "spike", x: 8, y: 54, next: ["o27"] },
   // Branch: stay on outer OR enter mid-left
-  { id: "o27", type: "normal", x: 10, y: 50, next: ["o28", "m-left-2"] },
-  { id: "o28", type: "minigame", x: 10, y: 40, next: ["o29"] },
-  { id: "o29", type: "normal", x: 10, y: 30, next: ["o30"] },
-  { id: "o30", type: "event", x: 10, y: 20, next: ["start"] },
+  { id: "o27", type: "normal", x: 9, y: 50, next: ["o28", "m-left-2"] },
+  { id: "o28", type: "minigame", x: 8, y: 42, next: ["o29"] },
+  { id: "o29", type: "normal", x: 11, y: 33, next: ["o30"] },
+  { id: "o30", type: "event", x: 10, y: 24, next: ["start"] },
 
-  // ── Mid ring (concentric, CW from NW) ────────────────────────
-  // Aligns with outer cardinals: m-top-2 under o4, m-right-2 left of o12, etc.
-  { id: "m-top-1", type: "normal", x: 35, y: 28, next: ["m-top-2"] },
-  // Branch: continue mid OR drop into inner
-  { id: "m-top-2", type: "event", x: 50, y: 28, next: ["m-top-3", "inner-n"] },
-  // Exit option back to outer NE corner
-  { id: "m-top-3", type: "normal", x: 65, y: 28, next: ["m-right-1", "o8"] },
+  // ── Mid ring (offset ellipse, CW from NW) ────────────────────
+  { id: "m-top-1", type: "normal", x: 36, y: 29, next: ["m-top-2"] },
+  // Branch: continue mid OR drop into inner plaza
+  { id: "m-top-2", type: "event", x: 50, y: 26, next: ["m-top-3", "inner-n"] },
+  // Exit option back to outer NE
+  { id: "m-top-3", type: "normal", x: 64, y: 29, next: ["m-right-1", "o8"] },
 
-  { id: "m-right-1", type: "normal", x: 72, y: 35, next: ["m-right-2"] },
-  { id: "m-right-2", type: "shop", x: 72, y: 50, next: ["m-right-3", "inner-e"] },
-  { id: "m-right-3", type: "normal", x: 72, y: 65, next: ["m-bot-1", "o15"] },
+  { id: "m-right-1", type: "normal", x: 71, y: 36, next: ["m-right-2"] },
+  { id: "m-right-2", type: "shop", x: 74, y: 50, next: ["m-right-3", "inner-e"] },
+  { id: "m-right-3", type: "normal", x: 71, y: 64, next: ["m-bot-1", "o15"] },
 
-  { id: "m-bot-1", type: "normal", x: 65, y: 72, next: ["m-bot-2"] },
-  { id: "m-bot-2", type: "event", x: 50, y: 72, next: ["m-bot-3", "inner-s"] },
-  { id: "m-bot-3", type: "spike", x: 35, y: 72, next: ["m-left-1", "o23"] },
+  { id: "m-bot-1", type: "normal", x: 64, y: 71, next: ["m-bot-2"] },
+  { id: "m-bot-2", type: "event", x: 50, y: 74, next: ["m-bot-3", "inner-s"] },
+  { id: "m-bot-3", type: "spike", x: 36, y: 71, next: ["m-left-1", "o23"] },
 
-  { id: "m-left-1", type: "normal", x: 28, y: 65, next: ["m-left-2"] },
-  { id: "m-left-2", type: "minigame", x: 28, y: 50, next: ["m-left-3", "inner-w"] },
-  { id: "m-left-3", type: "normal", x: 28, y: 35, next: ["m-top-1", "o30"] },
+  { id: "m-left-1", type: "normal", x: 29, y: 64, next: ["m-left-2"] },
+  { id: "m-left-2", type: "minigame", x: 26, y: 50, next: ["m-left-3", "inner-w"] },
+  { id: "m-left-3", type: "normal", x: 29, y: 36, next: ["m-top-1", "o30"] },
 
-  // ── Inner ring (core loop, CW from north) ────────────────────
-  { id: "inner-n", type: "normal", x: 42, y: 42, next: ["inner-ne"] },
+  // ── Inner plaza loop (compact oval, CW from north) ───────────
+  { id: "inner-n", type: "normal", x: 44, y: 40, next: ["inner-ne"] },
   // Exit back to mid-top
-  { id: "inner-ne", type: "event", x: 50, y: 42, next: ["inner-e", "m-top-3"] },
-  { id: "inner-e", type: "normal", x: 58, y: 42, next: ["inner-se"] },
-  { id: "inner-se", type: "shop", x: 58, y: 50, next: ["inner-s", "m-right-3"] },
-  { id: "inner-s", type: "normal", x: 58, y: 58, next: ["inner-sw"] },
+  { id: "inner-ne", type: "event", x: 50, y: 38, next: ["inner-e", "m-top-3"] },
+  { id: "inner-e", type: "normal", x: 56, y: 40, next: ["inner-se"] },
+  { id: "inner-se", type: "shop", x: 58, y: 48, next: ["inner-s", "m-right-3"] },
+  { id: "inner-s", type: "normal", x: 56, y: 56, next: ["inner-sw"] },
   { id: "inner-sw", type: "event", x: 50, y: 58, next: ["inner-w", "m-bot-3"] },
-  { id: "inner-w", type: "normal", x: 42, y: 58, next: ["inner-nw"] },
-  { id: "inner-nw", type: "minigame", x: 42, y: 50, next: ["inner-n", "m-left-3"] },
+  { id: "inner-w", type: "normal", x: 44, y: 56, next: ["inner-nw"] },
+  { id: "inner-nw", type: "minigame", x: 42, y: 48, next: ["inner-n", "m-left-3"] },
 ];
 
 const LEGACY_POSITION_REMAP: Record<string, string> = {

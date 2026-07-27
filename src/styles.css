@@ -243,6 +243,78 @@ body {
   }
 }
 
+/* Mario Party–style circular spaces (dark Valorant palette) */
+.board-tile {
+  border-width: 2px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.board-tile--normal {
+  background: rgba(12, 42, 72, 0.92);
+  border-color: rgba(56, 189, 248, 0.55);
+}
+
+.board-tile--event {
+  background: rgba(12, 52, 38, 0.92);
+  border-color: rgba(52, 211, 153, 0.6);
+}
+
+.board-tile--shop {
+  background: rgba(58, 42, 12, 0.92);
+  border-color: rgba(251, 191, 36, 0.65);
+}
+
+.board-tile--spike {
+  background: rgba(62, 18, 14, 0.94);
+  border-color: rgba(251, 146, 60, 0.75);
+}
+
+.board-tile--minigame {
+  background: rgba(58, 16, 48, 0.92);
+  border-color: rgba(240, 171, 252, 0.65);
+}
+
+.board-tile--empty {
+  background: rgba(24, 24, 27, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.board-tile--start {
+  z-index: 4;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.22), transparent 45%),
+    linear-gradient(160deg, rgba(34, 197, 94, 0.95), rgba(16, 185, 129, 0.88) 55%, rgba(5, 150, 105, 0.92));
+  border-color: rgba(167, 243, 208, 0.95);
+  color: #06241a;
+  box-shadow:
+    0 0 0 3px rgba(16, 185, 129, 0.35),
+    0 0 28px rgba(52, 211, 153, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.board-tile-start-label {
+  font-size: clamp(7px, 0.85vw, 11px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #06241a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.board-tile-start-arrow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34%;
+  height: 34%;
+  z-index: 0;
+  opacity: 0.9;
+  pointer-events: none;
+  background: rgba(6, 36, 26, 0.55);
+  clip-path: polygon(35% 0%, 65% 0%, 65% 52%, 100% 52%, 50% 100%, 0% 52%, 35% 52%);
+}
+
 .tile-pulse-host::before {
   content: "";
   position: absolute;

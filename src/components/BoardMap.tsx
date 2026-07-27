@@ -11,8 +11,9 @@ import {
 
 export const SPIKE_PLANT_ANIMATION_MS = 1400;
 
-/** Circular tile diameter as % of the board viewBox. */
-const TILE_SIZE_PERCENT = 5.4;
+/** Circular tile diameter as % of the board viewBox (Mario Party spaces). */
+const TILE_SIZE_PERCENT = 4.6;
+const START_TILE_SIZE_PERCENT = 7.0;
 
 export type BoardSelectableEdge = {
   from: string;
@@ -86,15 +87,15 @@ type Props = {
   hazards?: BoardHazardState | null;
 };
 
-const LAYOUT_MIN_X = 10;
-const LAYOUT_MAX_X = 85;
-const LAYOUT_MIN_Y = 10;
-const LAYOUT_MAX_Y = 90;
+const LAYOUT_MIN_X = 8;
+const LAYOUT_MAX_X = 93;
+const LAYOUT_MIN_Y = 8;
+const LAYOUT_MAX_Y = 92;
 
-const RENDER_MIN_X = 10;
-const RENDER_MAX_X = 90;
-const RENDER_MIN_Y = 7;
-const RENDER_MAX_Y = 93;
+const RENDER_MIN_X = 8;
+const RENDER_MAX_X = 92;
+const RENDER_MIN_Y = 6;
+const RENDER_MAX_Y = 94;
 
 const SHOW_NODE_IDS = false;
 
@@ -128,7 +129,7 @@ function unscaleY(renderY: number) {
 function getTileLabel(type: TileType) {
   switch (type) {
     case "start":
-      return "Start";
+      return "START";
     case "spike":
       return "Spike";
     case "shop":
@@ -148,7 +149,7 @@ function getTileLabel(type: TileType) {
 function getTileShortMark(type: TileType) {
   switch (type) {
     case "start":
-      return "S";
+      return "START";
     case "spike":
       return "⚡";
     case "shop":
@@ -172,7 +173,33 @@ type BoardPathSegment = {
   y1: number;
   x2: number;
   y2: number;
+  /** Quadratic Bezier control point for organic route segments. */
+  cx: number;
+  cy: number;
+  d: string;
 };
+
+/** Curve path segments toward board center for a winding Mario Party road feel. */
+function curveControlPoint(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number
+): { cx: number; cy: number } {
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const px = -dy / len;
+  const py = dx / len;
+  const toCenterX = 50 - mx;
+  const toCenterY = 50 - my;
+  const towardCenter = px * toCenterX + py * toCenterY;
+  const sign = towardCenter >= 0 ? 1 : -1;
+  const bulge = Math.min(5.2, Math.max(1.1, len * 0.22)) * sign;
+  return { cx: mx + px * bulge, cy: my + py * bulge };
+}
 
 function buildBoardPathSegments(): BoardPathSegment[] {
   return boardLayout.flatMap((node) =>
@@ -180,15 +207,24 @@ function buildBoardPathSegments(): BoardPathSegment[] {
       const nextNode = boardLayout.find((n) => n.id === nextId);
       if (!nextNode) return [];
 
+      const x1 = scaleX(node.x);
+      const y1 = scaleY(node.y);
+      const x2 = scaleX(nextNode.x);
+      const y2 = scaleY(nextNode.y);
+      const { cx, cy } = curveControlPoint(x1, y1, x2, y2);
+
       return [
         {
           key: `${node.id}-${nextId}-${index}`,
           from: node.id,
           to: nextId,
-          x1: scaleX(node.x),
-          y1: scaleY(node.y),
-          x2: scaleX(nextNode.x),
-          y2: scaleY(nextNode.y),
+          x1,
+          y1,
+          x2,
+          y2,
+          cx,
+          cy,
+          d: `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`,
         },
       ];
     })
@@ -204,21 +240,32 @@ function edgeKey(from: string, to: string) {
 function getTileClasses(type: TileType) {
   switch (type) {
     case "start":
-      return "bg-zinc-900/85 border-emerald-500/45";
+      return "board-tile board-tile--start";
     case "event":
-      return "bg-zinc-900/85 border-violet-500/45";
+      return "board-tile board-tile--event";
     case "shop":
-      return "bg-zinc-900/85 border-cyan-500/45";
+      return "board-tile board-tile--shop";
     case "spike":
-      return "bg-zinc-900/85 border-orange-500/45";
+      return "board-tile board-tile--spike";
     case "minigame":
-      return "bg-zinc-900/85 border-yellow-500/45";
+      return "board-tile board-tile--minigame";
     case "normal":
-      return "bg-zinc-950/75 border-white/14";
+      return "board-tile board-tile--normal";
     case "empty":
     default:
-      return "bg-zinc-950/80 border-white/10";
+      return "board-tile board-tile--empty";
   }
+}
+
+function getStartDirectionDeg(nodeId: string): number | null {
+  const node = boardLayout.find((n) => n.id === nodeId);
+  if (!node || node.type !== "start" || node.next.length === 0) return null;
+  const next = boardLayout.find((n) => n.id === node.next[0]);
+  if (!next) return null;
+  const dx = scaleX(next.x) - scaleX(node.x);
+  const dy = scaleY(next.y) - scaleY(node.y);
+  // CSS degrees: 0 = up, clockwise — atan2(dx, -dy) from screen coords
+  return (Math.atan2(dx, -dy) * 180) / Math.PI;
 }
 
 function BoardMap({
@@ -444,7 +491,7 @@ function BoardMap({
           ))}
         </defs>
 
-        {BOARD_PATH_SEGMENTS.map(({ key, from, to, x1, y1, x2, y2 }) => {
+        {BOARD_PATH_SEGMENTS.map(({ key, from, to, d }) => {
           const selectKey = edgeKey(from, to);
           const isSelectable = selectableEdgeSet.has(selectKey);
           const isHovered = hoveredEdgeKey === selectKey;
@@ -463,33 +510,29 @@ function BoardMap({
                 .filter(Boolean)
                 .join(" ") || undefined}
             >
-              <line
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
+              <path
+                d={d}
+                fill="none"
                 stroke="rgba(0,0,0,0.42)"
                 strokeWidth="4.8"
                 strokeLinecap="round"
+                strokeLinejoin="round"
               />
               {isWalled && (
-                <line
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
+                <path
+                  d={d}
+                  fill="none"
                   className="board-map-wall-beam"
                   stroke="rgba(167,139,250,0.95)"
                   strokeWidth="6.5"
                   strokeLinecap="round"
+                  strokeLinejoin="round"
                   filter="url(#board-path-glow)"
                 />
               )}
-              <line
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
+              <path
+                d={d}
+                fill="none"
                 stroke={
                   isWalled
                     ? "rgba(196,181,253,0.9)"
@@ -509,13 +552,12 @@ function BoardMap({
                       : 3.6
                 }
                 strokeLinecap="round"
+                strokeLinejoin="round"
                 filter="url(#board-path-glow)"
               />
-              <line
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
+              <path
+                d={d}
+                fill="none"
                 stroke={
                   isWalled
                     ? "rgba(237,233,254,0.95)"
@@ -529,26 +571,23 @@ function BoardMap({
                   isWalled ? 2.8 : isSelectable ? (isHovered ? 3.2 : 2.6) : 2.2
                 }
                 strokeLinecap="round"
+                strokeLinejoin="round"
                 strokeDasharray={isWalled ? "3.2 2.4" : undefined}
               />
               {!isSelectable && !isWalled && (
                 <>
-                  <line
-                    x1={x1}
-                    y1={y1}
-                    x2={x2}
-                    y2={y2}
+                  <path
+                    d={d}
+                    fill="none"
                     className="board-map-path-flow"
                     stroke="rgba(255,255,255,0.1)"
                     strokeWidth="0.9"
                     strokeLinecap="round"
                     strokeDasharray="2.5 10"
                   />
-                  <line
-                    x1={x1}
-                    y1={y1}
-                    x2={x2}
-                    y2={y2}
+                  <path
+                    d={d}
+                    fill="none"
                     stroke="rgba(255,255,255,0.07)"
                     strokeWidth="0.55"
                     strokeLinecap="round"
@@ -556,11 +595,9 @@ function BoardMap({
                 </>
               )}
               {isSelectable && (
-                <line
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
+                <path
+                  d={d}
+                  fill="none"
                   stroke="transparent"
                   strokeWidth="16"
                   strokeLinecap="round"
@@ -685,6 +722,11 @@ function BoardMap({
           tokenCount <= 1 ? "text-[9px]" : "text-[8px]";
         const tileLabel = getTileLabel(node.type);
         const tileMark = getTileShortMark(node.type);
+        const isStartTile = node.type === "start";
+        const tileSize = isStartTile
+          ? START_TILE_SIZE_PERCENT
+          : TILE_SIZE_PERCENT;
+        const startDirDeg = isStartTile ? getStartDirectionDeg(node.id) : null;
 
         return (
           <div
@@ -735,13 +777,20 @@ function BoardMap({
             style={{
               left: `${scaleX(node.x)}%`,
               top: `${scaleY(node.y)}%`,
-              width: `${TILE_SIZE_PERCENT}%`,
-              height: `${TILE_SIZE_PERCENT}%`,
+              width: `${tileSize}%`,
+              height: `${tileSize}%`,
               transform: "translate(-50%, -50%)",
               aspectRatio: "1 / 1",
             }}
             title={tileLabel || node.type}
           >
+            {isStartTile && startDirDeg != null && (
+              <div
+                className="board-tile-start-arrow"
+                style={{ transform: `translate(-50%, -50%) rotate(${startDirDeg}deg)` }}
+                aria-hidden
+              />
+            )}
             {isPoisonTile && (
               <div className="board-hazard-poison" aria-hidden>
                 <span className="board-hazard-poison__cloud" />
@@ -790,7 +839,13 @@ function BoardMap({
               </div>
             )}
             {(tileLabel || tileMark) && (
-              <div className="pointer-events-none absolute left-1/2 top-[28%] z-[1] -translate-x-1/2 -translate-y-1/2 font-bold leading-none drop-shadow-md">
+              <div
+                className={`pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 -translate-y-1/2 font-bold leading-none drop-shadow-md ${
+                  isStartTile
+                    ? "board-tile-start-label top-[38%]"
+                    : "top-[28%]"
+                }`}
+              >
                 <span className="hidden sm:inline">{tileLabel || tileMark}</span>
                 <span className="sm:hidden">{tileMark || tileLabel}</span>
               </div>
