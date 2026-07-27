@@ -16,7 +16,10 @@ import { useOnlineGameSync } from "../hooks/useOnlineGameSync";
 import { useChatGameEvents } from "../hooks/useChatGameEvents";
 import { useLocalChat } from "../hooks/useLocalChat";
 import BoardMap from "./BoardMap";
-import BoardCameraViewport, { BoardMinimap } from "./BoardCameraViewport";
+import BoardCameraViewport, {
+  BoardMinimap,
+  type BoardCameraHandle,
+} from "./BoardCameraViewport";
 import LuckyTileModal from "./LuckyTileModal";
 import TurnBanner from "./TurnBanner";
 import TurnOrderScreen from "./TurnOrderScreen";
@@ -595,6 +598,7 @@ export default function GamePage({
     holdMs?: number;
   } | null>(null);
   const [boardEventPulse, setBoardEventPulse] = useState(0);
+  const boardCameraRef = useRef<BoardCameraHandle>(null);
   const boardUltimateStateRef = useRef(boardUltimateState);
   boardUltimateStateRef.current = boardUltimateState;
 
@@ -5956,6 +5960,7 @@ export default function GamePage({
 
             <div className="game-board-area">
               <BoardCameraViewport
+                ref={boardCameraRef}
                 followNodeId={
                   playersInGame[movingPlayerIndex ?? currentPlayerIndex]?.position
                 }
@@ -6110,6 +6115,7 @@ export default function GamePage({
                     ? activeSpike.plantedOnNodeId
                     : null
                 }
+                onNavigate={(x, y) => boardCameraRef.current?.navigateTo(x, y)}
               />
             </div>
           </div>

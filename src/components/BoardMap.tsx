@@ -87,10 +87,10 @@ type Props = {
   hazards?: BoardHazardState | null;
 };
 
-const LAYOUT_MIN_X = 8;
+const LAYOUT_MIN_X = 5;
 const LAYOUT_MAX_X = 93;
-const LAYOUT_MIN_Y = 8;
-const LAYOUT_MAX_Y = 92;
+const LAYOUT_MIN_Y = 5;
+const LAYOUT_MAX_Y = 93;
 
 const RENDER_MIN_X = 8;
 const RENDER_MAX_X = 92;

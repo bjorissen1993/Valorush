@@ -228,6 +228,13 @@ body {
   min-height: 0;
   flex: 1;
   background: #070b14;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.board-camera-viewport--panning {
+  cursor: grabbing;
 }
 
 .board-camera-stage {
@@ -257,6 +264,16 @@ body {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   overflow: hidden;
+}
+
+.board-minimap--interactive {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.board-minimap--interactive:focus-visible {
+  outline: 2px solid rgba(94, 234, 212, 0.65);
+  outline-offset: 2px;
 }
 
 .board-minimap__svg {

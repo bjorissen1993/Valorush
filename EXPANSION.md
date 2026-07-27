@@ -4,9 +4,9 @@
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| **A — Board** | Done | ~58-tile planar network (outer/mid/inner + radial connectors); regional pacing Safe→Prep→Danger→Recovery→Crossroads→Chaos; branching via `next.length > 1` only; no `split`/`merge` types; route-choice pause mid-move; `boardValidator` (connectivity + visual non-crossing); legacy position remap |
+| **A — Board** | Done | ~58-tile asymmetric planar network (NW approach spur + organic circuit + irregular mid corridors + SE-offset plaza); regional pacing Safe→Prep→Danger→Recovery→Crossroads→Chaos; branching via `next.length > 1` only; no `split`/`merge` types; route-choice pause mid-move; `boardValidator` (connectivity + visual non-crossing); legacy position remap |
 | **A2 — Tile types** | Done | Credits/normal (+300/+400/+500), Event, Shop, Lucky (player choice), Ult Orb (+1), Minigame, Spike, Risk (mild setbacks + jackpot), Tactical/Special (+1 move); landing handlers in `landingSystem` / `GamePage` |
-| **A3 — Camera + minimap** | Done | Match-start overview (landmarks → START), smooth follow + dynamic cluster zoom, event pan (spike/shop), board-event pulse, permanent minimap |
+| **A3 — Camera + minimap** | Done | Match-start overview (landmarks → START), smooth follow + dynamic cluster zoom, drag-to-pan + wheel zoom (manual overrides follow, soft re-follow after idle), event pan (spike/shop), board-event pulse, permanent minimap with click-to-navigate |
 | **B — Circular tiles + stacking** | Done | Smaller circular tiles color-coded by type; `getPlayerTokenPosition` fans 1–4 tokens on bottom arc; large distinct START |
 | **C — Normal tiles + economy** | Done | Weighted credit roll 300/400/500; `stealCredits` helper; shared jackpot; `RADIANITE_BUY_COST = 3000` |
 | **D — Two dice** | Done | Default 2d6; `computeFinalMovement = max(0, rolled + bonuses − debuffs)` |
@@ -64,6 +64,6 @@ diceSystem.computeFinalMovement
 ultimates/areaTargeting      → free-cursor circle ∩ tile
 ultimates/negativeEffects    → reactive Phoenix/Sage
 ChamberLootWheel             → Tour de Force presentation after apply
-BoardCameraViewport          → overview / follow / event / pulse
-BoardMinimap                 → permanent full-board overlay
+BoardCameraViewport          → overview / follow / event / pulse / manual pan
+BoardMinimap                 → permanent overlay + click-to-navigate
 ```
