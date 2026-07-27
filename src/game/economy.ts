@@ -31,6 +31,9 @@ export const RISK_JACKPOT_PAYMENT = 250;
 /** Starting jackpot seed. */
 export const JACKPOT_SEED = 500;
 
+/** Credits to use a portal teleport between the BL / TR portals. */
+export const PORTAL_CREDIT_COST = 400;
+
 export type StealResult = {
   intended: number;
   actual: number;

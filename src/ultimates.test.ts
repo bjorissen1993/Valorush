@@ -54,7 +54,7 @@ function baseInput(
       id: 2,
       slotIndex: 1,
       ultimateOrbs: 2,
-      position: "o1",
+      position: "s1",
       creds: 900,
     }),
   ];
@@ -135,17 +135,17 @@ describe("applyUltimate — all playable agents", () => {
 
   it("applies tile / path / edge / player / choice ultimates", () => {
     expect(
-      applyUltimate(baseInput("Brimstone", { targetNodeId: "o4" })).headline
+      applyUltimate(baseInput("Brimstone", { targetNodeId: "ot5" })).headline
     ).toBe("Orbital Strike");
     expect(
-      applyUltimate(baseInput("Viper", { targetNodeId: "o12" })).board
+      applyUltimate(baseInput("Viper", { targetNodeId: "or2" })).board
         .poisonClouds[0]?.nodeId
-    ).toBe("o12");
+    ).toBe("or2");
     {
       const existing = createEmptyBoardUltimateState();
       existing.poisonClouds = [
         {
-          nodeId: "o1",
+          nodeId: "s1",
           roundsLeft: 1,
           ownerPlayerIndex: 0,
           activationId: "old",
@@ -154,24 +154,24 @@ describe("applyUltimate — all playable agents", () => {
       ];
       const viper = applyUltimate(
         baseInput("Viper", {
-          targetNodeId: "o12",
+          targetNodeId: "or2",
           board: existing,
           players: [
-            player({ name: "V", position: "o12", ultimateOrbs: 3 }),
-            player({ name: "O", position: "o1", ultimateOrbs: 0 }),
+            player({ name: "V", position: "or2", ultimateOrbs: 3 }),
+            player({ name: "O", position: "s1", ultimateOrbs: 0 }),
           ],
         })
       );
-      expect(viper.board.poisonClouds[0]?.nodeId).toBe("o12");
+      expect(viper.board.poisonClouds[0]?.nodeId).toBe("or2");
       expect(viper.players[0]?.status.inViperPit).toBe(false);
       expect(viper.players[1]?.status.inViperPit).toBe(false);
     }
-    const omen = applyUltimate(baseInput("Omen", { targetNodeId: "o16" }));
+    const omen = applyUltimate(baseInput("Omen", { targetNodeId: "or6" }));
     expect(omen.endTurnImmediately).toBe(true);
     expect(omen.skipLandingActivation).toBe(true);
     expect(
       applyUltimate(
-        baseInput("Killjoy", { targetNodeId: "o10" })
+        baseInput("Killjoy", { targetNodeId: "or1" })
       ).headline
     ).toBe("Lockdown");
     expect(
@@ -179,7 +179,7 @@ describe("applyUltimate — all playable agents", () => {
     ).toBeTruthy();
     expect(
       applyUltimate(
-        baseInput("Sova", { targetNodeId: "o1" })
+        baseInput("Sova", { targetNodeId: "s1" })
       ).headline
     ).toBe("Hunter's Fury");
     expect(
@@ -198,7 +198,7 @@ describe("applyUltimate — all playable agents", () => {
       applyUltimate(
         baseInput("Astra", {
           targetNodeId: "start",
-          targetNodeId2: "o1",
+          targetNodeId2: "s1",
         })
       ).board.walls[0]?.fromNodeId
     ).toBe("start");
@@ -211,20 +211,20 @@ describe("applyUltimate — all playable agents", () => {
       ).chamberLoot?.segmentId
     ).toBe("fallback");
     expect(
-      applyUltimate(baseInput("Vyse", { targetNodeId: "o26" })).board.traps[0]
+      applyUltimate(baseInput("Vyse", { targetNodeId: "portal-bl" })).board.traps[0]
         ?.armed
     ).toBe(true);
   });
 
   it("counts Sova shots down across applies", () => {
-    const first = applyUltimate(baseInput("Sova", { targetNodeId: "o1" }));
+    const first = applyUltimate(baseInput("Sova", { targetNodeId: "s1" }));
     expect(first.sovaShotsRemaining).toBe(2);
     const second = applyUltimate(
-      baseInput("Sova", { targetNodeId: "o1", sovaShotsRemaining: 2 })
+      baseInput("Sova", { targetNodeId: "s1", sovaShotsRemaining: 2 })
     );
     expect(second.sovaShotsRemaining).toBe(1);
     const third = applyUltimate(
-      baseInput("Sova", { targetNodeId: "o1", sovaShotsRemaining: 1 })
+      baseInput("Sova", { targetNodeId: "s1", sovaShotsRemaining: 1 })
     );
     expect(third.sovaShotsRemaining).toBe(0);
   });
@@ -248,9 +248,9 @@ describe("applyUltimate — all playable agents", () => {
       ).headline
     ).toBe("Reckoning");
     expect(
-      applyUltimate(baseInput("Gekko", { targetNodeId: "o12" })).board
+      applyUltimate(baseInput("Gekko", { targetNodeId: "or2" })).board
         .detainZones[0]?.nodeId
-    ).toBe("o12");
+    ).toBe("or2");
     const annihilation = applyUltimate(
       baseInput("Deadlock", { targetPlayerIndex: 1 })
     );
@@ -267,7 +267,7 @@ describe("applyUltimate — all playable agents", () => {
       ).players[0]?.creds
     ).toBe(1200);
     expect(
-      applyUltimate(baseInput("Tejo", { targetNodeId: "o1" })).headline
+      applyUltimate(baseInput("Tejo", { targetNodeId: "s1" })).headline
     ).toBe("Armageddon");
     expect(
       applyUltimate(
@@ -314,7 +314,7 @@ describe("ultimate board helpers", () => {
   });
 
   it("pulls toward a destination and builds connected zones", () => {
-    expect(moveTowardNode("o16", "start", 3)).not.toBe("o16");
-    expect(collectConnectedZone("o4", 3).size).toBe(3);
+    expect(moveTowardNode("or6", "start", 3)).not.toBe("or6");
+    expect(collectConnectedZone("ot5", 3).size).toBe(3);
   });
 });

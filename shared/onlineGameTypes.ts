@@ -134,6 +134,18 @@ export type OnlineGameSnapshot = {
    * per `id`, then host clears after the presentation duration.
    */
   ultimateCast?: UltimateCastCue | null;
+  /**
+   * Mid-road / door toggle mode (button tiles). Shared so all clients
+   * render arrows + doors and pathfinding matches.
+   */
+  midRoadMode?: "vertical_in" | "horizontal_in";
+  /** Portal land prompt waiting for pay / skip. */
+  pendingPortalChoice?: {
+    playerIndex: number;
+    nodeId: string;
+    destinationId: string;
+    cost: number;
+  } | null;
 };
 
 export type OnlineGameAction =
@@ -164,7 +176,8 @@ export type OnlineGameAction =
       choiceId?: string;
       targetPlayerIndex?: number;
       betAmount?: number;
-    };
+    }
+  | { type: "portal_choice"; use: boolean };
 
 export type GameBeginPayload = {
   turnOrder: number[];

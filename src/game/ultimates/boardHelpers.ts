@@ -1,7 +1,7 @@
 import { boardLayout, getNodeById } from "../boardLayout";
 import type { BoardUltimateState } from "../../../shared/ultimates";
 
-/** Build undirected adjacency from the directed board graph. */
+/** Build undirected adjacency from the directed board graph (incl. mid roads). */
 export function buildBoardAdjacency(): Record<string, string[]> {
   const adj: Record<string, Set<string>> = {};
   for (const node of boardLayout) {
@@ -10,6 +10,11 @@ export function buildBoardAdjacency(): Record<string, string[]> {
       adj[node.id]!.add(next);
       if (!adj[next]) adj[next] = new Set();
       adj[next]!.add(node.id);
+    }
+    for (const edge of node.midEdges ?? []) {
+      adj[node.id]!.add(edge.to);
+      if (!adj[edge.to]) adj[edge.to] = new Set();
+      adj[edge.to]!.add(node.id);
     }
   }
   const result: Record<string, string[]> = {};
@@ -28,12 +33,16 @@ export function moveBackSpaces(startNodeId: string, steps: number): string {
   let current = startNodeId;
   for (let i = 0; i < steps; i += 1) {
     const prevs = boardLayout
-      .filter((node) => node.next.includes(current))
+      .filter(
+        (node) =>
+          node.next.includes(current) ||
+          (node.midEdges ?? []).some((e) => e.to === current)
+      )
       .map((node) => node.id);
     if (prevs.length === 0) break;
-    // Prefer non-inner when multiple inbound (merge tiles).
+    // Prefer non-hub / non-door when multiple inbound.
     const preferred =
-      prevs.find((id) => !id.includes("inner")) ?? prevs[0]!;
+      prevs.find((id) => !id.startsWith("d") && id !== "hub") ?? prevs[0]!;
     current = preferred;
   }
   return current;
@@ -193,8 +202,16 @@ export function collectConnectedZone(
 /** Connected edges for Astra Cosmic Divide ultimate targeting. */
 export function listConnectedEdges(): { from: string; to: string; label: string }[] {
   const edges: { from: string; to: string; label: string }[] = [];
+  const seen = new Set<string>();
   for (const node of boardLayout) {
-    for (const next of node.next) {
+    const targets = [
+      ...node.next,
+      ...(node.midEdges ?? []).map((e) => e.to),
+    ];
+    for (const next of targets) {
+      const key = node.id < next ? `${node.id}|${next}` : `${next}|${node.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const nextNode = getNodeById(next);
       edges.push({
         from: node.id,

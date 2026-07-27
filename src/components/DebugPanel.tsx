@@ -708,6 +708,18 @@ export default function DebugPanel({
                 Land on tactical
               </DebugButton>
               <DebugButton
+                onClick={() => onLandOnTile("portal")}
+                tooltip="Simulate landing on a portal tile."
+              >
+                Land on portal
+              </DebugButton>
+              <DebugButton
+                onClick={() => onLandOnTile("button")}
+                tooltip="Simulate landing on a mid-road button."
+              >
+                Land on button
+              </DebugButton>
+              <DebugButton
                 onClick={() => onLandOnTile("start")}
                 tooltip="Teleport selected player to Start for board checks."
               >

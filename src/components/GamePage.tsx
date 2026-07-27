@@ -21,6 +21,7 @@ import BoardCameraViewport, {
   type BoardCameraHandle,
 } from "./BoardCameraViewport";
 import LuckyTileModal from "./LuckyTileModal";
+import PortalTileModal from "./PortalTileModal";
 import TurnBanner from "./TurnBanner";
 import TurnOrderScreen from "./TurnOrderScreen";
 import EventStoryModal from "./EventStoryModal";
@@ -61,7 +62,15 @@ import {
   applyEventChoice,
   type PendingEventChoiceState,
 } from "../game/eventChoiceHandler";
-import { boardLayout, getNodeById, migrateBoardPosition, type TileType } from "../game/boardLayout";
+import {
+  boardLayout,
+  getNodeById,
+  migrateBoardPosition,
+  DEFAULT_MID_ROAD_MODE,
+  toggleMidRoadMode,
+  type MidRoadMode,
+  type TileType,
+} from "../game/boardLayout";
 import { assertBoardGraphValidInDev } from "../game/boardValidator";
 import { rollDice, DEFAULT_DICE_COUNT } from "../game/diceSystem";
 import {
@@ -590,6 +599,18 @@ export default function GamePage({
   const [luckyChoicePlayerIndex, setLuckyChoicePlayerIndex] = useState<number | null>(
     null
   );
+  const [midRoadMode, setMidRoadMode] = useState<MidRoadMode>(
+    () => initialSnapshot?.midRoadMode ?? DEFAULT_MID_ROAD_MODE
+  );
+  const [pendingPortalChoice, setPendingPortalChoice] = useState<{
+    playerIndex: number;
+    nodeId: string;
+    destinationId: string;
+    cost: number;
+  } | null>(() => initialSnapshot?.pendingPortalChoice ?? null);
+  const [pressedButtonId, setPressedButtonId] = useState<string | null>(null);
+  const midRoadModeRef = useRef(midRoadMode);
+  midRoadModeRef.current = midRoadMode;
   const [cameraIntroPending, setCameraIntroPending] = useState(
     () => !restoredLocal && !hasPresetTurnOrder
   );
@@ -691,6 +712,12 @@ export default function GamePage({
         lastPlayedCastIdRef.current = cue.id;
         setUltimateCast(cue);
       }
+    }
+    if (snapshot.midRoadMode) {
+      setMidRoadMode(snapshot.midRoadMode);
+    }
+    if (snapshot.pendingPortalChoice !== undefined) {
+      setPendingPortalChoice(snapshot.pendingPortalChoice);
     }
     setLastRoll(snapshot.lastRoll);
     setDiceDisplayValue(snapshot.diceDisplayValue);
@@ -1484,11 +1511,11 @@ export default function GamePage({
       case "tile_and_move":
       case "area":
       case "multi_shot":
-        return { targetNodeId: "o4" };
+        return { targetNodeId: "ot5" };
       case "path":
         return { choiceId: "outer-top", targetNodeId: "outer-top" };
       case "edge":
-        return { targetNodeId: "start", targetNodeId2: "o1" };
+        return { targetNodeId: "start", targetNodeId2: "s1" };
       case "player":
         return {
           targetPlayerIndex,
@@ -3422,6 +3449,63 @@ export default function GamePage({
     );
   }
 
+  async function resolvePortalChoice(usePortal: boolean) {
+    if (isOnlineGuest) {
+      if (multiplayer?.yourPlayerIndex !== pendingPortalChoice?.playerIndex) {
+        return;
+      }
+      sendAction({ type: "portal_choice", use: usePortal });
+      return;
+    }
+
+    const pending = pendingPortalChoice;
+    setPendingPortalChoice(null);
+    if (!pending) return;
+
+    const { playerIndex, destinationId, cost } = pending;
+    const player = playersInGameRef.current[playerIndex];
+    if (!player) {
+      await advanceToNextPlayer("Next player", "Turn finished.");
+      return;
+    }
+
+    if (usePortal && player.creds >= cost) {
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        creds: Math.max(0, p.creds - cost),
+      }));
+      setIsMoving(true);
+      setMovingPlayerIndex(playerIndex);
+      await animateTeleport(
+        playerIndex,
+        player.position,
+        destinationId,
+        setAnimatedToken
+      );
+      updatePlayerPosition(playerIndex, destinationId);
+      setIsMoving(false);
+      setMovingPlayerIndex(null);
+      setAnimatedToken(null);
+      setStatusTitle(`${player.name} warped`);
+      setStatusSubtitle(`Paid ${cost} creds · arrived at the other portal.`);
+      showAnnouncement("Portal Warp", `−${cost} creds`);
+    } else if (usePortal) {
+      setStatusTitle(`${player.name} can't afford the portal`);
+      setStatusSubtitle(`Needs ${cost} creds (has ${player.creds}).`);
+      showAnnouncement("Portal", "Not enough credits — staying put.");
+    } else {
+      setStatusTitle(`${player.name} skipped the portal`);
+      setStatusSubtitle("Staying on this corner.");
+      showAnnouncement("Portal", "Stayed put.");
+    }
+
+    await sleep(AUTO_ADVANCE_DELAY);
+    await advanceToNextPlayer(
+      `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
+      `${getResolvedNextPlayerName(playerIndex)} is now up`
+    );
+  }
+
   async function resolveLanding(
     playerIndex: number,
     finalNodeId: string,
@@ -3582,6 +3666,45 @@ export default function GamePage({
       await advanceToNextPlayer(
         `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
         `${getResolvedNextPlayerName(playerIndex)} is now up`
+      );
+      return;
+    }
+
+    if (resolution.kind === "button") {
+      const nextMode = toggleMidRoadMode(midRoadModeRef.current);
+      setMidRoadMode(nextMode);
+      setPressedButtonId(finalNodeId);
+      window.setTimeout(() => setPressedButtonId(null), 900);
+      const modeLabel =
+        nextMode === "vertical_in"
+          ? "Vertical roads inward · Horizontal outward (vertical doors open)"
+          : "Horizontal roads inward · Vertical outward (horizontal doors open)";
+      setStatusTitle(`${player.name} pressed a Button`);
+      setStatusSubtitle(modeLabel);
+      showAnnouncement("Button Pressed", modeLabel);
+      setBoardEventPulse((n) => n + 1);
+      await sleep(AUTO_ADVANCE_DELAY);
+      await advanceToNextPlayer(
+        `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
+        `${getResolvedNextPlayerName(playerIndex)} is now up`
+      );
+      return;
+    }
+
+    if (resolution.kind === "portal") {
+      setPendingPortalChoice({
+        playerIndex,
+        nodeId: finalNodeId,
+        destinationId: resolution.destinationId,
+        cost: resolution.cost,
+      });
+      setStatusTitle(`${player.name} found a Portal`);
+      setStatusSubtitle(
+        `Pay ${resolution.cost} creds to teleport to the other portal, or stay.`
+      );
+      showAnnouncement(
+        "Portal",
+        `${resolution.cost} creds to warp across the board`
       );
       return;
     }
@@ -3824,6 +3947,7 @@ export default function GamePage({
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
       onEnterNode: (nodeId, playerIdx) =>
         handleUltimateHazardEnter(nodeId, playerIdx),
+      midRoadMode: midRoadModeRef.current,
     })) as MovementResult;
 
     if (result.blockedBySplit) {
@@ -3937,6 +4061,7 @@ export default function GamePage({
       updatePlayerPosition,
       onPassOverSpike: (nodeId, playerIdx) =>
         handlePassOverSpike(nodeId, playerIdx),
+      midRoadMode: midRoadModeRef.current,
     })) as MovementResult;
 
     if (result.blockedBySplit) {
@@ -4127,6 +4252,7 @@ export default function GamePage({
       !activeStoryEvent &&
       !spikePlantAnimation &&
       luckyChoicePlayerIndex == null &&
+      pendingPortalChoice == null &&
       turnBannerPlayerIndex === null
     );
   }
@@ -4687,6 +4813,7 @@ export default function GamePage({
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
       onEnterNode: (nodeId, playerIdx) =>
         handleUltimateHazardEnter(nodeId, playerIdx),
+      midRoadMode: midRoadModeRef.current,
     });
 
     setIsMoving(false);
@@ -4775,6 +4902,7 @@ export default function GamePage({
       isEdgeBlocked: (from, to) =>
         !yoruIgnore &&
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
+      midRoadMode: midRoadModeRef.current,
     });
     setIsMoving(false);
     setMovingPlayerIndex(null);
@@ -4833,6 +4961,8 @@ export default function GamePage({
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
       boardUltimateState,
       ultimateCast,
+      midRoadMode,
+      pendingPortalChoice,
     });
   }, [
     activeStoryEvent,
@@ -4845,10 +4975,12 @@ export default function GamePage({
     hasRolledThisTurn,
     isMoving,
     lastRoll,
+    midRoadMode,
     movingPlayerIndex,
     multiplayer?.isHost,
     pendingEventChoice,
     pendingPathChoice,
+    pendingPortalChoice,
     phase,
     playersInGame,
     publishSnapshot,
@@ -4898,6 +5030,8 @@ export default function GamePage({
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
       boardUltimateState,
       ultimateCast,
+      midRoadMode,
+      pendingPortalChoice,
     });
   }, [
     activeStoryEvent,
@@ -4910,11 +5044,13 @@ export default function GamePage({
     hasRolledThisTurn,
     isMoving,
     lastRoll,
+    midRoadMode,
     movingPlayerIndex,
     multiplayer,
     onLocalSnapshotChange,
     pendingEventChoice,
     pendingPathChoice,
+    pendingPortalChoice,
     phase,
     playersInGame,
     round,
@@ -4990,6 +5126,11 @@ export default function GamePage({
           break;
         case "finish_event":
           void finishEventStoryAndAdvance();
+          break;
+        case "portal_choice":
+          if (pendingPortalChoice) {
+            void resolvePortalChoice(action.use);
+          }
           break;
         default:
           break;
@@ -5421,6 +5562,17 @@ export default function GamePage({
           <LuckyTileModal
             playerName={playersInGame[luckyChoicePlayerIndex]!.name}
             onChoose={(choice) => void applyLuckyChoice(choice)}
+          />
+        )}
+
+      {pendingPortalChoice != null &&
+        playersInGame[pendingPortalChoice.playerIndex] && (
+          <PortalTileModal
+            playerName={playersInGame[pendingPortalChoice.playerIndex]!.name}
+            credits={playersInGame[pendingPortalChoice.playerIndex]!.creds}
+            cost={pendingPortalChoice.cost}
+            onUse={() => void resolvePortalChoice(true)}
+            onSkip={() => void resolvePortalChoice(false)}
           />
         )}
 
@@ -6103,6 +6255,8 @@ export default function GamePage({
                   traps: boardUltimateState.traps,
                   detainZones: boardUltimateState.detainZones ?? [],
                 }}
+                midRoadMode={midRoadMode}
+                pressedButtonId={pressedButtonId}
               />
               </BoardCameraViewport>
               <BoardMinimap

@@ -10,7 +10,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { boardLayout, getNodeById, listBoardLandmarks } from "../game/boardLayout";
+import { boardLayout, getNodeById, listBoardLandmarks, listPhysicalEdges } from "../game/boardLayout";
 
 export type BoardCameraMode =
   | "overview"
@@ -440,22 +440,21 @@ export function BoardMinimap({
         aria-hidden
         onClick={handleClick}
       >
-        {boardLayout.flatMap((node) =>
-          node.next.map((nextId) => {
-            const next = getNodeById(nextId);
-            if (!next) return null;
-            return (
-              <line
-                key={`${node.id}-${nextId}`}
-                x1={node.x}
-                y1={node.y}
-                x2={next.x}
-                y2={next.y}
-                className="board-minimap__path"
-              />
-            );
-          })
-        )}
+        {listPhysicalEdges().map(({ from, to }) => {
+          const a = getNodeById(from);
+          const b = getNodeById(to);
+          if (!a || !b) return null;
+          return (
+            <line
+              key={`${from}-${to}`}
+              x1={a.x}
+              y1={a.y}
+              x2={b.x}
+              y2={b.y}
+              className="board-minimap__path"
+            />
+          );
+        })}
         {shops.map((n) => (
           <circle key={`shop-${n.id}`} cx={n.x} cy={n.y} r={1.6} className="board-minimap__shop" />
         ))}

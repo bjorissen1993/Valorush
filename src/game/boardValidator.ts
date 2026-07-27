@@ -1,4 +1,10 @@
-import { boardLayout, type BoardNode } from "./boardLayout";
+import {
+  boardLayout,
+  getNodeExits,
+  listPhysicalEdges,
+  type BoardNode,
+  type MidRoadMode,
+} from "./boardLayout";
 
 export type BoardGraphIssue = {
   code:
@@ -19,13 +25,48 @@ export type BoardGraphReport = {
   nodeCount: number;
   branchCount: number;
   issues: BoardGraphIssue[];
+  modeReports: Record<MidRoadMode, { reachable: number; deadEnds: number }>;
 };
 
-function buildInboundMap(nodes: BoardNode[]): Map<string, string[]> {
+function collectModeExits(
+  nodes: BoardNode[],
+  mode: MidRoadMode
+): Map<string, string[]> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const exits = new Map<string, string[]>();
+  for (const node of nodes) {
+    // Prefer layout helper when validating the live board; fall back for custom graphs.
+    if (nodes === boardLayout) {
+      exits.set(node.id, getNodeExits(node.id, mode));
+    } else {
+      const list = [...node.next];
+      for (const edge of node.midEdges ?? []) {
+        const verticalIn =
+          mode === "vertical_in" &&
+          ((edge.axis === "vertical" && edge.dir === "in") ||
+            (edge.axis === "horizontal" && edge.dir === "out"));
+        const horizontalIn =
+          mode === "horizontal_in" &&
+          ((edge.axis === "horizontal" && edge.dir === "in") ||
+            (edge.axis === "vertical" && edge.dir === "out"));
+        if (verticalIn || horizontalIn) list.push(edge.to);
+      }
+      exits.set(node.id, list);
+    }
+    // Ensure referenced targets exist in byId for missing checks below
+    void byId;
+  }
+  return exits;
+}
+
+function buildInboundMap(
+  nodes: BoardNode[],
+  modeExits: Map<string, string[]>
+): Map<string, string[]> {
   const inbound = new Map<string, string[]>();
   for (const node of nodes) {
     if (!inbound.has(node.id)) inbound.set(node.id, []);
-    for (const next of node.next) {
+    for (const next of modeExits.get(node.id) ?? []) {
       const list = inbound.get(next) ?? [];
       list.push(node.id);
       inbound.set(next, list);
@@ -92,27 +133,137 @@ function segmentsCross(a: Seg, b: Seg): boolean {
   return false;
 }
 
-function collectDirectedEdges(nodes: BoardNode[]): Seg[] {
+function collectPhysicalSegments(nodes: BoardNode[]): Seg[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const physical =
+    nodes === boardLayout
+      ? listPhysicalEdges(nodes)
+      : (() => {
+          const seen = new Set<string>();
+          const edges: { from: string; to: string }[] = [];
+          const add = (a: string, b: string) => {
+            const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            edges.push({ from: a, to: b });
+          };
+          for (const node of nodes) {
+            for (const nextId of node.next) add(node.id, nextId);
+            for (const edge of node.midEdges ?? []) add(node.id, edge.to);
+          }
+          return edges;
+        })();
+
   const segs: Seg[] = [];
-  for (const node of nodes) {
-    for (const nextId of node.next) {
-      const next = byId.get(nextId);
-      if (!next) continue;
-      segs.push({
-        fromId: node.id,
-        toId: nextId,
-        x1: node.x,
-        y1: node.y,
-        x2: next.x,
-        y2: next.y,
-      });
-    }
+  for (const { from, to } of physical) {
+    const a = byId.get(from);
+    const b = byId.get(to);
+    if (!a || !b) continue;
+    segs.push({
+      fromId: from,
+      toId: to,
+      x1: a.x,
+      y1: a.y,
+      x2: b.x,
+      y2: b.y,
+    });
   }
   return segs;
 }
 
-/** Validate board connectivity + planar (non-crossing) visual edges. */
+function validateModeReachability(
+  nodes: BoardNode[],
+  byId: Map<string, BoardNode>,
+  mode: MidRoadMode,
+  issues: BoardGraphIssue[]
+): { reachable: number; deadEnds: number } {
+  const modeExits = collectModeExits(nodes, mode);
+  let deadEnds = 0;
+
+  for (const node of nodes) {
+    const exits = modeExits.get(node.id) ?? [];
+    if (exits.length === 0) {
+      deadEnds += 1;
+      issues.push({
+        code: "empty_next",
+        message: `Dead end in mode ${mode} (no exits): ${node.id}`,
+        nodeId: node.id,
+      });
+      issues.push({
+        code: "dead_end",
+        message: `Node ${node.id} has no exits under ${mode}`,
+        nodeId: node.id,
+      });
+    }
+    for (const nextId of exits) {
+      if (!byId.has(nextId)) {
+        issues.push({
+          code: "missing_next",
+          message: `Node ${node.id} points to missing id "${nextId}" (${mode})`,
+          nodeId: node.id,
+        });
+      }
+    }
+    if (exits.length === 1 && exits[0] === node.id) {
+      issues.push({
+        code: "self_loop_only",
+        message: `Node ${node.id} only loops to itself (${mode})`,
+        nodeId: node.id,
+      });
+    }
+  }
+
+  const start = byId.get("start");
+  const reachable = new Set<string>();
+  if (!start) {
+    issues.push({
+      code: "unreachable",
+      message: 'Missing required "start" node',
+    });
+  } else {
+    const queue = ["start"];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (reachable.has(id)) continue;
+      reachable.add(id);
+      for (const next of modeExits.get(id) ?? []) {
+        if (!reachable.has(next)) queue.push(next);
+      }
+    }
+
+    for (const node of nodes) {
+      if (!reachable.has(node.id)) {
+        issues.push({
+          code: "unreachable",
+          message: `Unreachable from start under ${mode}: ${node.id}`,
+          nodeId: node.id,
+        });
+      }
+    }
+  }
+
+  const inbound = buildInboundMap(nodes, modeExits);
+  for (const node of nodes) {
+    if (node.id === "start") continue;
+    if (!reachable.has(node.id)) continue;
+    const from = inbound.get(node.id) ?? [];
+    if (from.length === 0) {
+      issues.push({
+        code: "orphan_inbound",
+        message: `No inbound edges to ${node.id} under ${mode}`,
+        nodeId: node.id,
+      });
+    }
+  }
+
+  return { reachable: reachable.size, deadEnds };
+}
+
+/**
+ * Validate board connectivity for both mid-road modes + planar visual edges.
+ * Dynamic mid-road edges must leave every tile with an exit in each mode,
+ * and both modes must reach the full board from START.
+ */
 export function validateBoardGraph(
   nodes: BoardNode[] = boardLayout
 ): BoardGraphReport {
@@ -130,20 +281,8 @@ export function validateBoardGraph(
     byId.set(node.id, node);
   }
 
+  // Static reference integrity for always-on + mid edges
   for (const node of nodes) {
-    if (node.next.length === 0) {
-      issues.push({
-        code: "empty_next",
-        message: `Dead end (no exits): ${node.id}`,
-        nodeId: node.id,
-      });
-      issues.push({
-        code: "dead_end",
-        message: `Node ${node.id} has no next tiles`,
-        nodeId: node.id,
-      });
-    }
-
     for (const nextId of node.next) {
       if (!byId.has(nextId)) {
         issues.push({
@@ -153,61 +292,33 @@ export function validateBoardGraph(
         });
       }
     }
-
-    if (node.next.length === 1 && node.next[0] === node.id) {
-      issues.push({
-        code: "self_loop_only",
-        message: `Node ${node.id} only loops to itself`,
-        nodeId: node.id,
-      });
-    }
-  }
-
-  const start = byId.get("start");
-  if (!start) {
-    issues.push({
-      code: "unreachable",
-      message: 'Missing required "start" node',
-    });
-  } else {
-    const reachable = new Set<string>();
-    const queue = ["start"];
-    while (queue.length > 0) {
-      const id = queue.shift()!;
-      if (reachable.has(id)) continue;
-      reachable.add(id);
-      const node = byId.get(id);
-      if (!node) continue;
-      for (const next of node.next) {
-        if (!reachable.has(next)) queue.push(next);
-      }
-    }
-
-    for (const node of nodes) {
-      if (!reachable.has(node.id)) {
+    for (const edge of node.midEdges ?? []) {
+      if (!byId.has(edge.to)) {
         issues.push({
-          code: "unreachable",
-          message: `Unreachable from start: ${node.id}`,
+          code: "missing_next",
+          message: `Node ${node.id} midEdge points to missing id "${edge.to}"`,
           nodeId: node.id,
         });
       }
     }
   }
 
-  const inbound = buildInboundMap(nodes);
-  for (const node of nodes) {
-    if (node.id === "start") continue;
-    const from = inbound.get(node.id) ?? [];
-    if (from.length === 0) {
-      issues.push({
-        code: "orphan_inbound",
-        message: `No inbound edges to ${node.id}`,
-        nodeId: node.id,
-      });
-    }
-  }
+  const modeReports = {
+    vertical_in: validateModeReachability(
+      nodes,
+      byId,
+      "vertical_in",
+      issues
+    ),
+    horizontal_in: validateModeReachability(
+      nodes,
+      byId,
+      "horizontal_in",
+      issues
+    ),
+  };
 
-  const segs = collectDirectedEdges(nodes);
+  const segs = collectPhysicalSegments(nodes);
   for (let i = 0; i < segs.length; i += 1) {
     for (let j = i + 1; j < segs.length; j += 1) {
       const a = segs[i]!;
@@ -222,11 +333,18 @@ export function validateBoardGraph(
     }
   }
 
+  const branchCount = nodes.filter((n) => {
+    const a = getNodeExits(n.id, "vertical_in").length;
+    const b = getNodeExits(n.id, "horizontal_in").length;
+    return a > 1 || b > 1;
+  }).length;
+
   return {
     ok: issues.length === 0,
     nodeCount: nodes.length,
-    branchCount: nodes.filter((n) => n.next.length > 1).length,
+    branchCount,
     issues,
+    modeReports,
   };
 }
 
@@ -241,7 +359,8 @@ export function assertBoardGraphValidInDev(): void {
     );
   } else {
     console.info(
-      `[board] Graph OK — ${report.nodeCount} tiles, ${report.branchCount} branches`
+      `[board] Graph OK — ${report.nodeCount} tiles, ${report.branchCount} branches ` +
+        `(modes: V=${report.modeReports.vertical_in.reachable} H=${report.modeReports.horizontal_in.reachable})`
     );
   }
 }

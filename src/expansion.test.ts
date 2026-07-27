@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { boardLayout, migrateBoardPosition } from "./game/boardLayout";
+import {
+  boardLayout,
+  DEFAULT_MID_ROAD_MODE,
+  getNodeExits,
+  migrateBoardPosition,
+  toggleMidRoadMode,
+} from "./game/boardLayout";
 import { validateBoardGraph } from "./game/boardValidator";
-import { stealCredits, rollNormalTileCredits } from "./game/economy";
+import { stealCredits, rollNormalTileCredits, PORTAL_CREDIT_COST } from "./game/economy";
 import { computeFinalMovement, rollDice, DEFAULT_DICE_COUNT } from "./game/diceSystem";
 import { getPlayerTokenPosition } from "./game/tokenLayout";
 import { tileIdsInArea, AREA_RADIUS } from "./game/ultimates/areaTargeting";
@@ -13,24 +19,50 @@ describe("expansion board", () => {
     expect(boardLayout.length).toBeLessThanOrEqual(70);
     expect(boardLayout.every((n) => n.type !== ("split" as never))).toBe(true);
     expect(boardLayout.every((n) => n.type !== ("merge" as never))).toBe(true);
-    expect(boardLayout.some((n) => n.next.length > 1)).toBe(true);
     expect(boardLayout.some((n) => n.type === "start")).toBe(true);
+    expect(boardLayout.some((n) => n.type === "portal")).toBe(true);
+    expect(boardLayout.some((n) => n.type === "button")).toBe(true);
     expect(boardLayout.some((n) => n.type === "lucky")).toBe(true);
     expect(boardLayout.some((n) => n.type === "risk")).toBe(true);
     expect(boardLayout.some((n) => n.type === "ult-orb")).toBe(true);
+    // Branching exists under at least one mid-road mode
+    expect(
+      boardLayout.some((n) => getNodeExits(n.id, DEFAULT_MID_ROAD_MODE).length > 1)
+    ).toBe(true);
   });
 
-  it("passes graph validation", () => {
+  it("passes graph validation in both mid-road modes", () => {
     const report = validateBoardGraph();
     expect(report.ok, JSON.stringify(report.issues, null, 2)).toBe(true);
+    expect(report.modeReports.vertical_in.reachable).toBe(report.nodeCount);
+    expect(report.modeReports.horizontal_in.reachable).toBe(report.nodeCount);
+  });
+
+  it("toggles mid-road directions so hub always has an exit", () => {
+    const modeA = DEFAULT_MID_ROAD_MODE;
+    const modeB = toggleMidRoadMode(modeA);
+    const exitsA = getNodeExits("hub", modeA);
+    const exitsB = getNodeExits("hub", modeB);
+    expect(exitsA.length).toBe(2);
+    expect(exitsB.length).toBe(2);
+    // Mode A: horizontal out; Mode B: vertical out
+    expect(exitsA.sort()).toEqual(["de", "dw"].sort());
+    expect(exitsB.sort()).toEqual(["dn", "ds"].sort());
+    // Outer north entry only in vertical_in
+    expect(getNodeExits("ot5", modeA)).toContain("mn1");
+    expect(getNodeExits("ot5", modeB)).not.toContain("mn1");
   });
 
   it("migrates legacy positions", () => {
-    expect(migrateBoardPosition("top-split")).toBe("o4");
-    expect(migrateBoardPosition("m-top-2")).toBe("m2");
-    expect(migrateBoardPosition("inner-ne")).toBe("i2");
+    expect(migrateBoardPosition("top-split")).toBe("ot5");
+    expect(migrateBoardPosition("m-top-2")).toBe("mn2");
+    expect(migrateBoardPosition("inner-ne")).toBe("de");
     expect(migrateBoardPosition("unknown-xyz")).toBe("start");
     expect(migrateBoardPosition("start")).toBe("start");
+  });
+
+  it("prices portals fairly", () => {
+    expect(PORTAL_CREDIT_COST).toBe(400);
   });
 });
 
@@ -64,8 +96,8 @@ describe("dice & movement", () => {
 
 describe("token stacking", () => {
   it("fans tokens around the bottom of the circle", () => {
-    const a = getPlayerTokenPosition({ id: "o1", x: 10, y: 10 }, 0, 3);
-    const b = getPlayerTokenPosition({ id: "o1", x: 10, y: 10 }, 2, 3);
+    const a = getPlayerTokenPosition({ id: "ot1", x: 10, y: 10 }, 0, 3);
+    const b = getPlayerTokenPosition({ id: "ot1", x: 10, y: 10 }, 2, 3);
     expect(a.offsetXPercent).not.toBe(b.offsetXPercent);
     expect(a.offsetYPercent).toBeGreaterThan(0);
   });
@@ -73,14 +105,20 @@ describe("token stacking", () => {
 
 describe("area targeting", () => {
   it("counts partial tile hits as full", () => {
-    const hub = getNodeById("i2");
+    const hub = getNodeById("hub");
     expect(hub).toBeTruthy();
     const ids = tileIdsInArea({
       center: { x: hub!.x, y: hub!.y },
       radius: AREA_RADIUS.viper,
     });
-    expect(ids.length).toBeGreaterThan(1);
-    expect(ids).toContain("i2");
+    expect(ids).toContain("hub");
+    // Wider cast should also catch adjacent door tiles on the cross.
+    const wide = tileIdsInArea({
+      center: { x: hub!.x, y: hub!.y },
+      radius: Math.max(AREA_RADIUS.viper, 14),
+    });
+    expect(wide.length).toBeGreaterThan(1);
+    expect(wide).toContain("dn");
   });
 });
 

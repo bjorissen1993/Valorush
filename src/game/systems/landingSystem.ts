@@ -1,15 +1,16 @@
-import { getNodeById, type TileType } from "../boardLayout";
+import { getNodeById, PORTAL_PAIR, type TileType } from "../boardLayout";
 import type { GameEvent, PlayerInGame } from "../../types/Game";
 import { getResolvedEventEffect } from "../eventResolution";
 import { getRandomEvent } from "../eventPool";
 import {
   pickLuckyFreeItemId,
+  PORTAL_CREDIT_COST,
   RISK_JACKPOT_PAYMENT,
   rollNormalTileCredits,
   rollRiskCreditLoss,
 } from "../economy";
 
-export { getRandomEvent };
+export { getRandomEvent, PORTAL_CREDIT_COST };
 
 export type LuckyChoiceId =
   | "credits"
@@ -53,6 +54,14 @@ export type LandingResolution =
     }
   | {
       kind: "special";
+    }
+  | {
+      kind: "button";
+    }
+  | {
+      kind: "portal";
+      destinationId: string;
+      cost: number;
     }
   | {
       kind: "normal";
@@ -135,6 +144,21 @@ export function resolveLandingTile({
     return { kind: "special" };
   }
 
+  if (landedNode.type === "button") {
+    return { kind: "button" };
+  }
+
+  if (landedNode.type === "portal") {
+    const destinationId =
+      PORTAL_PAIR[landedNode.id] ??
+      (landedNode.id === "portal-tr" ? "portal-bl" : "portal-tr");
+    return {
+      kind: "portal",
+      destinationId,
+      cost: PORTAL_CREDIT_COST,
+    };
+  }
+
   if (landedNode.type === "risk") {
     const outcome = rollRiskOutcome(random);
     if (outcome === "lose-credits") {
@@ -200,6 +224,16 @@ export function getNormalTileMessage(
       return {
         title: "Tactical",
         subtitle: "+1 movement on your next roll.",
+      };
+    case "button":
+      return {
+        title: "Button",
+        subtitle: "Flipped mid-road directions and doors for everyone.",
+      };
+    case "portal":
+      return {
+        title: "Portal",
+        subtitle: `Pay ${PORTAL_CREDIT_COST} creds to teleport to the other portal.`,
       };
     case "lucky":
       return {

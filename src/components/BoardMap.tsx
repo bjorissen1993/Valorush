@@ -1,5 +1,15 @@
-import { memo, useEffect, useState } from "react";
-import { boardLayout, type TileType } from "../game/boardLayout";
+import { memo, useEffect, useMemo, useState } from "react";
+import {
+  boardLayout,
+  DEFAULT_MID_ROAD_MODE,
+  DOOR_TILE_IDS,
+  getNodeById,
+  isDoorOpen,
+  listActiveMidEdges,
+  listPhysicalEdges,
+  type MidRoadMode,
+  type TileType,
+} from "../game/boardLayout";
 import { getPlayerTokenPosition } from "../game/tokenLayout";
 import type { PlayerInGame } from "../types/Game";
 import type { AnimatedTokenState } from "./GamePage";
@@ -85,6 +95,10 @@ type Props = {
   castFx?: BoardCastFx | null;
   /** Persistent ultimate hazards (poison / walls / traps). */
   hazards?: BoardHazardState | null;
+  /** Mid-road / door toggle mode (shared game state). */
+  midRoadMode?: MidRoadMode;
+  /** Button tile id that was just pressed (visual pulse). */
+  pressedButtonId?: string | null;
 };
 
 const LAYOUT_MIN_X = 5;
@@ -146,6 +160,10 @@ function getTileLabel(type: TileType) {
       return "Orb";
     case "special":
       return "Tact";
+    case "portal":
+      return "Portal";
+    case "button":
+      return "Button";
     case "normal":
       return "";
     case "empty":
@@ -174,6 +192,10 @@ function getTileShortMark(type: TileType) {
       return "◎";
     case "special":
       return "◈";
+    case "portal":
+      return "◎";
+    case "button":
+      return "●";
     case "normal":
     case "empty":
     default:
@@ -193,7 +215,28 @@ type BoardPathSegment = {
   cx: number;
   cy: number;
   d: string;
+  isMidRoad: boolean;
 };
+
+const MID_ROAD_NODE_IDS = new Set([
+  "ot5",
+  "or4",
+  "ob5",
+  "ol4",
+  "mn1",
+  "mn2",
+  "dn",
+  "me1",
+  "me2",
+  "de",
+  "ms1",
+  "ms2",
+  "ds",
+  "mw1",
+  "mw2",
+  "dw",
+  "hub",
+]);
 
 /** Curve path segments toward board center for a winding Mario Party road feel. */
 function curveControlPoint(
@@ -218,33 +261,39 @@ function curveControlPoint(
 }
 
 function buildBoardPathSegments(): BoardPathSegment[] {
-  return boardLayout.flatMap((node) =>
-    node.next.flatMap((nextId, index) => {
-      const nextNode = boardLayout.find((n) => n.id === nextId);
-      if (!nextNode) return [];
+  return listPhysicalEdges().flatMap(({ from, to }) => {
+    const fromNode = getNodeById(from);
+    const toNode = getNodeById(to);
+    if (!fromNode || !toNode) return [];
 
-      const x1 = scaleX(node.x);
-      const y1 = scaleY(node.y);
-      const x2 = scaleX(nextNode.x);
-      const y2 = scaleY(nextNode.y);
-      const { cx, cy } = curveControlPoint(x1, y1, x2, y2);
+    const x1 = scaleX(fromNode.x);
+    const y1 = scaleY(fromNode.y);
+    const x2 = scaleX(toNode.x);
+    const y2 = scaleY(toNode.y);
+    const isMidRoad =
+      MID_ROAD_NODE_IDS.has(from) && MID_ROAD_NODE_IDS.has(to);
+    const { cx, cy } = isMidRoad
+      ? { cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 }
+      : curveControlPoint(x1, y1, x2, y2);
 
-      return [
-        {
-          key: `${node.id}-${nextId}-${index}`,
-          from: node.id,
-          to: nextId,
-          x1,
-          y1,
-          x2,
-          y2,
-          cx,
-          cy,
-          d: `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`,
-        },
-      ];
-    })
-  );
+    return [
+      {
+        key: `${from}-${to}`,
+        from,
+        to,
+        x1,
+        y1,
+        x2,
+        y2,
+        cx,
+        cy,
+        d: isMidRoad
+          ? `M ${x1} ${y1} L ${x2} ${y2}`
+          : `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`,
+        isMidRoad,
+      },
+    ];
+  });
 }
 
 const BOARD_PATH_SEGMENTS = buildBoardPathSegments();
@@ -273,6 +322,10 @@ function getTileClasses(type: TileType) {
       return "board-tile board-tile--ult-orb";
     case "special":
       return "board-tile board-tile--special";
+    case "portal":
+      return "board-tile board-tile--portal";
+    case "button":
+      return "board-tile board-tile--button";
     case "normal":
       return "board-tile board-tile--normal";
     case "empty":
@@ -319,6 +372,8 @@ function BoardMap({
   onSpikePlantAnimationComplete,
   castFx = null,
   hazards = null,
+  midRoadMode = DEFAULT_MID_ROAD_MODE,
+  pressedButtonId = null,
 }: Props) {
   const currentPlayer = players[currentPlayerIndex];
   const currentPlayerNodeId = currentPlayer?.position;
@@ -327,6 +382,10 @@ function BoardMap({
   const castFxNodeSet = new Set(castFx?.nodeIds ?? []);
   const castFxPlayerSet = new Set(castFx?.playerIndices ?? []);
   const castFxTheme = castFx?.theme ?? "generic";
+  const activeMidEdges = useMemo(
+    () => listActiveMidEdges(midRoadMode),
+    [midRoadMode]
+  );
   const poisonNodeSet = new Set(
     (hazards?.poisonClouds ?? [])
       .filter((c) => c.roundsLeft > 0)
@@ -496,6 +555,17 @@ function BoardMap({
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <marker
+            id="mid-road-arrow"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="4.5"
+            markerHeight="4.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1.2 L 9 5 L 0 8.8 Z" fill="rgba(248,113,113,0.95)" />
+          </marker>
           {BOARD_PATH_SEGMENTS.map(({ key, x1, y1, x2, y2 }) => (
             <linearGradient
               key={`grad-${key}`}
@@ -515,7 +585,18 @@ function BoardMap({
           ))}
         </defs>
 
-        {BOARD_PATH_SEGMENTS.map(({ key, from, to, d }) => {
+        {/* Hub ring hint */}
+        <circle
+          cx={scaleX(50)}
+          cy={scaleY(50)}
+          r="14"
+          fill="none"
+          stroke="rgba(255,255,255,0.08)"
+          strokeWidth="0.55"
+          strokeDasharray="2.2 1.8"
+        />
+
+        {BOARD_PATH_SEGMENTS.map(({ key, from, to, d, isMidRoad }) => {
           const selectKey = edgeKey(from, to);
           const isSelectable = selectableEdgeSet.has(selectKey);
           const isHovered = hoveredEdgeKey === selectKey;
@@ -564,7 +645,9 @@ function BoardMap({
                       ? isHovered
                         ? "rgba(252,165,165,0.55)"
                         : "rgba(248,113,113,0.35)"
-                      : "rgba(34,211,238,0.16)"
+                      : isMidRoad
+                        ? "rgba(248,113,113,0.22)"
+                        : "rgba(34,211,238,0.16)"
                 }
                 strokeWidth={
                   isWalled
@@ -573,7 +656,9 @@ function BoardMap({
                       ? isHovered
                         ? 5.2
                         : 4.2
-                      : 3.6
+                      : isMidRoad
+                        ? 3.2
+                        : 3.6
                 }
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -589,7 +674,9 @@ function BoardMap({
                       ? isHovered
                         ? "rgba(254,202,202,0.95)"
                         : "rgba(252,165,165,0.75)"
-                      : `url(#board-path-grad-${key})`
+                      : isMidRoad
+                        ? "rgba(252,165,165,0.45)"
+                        : `url(#board-path-grad-${key})`
                 }
                 strokeWidth={
                   isWalled ? 2.8 : isSelectable ? (isHovered ? 3.2 : 2.6) : 2.2
@@ -637,6 +724,78 @@ function BoardMap({
                     event.stopPropagation();
                     onEdgeClick?.(from, to);
                   }}
+                />
+              )}
+            </g>
+          );
+        })}
+
+        {/* One-way mid-road direction arrows */}
+        {activeMidEdges.map((edge) => {
+          const fromNode = getNodeById(edge.from);
+          const toNode = getNodeById(edge.to);
+          if (!fromNode || !toNode) return null;
+          const x1 = scaleX(fromNode.x);
+          const y1 = scaleY(fromNode.y);
+          const x2 = scaleX(toNode.x);
+          const y2 = scaleY(toNode.y);
+          return (
+            <line
+              key={`arrow-${edge.from}-${edge.to}`}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              stroke="rgba(248,113,113,0.55)"
+              strokeWidth="0.85"
+              markerEnd="url(#mid-road-arrow)"
+              className="board-mid-road-arrow"
+            />
+          );
+        })}
+
+        {/* Hub approach doors (open pair syncs with mid-road mode) */}
+        {DOOR_TILE_IDS.map((doorId) => {
+          const door = getNodeById(doorId);
+          if (!door) return null;
+          const open = isDoorOpen(doorId, midRoadMode);
+          const cx = scaleX(door.x);
+          const cy = scaleY(door.y);
+          const vertical = doorId === "dn" || doorId === "ds";
+          // Dashed gate line perpendicular to the spoke
+          const x1 = vertical ? cx - 3.2 : cx;
+          const y1 = vertical ? cy : cy - 3.2;
+          const x2 = vertical ? cx + 3.2 : cx;
+          const y2 = vertical ? cy : cy + 3.2;
+          return (
+            <g
+              key={`door-${doorId}`}
+              className={
+                open ? "board-door board-door--open" : "board-door board-door--closed"
+              }
+            >
+              <line
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke={
+                  open ? "rgba(74,222,128,0.85)" : "rgba(24,24,27,0.92)"
+                }
+                strokeWidth={open ? 0.7 : 1.15}
+                strokeDasharray={open ? "1.4 1.1" : "0.9 0.7"}
+                strokeLinecap="round"
+              />
+              {!open && (
+                <line
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke="rgba(248,113,113,0.35)"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  opacity="0.55"
                 />
               )}
             </g>
@@ -791,6 +950,8 @@ function BoardMap({
               isTrapTile ? "board-hazard-tile board-hazard-tile--trap" : ""
             } ${
               isDetainTile ? "board-hazard-tile board-hazard-tile--detain" : ""
+            } ${
+              pressedButtonId === node.id ? "board-tile--button-pressed" : ""
             } ${
               isDimmed ? "pointer-events-none opacity-35 saturate-50" : ""
             } ${

@@ -1,5 +1,10 @@
 import type React from "react";
-import { getNodeById } from "../boardLayout";
+import {
+  DEFAULT_MID_ROAD_MODE,
+  getNodeById,
+  getNodeExits,
+  type MidRoadMode,
+} from "../boardLayout";
 
 export const MOVE_STEP_DELAY = 120;
 export const JUMP_DURATION = 280;
@@ -49,6 +54,8 @@ type TraverseOptions = {
     nodeId: string,
     playerIndex: number
   ) => boolean | Promise<boolean>;
+  /** Mid-road / door mode for directed center paths. */
+  midRoadMode?: MidRoadMode;
 };
 
 export function sleep(ms: number) {
@@ -153,21 +160,23 @@ export async function traverseMovement({
   onPassOverSpike,
   isEdgeBlocked,
   onEnterNode,
+  midRoadMode = DEFAULT_MID_ROAD_MODE,
 }: TraverseOptions): Promise<MovementResult> {
   let currentNodeId = startNodeId;
   let remainingSteps = steps;
 
   while (remainingSteps > 0) {
     const node = getNodeById(currentNodeId);
-    if (!node || node.next.length === 0) break;
+    const exits = getNodeExits(currentNodeId, midRoadMode);
+    if (!node || exits.length === 0) break;
 
     // Route choice: any tile with multiple exits pauses mid-movement.
     // Landing effects only run on the final tile (handled by GamePage).
-    const openExits = node.next.filter(
-      (nextId) => !isEdgeBlocked?.(currentNodeId, nextId)
+    const openExits = exits.filter(
+      (nextId) => !isEdgeBlocked?.(currentNodeId, nextNodeId)
     );
 
-    if (node.next.length > 1) {
+    if (exits.length > 1) {
       if (openExits.length === 0) {
         return {
           blockedBySplit: false,
@@ -186,7 +195,7 @@ export async function traverseMovement({
       // Exactly one unblocked exit — auto-take it without prompting.
     }
 
-    const nextNodeId = openExits[0] ?? node.next[0]!;
+    const nextNodeId = openExits[0] ?? exits[0]!;
     if (isEdgeBlocked?.(currentNodeId, nextNodeId)) {
       return {
         blockedBySplit: false,
