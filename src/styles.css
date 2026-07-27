@@ -220,6 +220,186 @@ body {
   contain: layout style paint;
 }
 
+.board-camera-viewport {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  background: #070b14;
+}
+
+.board-camera-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+  transition: none;
+}
+
+.board-camera-stage .board-map-root {
+  width: 100%;
+  height: 100%;
+}
+
+.board-minimap {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 30;
+  width: min(22vw, 168px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.75rem;
+  background: rgba(8, 12, 20, 0.88);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.board-minimap__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.board-minimap__path {
+  stroke: rgba(94, 234, 212, 0.22);
+  stroke-width: 0.55;
+}
+
+.board-minimap__shop {
+  fill: rgba(251, 191, 36, 0.9);
+}
+
+.board-minimap__spike {
+  fill: rgba(251, 146, 60, 0.75);
+}
+
+.board-minimap__spike--active {
+  fill: rgba(255, 70, 85, 0.95);
+}
+
+.board-minimap__start {
+  fill: rgba(52, 211, 153, 0.95);
+}
+
+.board-minimap__player {
+  fill: rgba(226, 232, 240, 0.85);
+  stroke: rgba(15, 23, 42, 0.8);
+  stroke-width: 0.4;
+}
+
+.board-minimap__player--active {
+  fill: rgba(255, 70, 85, 0.95);
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 0.55;
+}
+
+.board-minimap__label {
+  position: absolute;
+  left: 0.45rem;
+  top: 0.35rem;
+  margin: 0;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(161, 161, 170, 0.9);
+}
+
+.lucky-tile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 8, 14, 0.72);
+  backdrop-filter: blur(6px);
+  padding: 1rem;
+}
+
+.lucky-tile-modal {
+  width: min(100%, 28rem);
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  border-radius: 1.1rem;
+  background: linear-gradient(160deg, rgba(28, 22, 10, 0.98), rgba(12, 14, 20, 0.96));
+  padding: 1.25rem 1.35rem 1.4rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.lucky-tile-modal__eyebrow {
+  margin: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(250, 204, 21, 0.85);
+}
+
+.lucky-tile-modal__title {
+  margin: 0.35rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.lucky-tile-modal__subtitle {
+  margin: 0.35rem 0 1rem;
+  font-size: 0.875rem;
+  color: rgba(161, 161, 170, 0.95);
+}
+
+.lucky-tile-modal__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.lucky-tile-modal__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.7rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.lucky-tile-modal__choice:hover {
+  border-color: rgba(250, 204, 21, 0.55);
+  background: rgba(250, 204, 21, 0.08);
+}
+
+.lucky-tile-modal__choice-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fefce8;
+}
+
+.lucky-tile-modal__choice-desc {
+  font-size: 0.72rem;
+  color: rgba(161, 161, 170, 0.95);
+}
+
+@media (max-width: 640px) {
+  .board-minimap {
+    width: min(34vw, 120px);
+    right: 0.5rem;
+    bottom: 0.5rem;
+  }
+
+  .lucky-tile-modal__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .board-map-bg {
   filter: grayscale(80%) brightness(0.42) contrast(0.88);
   opacity: 0.5;
@@ -279,6 +459,26 @@ body {
 .board-tile--empty {
   background: rgba(24, 24, 27, 0.85);
   border-color: rgba(255, 255, 255, 0.12);
+}
+
+.board-tile--lucky {
+  background: rgba(72, 48, 12, 0.94);
+  border-color: rgba(250, 204, 21, 0.75);
+}
+
+.board-tile--risk {
+  background: rgba(48, 16, 24, 0.94);
+  border-color: rgba(248, 113, 113, 0.7);
+}
+
+.board-tile--ult-orb {
+  background: rgba(28, 24, 64, 0.94);
+  border-color: rgba(167, 139, 250, 0.75);
+}
+
+.board-tile--special {
+  background: rgba(16, 40, 48, 0.94);
+  border-color: rgba(45, 212, 191, 0.7);
 }
 
 .board-tile--start {
@@ -2686,13 +2886,14 @@ body {
 }
 
 .game-board-area {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
 }
 
-.game-board-area > * {
+.game-board-area > .board-camera-viewport {
   min-height: 0;
   flex: 1;
 }

@@ -8,12 +8,16 @@ import { tileIdsInArea, AREA_RADIUS } from "./game/ultimates/areaTargeting";
 import { getNodeById } from "./game/boardLayout";
 
 describe("expansion board", () => {
-  it("has ~47–54 tiles with no split/merge types", () => {
-    expect(boardLayout.length).toBeGreaterThanOrEqual(47);
-    expect(boardLayout.length).toBeLessThanOrEqual(54);
+  it("has ~50–70 tiles with no split/merge types", () => {
+    expect(boardLayout.length).toBeGreaterThanOrEqual(50);
+    expect(boardLayout.length).toBeLessThanOrEqual(70);
     expect(boardLayout.every((n) => n.type !== ("split" as never))).toBe(true);
     expect(boardLayout.every((n) => n.type !== ("merge" as never))).toBe(true);
     expect(boardLayout.some((n) => n.next.length > 1)).toBe(true);
+    expect(boardLayout.some((n) => n.type === "start")).toBe(true);
+    expect(boardLayout.some((n) => n.type === "lucky")).toBe(true);
+    expect(boardLayout.some((n) => n.type === "risk")).toBe(true);
+    expect(boardLayout.some((n) => n.type === "ult-orb")).toBe(true);
   });
 
   it("passes graph validation", () => {
@@ -23,6 +27,8 @@ describe("expansion board", () => {
 
   it("migrates legacy positions", () => {
     expect(migrateBoardPosition("top-split")).toBe("o4");
+    expect(migrateBoardPosition("m-top-2")).toBe("m2");
+    expect(migrateBoardPosition("inner-ne")).toBe("i2");
     expect(migrateBoardPosition("unknown-xyz")).toBe("start");
     expect(migrateBoardPosition("start")).toBe("start");
   });
@@ -42,7 +48,7 @@ describe("economy", () => {
     for (let i = 0; i < 200; i += 1) {
       amounts.add(rollNormalTileCredits(() => i / 200));
     }
-    expect([...amounts].every((a) => [300, 500, 1000].includes(a))).toBe(true);
+    expect([...amounts].every((a) => [300, 400, 500].includes(a))).toBe(true);
   });
 });
 
@@ -67,14 +73,14 @@ describe("token stacking", () => {
 
 describe("area targeting", () => {
   it("counts partial tile hits as full", () => {
-    const hub = getNodeById("inner-ne");
+    const hub = getNodeById("i2");
     expect(hub).toBeTruthy();
     const ids = tileIdsInArea({
       center: { x: hub!.x, y: hub!.y },
       radius: AREA_RADIUS.viper,
     });
     expect(ids.length).toBeGreaterThan(1);
-    expect(ids).toContain("inner-ne");
+    expect(ids).toContain("i2");
   });
 });
 

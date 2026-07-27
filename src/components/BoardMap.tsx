@@ -138,6 +138,14 @@ function getTileLabel(type: TileType) {
       return "Event";
     case "minigame":
       return "Mini";
+    case "lucky":
+      return "Lucky";
+    case "risk":
+      return "Risk";
+    case "ult-orb":
+      return "Orb";
+    case "special":
+      return "Tact";
     case "normal":
       return "";
     case "empty":
@@ -151,13 +159,21 @@ function getTileShortMark(type: TileType) {
     case "start":
       return "START";
     case "spike":
-      return "⚡";
+      return "S";
     case "shop":
       return "$";
     case "event":
       return "?";
     case "minigame":
       return "◆";
+    case "lucky":
+      return "★";
+    case "risk":
+      return "!";
+    case "ult-orb":
+      return "◎";
+    case "special":
+      return "◈";
     case "normal":
     case "empty":
     default:
@@ -249,6 +265,14 @@ function getTileClasses(type: TileType) {
       return "board-tile board-tile--spike";
     case "minigame":
       return "board-tile board-tile--minigame";
+    case "lucky":
+      return "board-tile board-tile--lucky";
+    case "risk":
+      return "board-tile board-tile--risk";
+    case "ult-orb":
+      return "board-tile board-tile--ult-orb";
+    case "special":
+      return "board-tile board-tile--special";
     case "normal":
       return "board-tile board-tile--normal";
     case "empty":

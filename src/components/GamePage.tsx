@@ -16,6 +16,8 @@ import { useOnlineGameSync } from "../hooks/useOnlineGameSync";
 import { useChatGameEvents } from "../hooks/useChatGameEvents";
 import { useLocalChat } from "../hooks/useLocalChat";
 import BoardMap from "./BoardMap";
+import BoardCameraViewport, { BoardMinimap } from "./BoardCameraViewport";
+import LuckyTileModal from "./LuckyTileModal";
 import TurnBanner from "./TurnBanner";
 import TurnOrderScreen from "./TurnOrderScreen";
 import EventStoryModal from "./EventStoryModal";
@@ -48,6 +50,8 @@ import {
   resolveLandingTile,
   applyEventEffect,
   getNormalTileMessage,
+  resolveLuckyFreeItemId,
+  type LuckyChoiceId,
 } from "../game/systems/landingSystem";
 import { eventPool, getRandomBoardEvent, boardEventById } from "../game/eventPool";
 import {
@@ -57,7 +61,11 @@ import {
 import { boardLayout, getNodeById, migrateBoardPosition, type TileType } from "../game/boardLayout";
 import { assertBoardGraphValidInDev } from "../game/boardValidator";
 import { rollDice, DEFAULT_DICE_COUNT } from "../game/diceSystem";
-import { RADIANITE_BUY_COST } from "../game/economy";
+import {
+  JACKPOT_SEED,
+  LUCKY_CREDITS_AMOUNT,
+  RADIANITE_BUY_COST,
+} from "../game/economy";
 import { tileIdsInArea, AREA_RADIUS, PLACEMENT_RADIUS, clampCenterToPlacementRadius } from "../game/ultimates/areaTargeting";
 import { detonateKilljoyDevices } from "../game/ultimates/tickStatus";
 import { computeEffectiveRoll, tickMovementModifiers, consumeOneShotMovementBonus, normalizePlayerLoadout, getBoardNodeIds } from "../game/boardEventBridge";
@@ -575,6 +583,18 @@ export default function GamePage({
     y: number;
   } | null>(null);
   const [shopRerollAvailable, setShopRerollAvailable] = useState(false);
+  const [boardJackpot, setBoardJackpot] = useState(JACKPOT_SEED);
+  const [luckyChoicePlayerIndex, setLuckyChoicePlayerIndex] = useState<number | null>(
+    null
+  );
+  const [cameraIntroPending, setCameraIntroPending] = useState(
+    () => !restoredLocal && !hasPresetTurnOrder
+  );
+  const [cameraEventFocus, setCameraEventFocus] = useState<{
+    nodeId: string;
+    holdMs?: number;
+  } | null>(null);
+  const [boardEventPulse, setBoardEventPulse] = useState(0);
   const boardUltimateStateRef = useRef(boardUltimateState);
   boardUltimateStateRef.current = boardUltimateState;
 
@@ -1622,6 +1642,10 @@ export default function GamePage({
       fromNodeId: triggerNodeId,
       toNodeId: created.reveal.plantedOnNodeId,
     });
+    setCameraEventFocus({
+      nodeId: created.reveal.plantedOnNodeId,
+      holdMs: 1600,
+    });
     setLastEventTitle("Spike Planted");
     setStatusTitle(created.reveal.headline);
     setStatusSubtitle(
@@ -1640,6 +1664,11 @@ export default function GamePage({
   function beginShopPhaseForPlayer(playerIndex: number) {
     const player = playersInGame[playerIndex];
     if (!player) return;
+
+    setCameraEventFocus({
+      nodeId: player.position,
+      holdMs: 1100,
+    });
 
     const selectedShopKeeper = getRandomShopKeeper();
     setShopKeeper(selectedShopKeeper);
@@ -3331,6 +3360,64 @@ export default function GamePage({
     );
   }
 
+  async function applyLuckyChoice(choice: LuckyChoiceId) {
+    const playerIndex = luckyChoicePlayerIndex;
+    setLuckyChoicePlayerIndex(null);
+    if (playerIndex == null) return;
+    const player = playersInGameRef.current[playerIndex];
+    if (!player) {
+      await advanceToNextPlayer("Next player", "Turn finished.");
+      return;
+    }
+
+    let subtitle = "";
+    if (choice === "credits") {
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        creds: p.creds + LUCKY_CREDITS_AMOUNT,
+      }));
+      subtitle = `+${LUCKY_CREDITS_AMOUNT} creds`;
+    } else if (choice === "ult-orb") {
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        ultimateOrbs: gainOrb(p.ultimateOrbs ?? 0, 1),
+      }));
+      subtitle = "+1 ultimate orb";
+    } else if (choice === "free-item") {
+      const itemId = resolveLuckyFreeItemId();
+      const itemName = itemById.get(itemId)?.name ?? itemId;
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        items: p.items.includes(itemId) ? p.items : [...p.items, itemId],
+      }));
+      subtitle = `Received ${itemName}`;
+    } else if (choice === "agent-dice") {
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        items: p.items.includes("agent-dice")
+          ? p.items
+          : [...p.items, "agent-dice"],
+      }));
+      subtitle = "Received Agent Dice";
+    } else {
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        movementBonus: (p.movementBonus ?? 0) + 1,
+        movementBonusTurns: 0,
+      }));
+      subtitle = "+1 movement next roll";
+    }
+
+    setStatusTitle(`${player.name} — Lucky`);
+    setStatusSubtitle(subtitle);
+    showAnnouncement("Lucky Reward", subtitle);
+    await sleep(AUTO_ADVANCE_DELAY);
+    await advanceToNextPlayer(
+      `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
+      `${getResolvedNextPlayerName(playerIndex)} is now up`
+    );
+  }
+
   async function resolveLanding(
     playerIndex: number,
     finalNodeId: string,
@@ -3454,6 +3541,104 @@ export default function GamePage({
       return;
     }
 
+    if (resolution.kind === "lucky") {
+      setLuckyChoicePlayerIndex(playerIndex);
+      setStatusTitle(`${player.name} landed on Lucky`);
+      setStatusSubtitle("Choose your reward.");
+      showAnnouncement("Lucky Space", `${player.name} — pick a reward`);
+      return;
+    }
+
+    if (resolution.kind === "ult-orb") {
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        ultimateOrbs: gainOrb(p.ultimateOrbs ?? 0, 1),
+      }));
+      setStatusTitle(`${player.name} +1 Ultimate Orb`);
+      setStatusSubtitle("Ultimate meter charged.");
+      showAnnouncement("+1 Ultimate Orb", `${player.name} gained an orb`);
+      await sleep(AUTO_ADVANCE_DELAY);
+      await advanceToNextPlayer(
+        `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
+        `${getResolvedNextPlayerName(playerIndex)} is now up`
+      );
+      return;
+    }
+
+    if (resolution.kind === "special") {
+      updatePlayer(playerIndex, (p) => ({
+        ...p,
+        movementBonus: (p.movementBonus ?? 0) + 1,
+        movementBonusTurns: 0,
+      }));
+      setStatusTitle(`${player.name} — Tactical Boost`);
+      setStatusSubtitle("+1 movement on your next roll.");
+      showAnnouncement("Tactical Space", `${player.name} gains +1 movement`);
+      await sleep(AUTO_ADVANCE_DELAY);
+      await advanceToNextPlayer(
+        `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
+        `${getResolvedNextPlayerName(playerIndex)} is now up`
+      );
+      return;
+    }
+
+    if (resolution.kind === "risk") {
+      let subtitle = "A mild setback.";
+      if (resolution.outcome === "lose-credits") {
+        const loss = resolution.creditLoss ?? 200;
+        updatePlayer(playerIndex, (p) => ({
+          ...p,
+          creds: Math.max(0, p.creds - loss),
+        }));
+        subtitle = `Lost ${loss} creds.`;
+      } else if (resolution.outcome === "movement-penalty") {
+        updatePlayer(playerIndex, (p) => ({
+          ...p,
+          ultimateStatus: {
+            ...createEmptyPlayerUltimateStatus(),
+            ...p.ultimateStatus,
+            movementPenalty: Math.max(p.ultimateStatus?.movementPenalty ?? 0, 1),
+            movementPenaltyTurns: Math.max(
+              p.ultimateStatus?.movementPenaltyTurns ?? 0,
+              1
+            ),
+          },
+        }));
+        subtitle = "−1 movement next turn.";
+      } else if (resolution.outcome === "lose-orb") {
+        updatePlayer(playerIndex, (p) => ({
+          ...p,
+          ultimateOrbs: clampOrbs((p.ultimateOrbs ?? 0) - 1),
+        }));
+        subtitle = "Lost 1 ultimate orb.";
+      } else if (resolution.outcome === "pay-jackpot") {
+        const payment = resolution.jackpotPayment ?? 250;
+        let paid = 0;
+        updatePlayer(playerIndex, (p) => {
+          paid = Math.min(p.creds, payment);
+          return { ...p, creds: Math.max(0, p.creds - payment) };
+        });
+        setBoardJackpot((j) => j + paid);
+        subtitle = `Paid ${paid} creds into the jackpot (now ${boardJackpot + paid}).`;
+      } else {
+        // minor-negative: small credit sting
+        updatePlayer(playerIndex, (p) => ({
+          ...p,
+          creds: Math.max(0, p.creds - 100),
+        }));
+        subtitle = "Lost 100 creds.";
+      }
+      setStatusTitle(`${player.name} — Risk`);
+      setStatusSubtitle(subtitle);
+      showAnnouncement("Risk Space", subtitle);
+      await sleep(AUTO_ADVANCE_DELAY);
+      await advanceToNextPlayer(
+        `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
+        `${getResolvedNextPlayerName(playerIndex)} is now up`
+      );
+      return;
+    }
+
     const tileMessage = getNormalTileMessage(
       resolution.tileType,
       resolution.creditReward
@@ -3491,6 +3676,7 @@ export default function GamePage({
     setTurnOrder(order);
     setCurrentTurnOrderIndex(0);
     setPhase("playing");
+    setCameraIntroPending(true);
     showTurnBannerFor(firstPlayerIndex);
     setTurnOrderRevealOpen(false);
 
@@ -3936,6 +4122,7 @@ export default function GamePage({
       !pendingEventChoice &&
       !activeStoryEvent &&
       !spikePlantAnimation &&
+      luckyChoicePlayerIndex == null &&
       turnBannerPlayerIndex === null
     );
   }
@@ -4408,6 +4595,12 @@ export default function GamePage({
       });
       lastPlayedCastIdRef.current = cue.id;
       setUltimateCast(cue);
+      const focusNode =
+        cue.highlightNodeIds[0] ?? caster.position ?? "start";
+      setCameraEventFocus({ nodeId: focusNode, holdMs: 1100 });
+      if ((cue.highlightNodeIds?.length ?? 0) > 3) {
+        setBoardEventPulse((n) => n + 1);
+      }
       await sleep(Math.min(900, cue.durationMs));
     }
 
@@ -5219,6 +5412,14 @@ export default function GamePage({
           />
         )}
 
+      {luckyChoicePlayerIndex != null &&
+        playersInGame[luckyChoicePlayerIndex] && (
+          <LuckyTileModal
+            playerName={playersInGame[luckyChoicePlayerIndex]!.name}
+            onChoose={(choice) => void applyLuckyChoice(choice)}
+          />
+        )}
+
       {customMatchPhase?.step === "format" && (
         <MatchFormatPresentation
           matchId={customMatchPhase.match.matchId}
@@ -5754,6 +5955,18 @@ export default function GamePage({
             )}
 
             <div className="game-board-area">
+              <BoardCameraViewport
+                followNodeId={
+                  playersInGame[movingPlayerIndex ?? currentPlayerIndex]?.position
+                }
+                playerNodeIds={playersInGame.map((p) => p.position)}
+                eventFocus={cameraEventFocus}
+                playIntro={cameraIntroPending && phase === "playing"}
+                onIntroComplete={() => {
+                  setCameraIntroPending(false);
+                }}
+                boardEventPulse={boardEventPulse}
+              >
               <BoardMap
                 players={playersInGame}
                 currentPlayerIndex={currentPlayerIndex}
@@ -5885,6 +6098,18 @@ export default function GamePage({
                   traps: boardUltimateState.traps,
                   detainZones: boardUltimateState.detainZones ?? [],
                 }}
+              />
+              </BoardCameraViewport>
+              <BoardMinimap
+                players={playersInGame}
+                currentPlayerIndex={currentPlayerIndex}
+                activeSpikeNodeId={
+                  activeSpike &&
+                  (activeSpike.status === "planted" ||
+                    activeSpike.status === "half-defused")
+                    ? activeSpike.plantedOnNodeId
+                    : null
+                }
               />
             </div>
           </div>

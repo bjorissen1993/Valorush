@@ -4,9 +4,11 @@
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| **A — Board** | Done | ~51-tile planar network (concentric outer/mid/inner rings + radial connectors); branching via `next.length > 1` only; no `split`/`merge` types; route-choice pause mid-move; `boardValidator` (connectivity + visual non-crossing); legacy position remap |
-| **B — Circular tiles + stacking** | Done | Smaller circular tiles; `getPlayerTokenPosition` fans 1–4 tokens on bottom arc |
-| **C — Normal tiles + economy** | Done | Weighted credit roll; `stealCredits` helper; `RADIANITE_BUY_COST = 3000` |
+| **A — Board** | Done | ~58-tile planar network (outer/mid/inner + radial connectors); regional pacing Safe→Prep→Danger→Recovery→Crossroads→Chaos; branching via `next.length > 1` only; no `split`/`merge` types; route-choice pause mid-move; `boardValidator` (connectivity + visual non-crossing); legacy position remap |
+| **A2 — Tile types** | Done | Credits/normal (+300/+400/+500), Event, Shop, Lucky (player choice), Ult Orb (+1), Minigame, Spike, Risk (mild setbacks + jackpot), Tactical/Special (+1 move); landing handlers in `landingSystem` / `GamePage` |
+| **A3 — Camera + minimap** | Done | Match-start overview (landmarks → START), smooth follow + dynamic cluster zoom, event pan (spike/shop), board-event pulse, permanent minimap |
+| **B — Circular tiles + stacking** | Done | Smaller circular tiles color-coded by type; `getPlayerTokenPosition` fans 1–4 tokens on bottom arc; large distinct START |
+| **C — Normal tiles + economy** | Done | Weighted credit roll 300/400/500; `stealCredits` helper; shared jackpot; `RADIANITE_BUY_COST = 3000` |
 | **D — Two dice** | Done | Default 2d6; `computeFinalMovement = max(0, rolled + bonuses − debuffs)` |
 | **E — Shop revision** | Done | Rotating shop (dice, agent dice, ult orb, Odin, Operator, defuse items, backpack, dice holder); Lucky Backpack shop reroll; Dice Holder store/reuse |
 | **F — Ultimate reworks** | Done | Priority agents playable; Cypher match-config modal; Sova 3-shot re-aim; free-cursor area placement; Chamber loot wheel UI |
@@ -32,6 +34,8 @@
 - `src/game/ultimates/areaTargeting.ts`
 - `src/game/ultimates/negativeEffects.ts`
 - `src/components/ChamberLootWheel.tsx`
+- `src/components/BoardCameraViewport.tsx`
+- `src/components/LuckyTileModal.tsx`
 - `src/expansion.test.ts`
 
 ## Remaining / deferred
@@ -40,12 +44,13 @@
 - [ ] Phoenix/Sage reactive prompt modal polish (green theme for Sage)
 - [ ] Online: sync `killjoyDevices` / `slowZones` / `areaNodeIds` on `use_ultimate` actions
 - [ ] Spike item integration polish for Advanced Defuse Kit / Defuse Drone in defuse modal
+- [ ] Online sync for Lucky choice / jackpot (camera is local-visual; board rewards still apply locally)
 
 ## Save / migration
 
 - Legacy node ids (`top-split`, `right-merge`, …) remap via `migrateBoardPosition`
+- Prior mid/inner ids (`m-top-*`, `inner-ne`, …) remap onto `m*` / `i*` rings
 - Legacy `split`/`merge` tile types → `normal`
-- Prior hub ids (`inner-hub`, `inner-exit-ne`, `inner-exit-sw`) remap onto inner ring
 - `BoardUltimateState` normalized for missing `killjoyDevices` / `slowZones` / poison `activationId`
 - Invalid saved positions fall back to `start`
 
@@ -59,4 +64,6 @@ diceSystem.computeFinalMovement
 ultimates/areaTargeting      → free-cursor circle ∩ tile
 ultimates/negativeEffects    → reactive Phoenix/Sage
 ChamberLootWheel             → Tour de Force presentation after apply
+BoardCameraViewport          → overview / follow / event / pulse
+BoardMinimap                 → permanent full-board overlay
 ```

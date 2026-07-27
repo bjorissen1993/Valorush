@@ -684,6 +684,30 @@ export default function DebugPanel({
                 Land on normal
               </DebugButton>
               <DebugButton
+                onClick={() => onLandOnTile("lucky")}
+                tooltip="Simulate landing on a lucky tile (player choice)."
+              >
+                Land on lucky
+              </DebugButton>
+              <DebugButton
+                onClick={() => onLandOnTile("risk")}
+                tooltip="Simulate landing on a risk tile (mild setback)."
+              >
+                Land on risk
+              </DebugButton>
+              <DebugButton
+                onClick={() => onLandOnTile("ult-orb")}
+                tooltip="Simulate landing on an ultimate orb tile."
+              >
+                Land on ult orb
+              </DebugButton>
+              <DebugButton
+                onClick={() => onLandOnTile("special")}
+                tooltip="Simulate landing on a tactical special tile."
+              >
+                Land on tactical
+              </DebugButton>
+              <DebugButton
                 onClick={() => onLandOnTile("start")}
                 tooltip="Teleport selected player to Start for board checks."
               >
