@@ -4113,6 +4113,7 @@ function handleHttpRequest(req, res) {
   if (pathname === "/api/health") {
     const indexPath2 = (0, import_node_path.join)(DIST_DIR, "index.html");
     const integrity = checkDistIntegrity();
+    const gitCommit = process.env.RAILWAY_GIT_COMMIT_SHA?.trim() || process.env.RAILWAY_GIT_COMMIT?.trim() || null;
     sendJson(res, integrity.ok ? 200 : 503, {
       ok: integrity.ok,
       wsPath: "/ws",
@@ -4120,7 +4121,8 @@ function handleHttpRequest(req, res) {
       distDir: DIST_DIR,
       assetRefs: integrity.assetRefs,
       missingAssets: integrity.missingAssets,
-      assetsOnDisk: integrity.assetsOnDisk
+      assetsOnDisk: integrity.assetsOnDisk,
+      gitCommit
     });
     return;
   }

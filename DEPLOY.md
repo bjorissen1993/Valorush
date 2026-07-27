@@ -25,6 +25,14 @@ git push origin main
 
 Railway redeploys from `main`. No manual dashboard changes required.
 
+### Verify the live board after deploy
+
+The board graph is **baked into the Vite client bundle** at Docker build time (not loaded from a saved lobby snapshot). After a map change:
+
+1. Wait for Railway’s deploy to go **Success** (dashboard → Deployments). If `git push` did not create a new deployment, use Command Palette → **Deploy Latest Commit**.
+2. Check `https://valorush.freakydev.com/api/health` — `gitCommit` should match `origin/main`, and `assetRefs` hashes must change vs the previous deploy.
+3. Hard-refresh the browser (Ctrl+Shift+R). Start a **new** local/online game; old lobbies keep player positions but always render the layout from the current JS bundle.
+
 ## Required Railway variables
 
 Set these in the Railway service **Variables** tab. They are used at **Docker build time** (baked into the Vite client) and at **runtime** (server-side OAuth token exchange).
