@@ -5,7 +5,7 @@
  * - Four distinct loops (TL / TR / BR / BL) — clover / flower, not outer oval
  * - 4 gates at hub↔petal splits (one branch open; never blocks the map)
  * - Gate Buttons flip a single gate; portals at TR / BL (Bind-style pair)
- * - Coordinates are layout-space percentages (roughly 6–94)
+ * - Coordinates are layout-space percentages (roughly 2–99); petals spread out with straighter runs
  */
 
 export type TileType =
@@ -322,16 +322,16 @@ function buildCloverBoard(): BoardNode[] {
     return node;
   };
 
-  // ── Central hub ring (crossroads) ────────────────────────────────
+  // ── Central hub ring (crossroads) — slightly larger for clear spokes ─
   const hub = [
-    add(n("i0", "normal", 50, 40)), // N
-    add(n("i1", "normal", 57, 43)), // NE — g2 fork
-    add(n("i2", "event", 60, 50)), // E
-    add(n("i3", "normal", 57, 57)), // SE — g3 fork
-    add(n("i4", "normal", 50, 60)), // S
-    add(n("i5", "normal", 43, 57)), // SW — g4 fork
-    add(n("i6", "lucky", 40, 50)), // W
-    add(n("i7", "normal", 43, 43)), // NW — g1 fork
+    add(n("i0", "normal", 50, 34)), // N
+    add(n("i1", "normal", 61, 39)), // NE — g2 fork
+    add(n("i2", "event", 66, 50)), // E
+    add(n("i3", "normal", 61, 61)), // SE — g3 fork
+    add(n("i4", "normal", 50, 66)), // S
+    add(n("i5", "normal", 39, 61)), // SW — g4 fork
+    add(n("i6", "lucky", 34, 50)), // W
+    add(n("i7", "normal", 39, 39)), // NW — g1 fork
   ];
   linkCycle(hub);
 
@@ -342,20 +342,20 @@ function buildCloverBoard(): BoardNode[] {
   linkBoth(kingdom, hub[6]!); // W
 
   // ── Top-left petal (START + orb) ─────────────────────────────────
-  // Outer arc only; g1L↔g1R closes the petal so gate spokes never cross roads.
-  const g1L = add(n("g1L", "normal", 35, 36));
-  const g1R = add(n("g1R", "normal", 47, 31));
+  // Outer loop with even chord spacing; g1L↔g1R closes the petal.
+  const g1L = add(n("g1L", "normal", 29, 33));
+  const g1R = add(n("g1R", "normal", 40, 31));
   const tl = [
     g1L,
-    add(n("tl0", "normal", 26, 30)),
-    add(n("tl1", "ult-orb", 18, 22)),
-    add(n("start", "start", 11, 13)),
-    add(n("tl2", "normal", 15, 6)),
-    add(n("tl3", "event", 27, 4)),
-    add(n("tl4", "normal", 38, 7)),
-    add(n("tl5", "normal", 46, 14)),
-    add(n("tl6", "normal", 52, 22)),
-    add(n("tl7", "normal", 50, 28)),
+    add(n("tl0", "normal", 18, 28)),
+    add(n("tl1", "ult-orb", 9, 19)),
+    add(n("start", "start", 4, 8)),
+    add(n("tl2", "normal", 9, 2)),
+    add(n("tl3", "event", 24, 1)),
+    add(n("tl4", "normal", 38, 3)),
+    add(n("tl5", "normal", 48, 10)),
+    add(n("tl6", "normal", 53, 20)),
+    add(n("tl7", "normal", 49, 28)),
     g1R,
   ];
   linkCycle(tl);
@@ -363,18 +363,18 @@ function buildCloverBoard(): BoardNode[] {
   gateBoth(hub[7]!, g1R, "g1", "right");
 
   // ── Top-right petal (purple portal) ──────────────────────────────
-  const g2L = add(n("g2L", "normal", 53, 31));
-  const g2R = add(n("g2R", "normal", 65, 36));
+  const g2L = add(n("g2L", "normal", 60, 31));
+  const g2R = add(n("g2R", "normal", 71, 34));
   const tr = [
     g2L,
-    add(n("tr0", "normal", 58, 22)),
-    add(n("tr1", "shop", 68, 12)),
-    add(n("tr2", "normal", 80, 9)),
-    add(n("portal-tr", "portal", 89, 15)),
-    add(n("tr3", "risk", 93, 26)),
-    add(n("tr4", "ult-orb", 90, 38)),
-    add(n("tr5", "normal", 82, 46)),
-    add(n("tr6", "normal", 72, 48)),
+    add(n("tr0", "normal", 57, 19)),
+    add(n("tr1", "shop", 68, 7)),
+    add(n("tr2", "normal", 82, 2)),
+    add(n("portal-tr", "portal", 95, 11)),
+    add(n("tr3", "risk", 98, 26)),
+    add(n("tr4", "ult-orb", 95, 41)),
+    add(n("tr5", "normal", 85, 49)),
+    add(n("tr6", "normal", 73, 49)),
     add(n("tr7", "normal", 66, 42)),
     g2R,
   ];
@@ -383,18 +383,18 @@ function buildCloverBoard(): BoardNode[] {
   gateBoth(hub[1]!, g2R, "g2", "right");
 
   // ── Bottom-right petal (shops / spike) ───────────────────────────
-  const g3L = add(n("g3L", "normal", 65, 64));
-  const g3R = add(n("g3R", "normal", 53, 69));
+  const g3L = add(n("g3L", "normal", 71, 66));
+  const g3R = add(n("g3R", "normal", 60, 71));
   const br = [
     g3L,
-    add(n("br0", "shop", 74, 62)),
-    add(n("br1", "normal", 84, 68)),
-    add(n("br2", "spike", 91, 78)),
-    add(n("br3", "minigame", 88, 88)),
-    add(n("br4", "event", 74, 93)),
-    add(n("br5", "normal", 60, 90)),
-    add(n("br6", "normal", 54, 84)),
-    add(n("br7", "normal", 52, 76)),
+    add(n("br0", "shop", 82, 64)),
+    add(n("br1", "normal", 94, 71)),
+    add(n("br2", "spike", 98, 84)),
+    add(n("br3", "minigame", 93, 96)),
+    add(n("br4", "event", 76, 99)),
+    add(n("br5", "normal", 60, 95)),
+    add(n("br6", "normal", 54, 87)),
+    add(n("br7", "normal", 54, 77)),
     g3R,
   ];
   linkCycle(br);
@@ -402,19 +402,19 @@ function buildCloverBoard(): BoardNode[] {
   gateBoth(hub[3]!, g3R, "g3", "right");
 
   // ── Bottom-left petal (cyan portal) ──────────────────────────────
-  const g4L = add(n("g4L", "normal", 35, 64));
-  const g4R = add(n("g4R", "normal", 47, 69));
+  const g4L = add(n("g4L", "normal", 29, 66));
+  const g4R = add(n("g4R", "normal", 40, 71));
   const bl = [
     g4L,
-    add(n("bl0", "lucky", 26, 62)),
-    add(n("bl1", "event", 16, 68)),
-    add(n("portal-bl", "portal", 9, 78)),
-    add(n("bl2", "minigame", 12, 88)),
-    add(n("bl3", "normal", 24, 93)),
-    add(n("bl4", "normal", 38, 90)),
-    add(n("bl5", "risk", 44, 82)),
-    add(n("bl6", "normal", 46, 76)),
-    add(n("bl7", "normal", 42, 72)),
+    add(n("bl0", "lucky", 18, 64)),
+    add(n("bl1", "event", 8, 71)),
+    add(n("portal-bl", "portal", 2, 84)),
+    add(n("bl2", "minigame", 5, 96)),
+    add(n("bl3", "normal", 20, 99)),
+    add(n("bl4", "normal", 38, 95)),
+    add(n("bl5", "risk", 46, 87)),
+    add(n("bl6", "normal", 46, 77)),
+    add(n("bl7", "normal", 44, 71)),
     g4R,
   ];
   linkCycle(bl);
@@ -422,10 +422,10 @@ function buildCloverBoard(): BoardNode[] {
   gateBoth(hub[5]!, g4R, "g4", "right");
 
   // ── Gate Buttons (spurs on petals; always reconnect) ─────────────
-  const btn1 = add(n("btn-g1", "button", 42, 10, { controlsGate: "g1" }));
-  const btn2 = add(n("btn-g2", "button", 84, 32, { controlsGate: "g2" }));
-  const btn3 = add(n("btn-g3", "button", 80, 80, { controlsGate: "g3" }));
-  const btn4 = add(n("btn-g4", "button", 20, 80, { controlsGate: "g4" }));
+  const btn1 = add(n("btn-g1", "button", 32, 1, { controlsGate: "g1" }));
+  const btn2 = add(n("btn-g2", "button", 91, 33, { controlsGate: "g2" }));
+  const btn3 = add(n("btn-g3", "button", 91, 88, { controlsGate: "g3" }));
+  const btn4 = add(n("btn-g4", "button", 10, 84, { controlsGate: "g4" }));
   linkBoth(btn1, byId.get("tl4")!);
   linkBoth(btn2, byId.get("tr3")!);
   linkBoth(btn3, byId.get("br2")!);

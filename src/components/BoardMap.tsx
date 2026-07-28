@@ -102,10 +102,10 @@ type Props = {
   pressedButtonId?: string | null;
 };
 
-const LAYOUT_MIN_X = 5;
-const LAYOUT_MAX_X = 93;
-const LAYOUT_MIN_Y = 5;
-const LAYOUT_MAX_Y = 93;
+const LAYOUT_MIN_X = 2;
+const LAYOUT_MAX_X = 99;
+const LAYOUT_MIN_Y = 1;
+const LAYOUT_MAX_Y = 99;
 
 const RENDER_MIN_X = 8;
 const RENDER_MAX_X = 92;
@@ -222,28 +222,7 @@ type BoardPathSegment = {
 
 const MID_ROAD_NODE_IDS = GATE_BRANCH_NODE_IDS;
 
-/** Curve path segments toward board center for a winding Mario Party road feel. */
-function curveControlPoint(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number
-): { cx: number; cy: number } {
-  const mx = (x1 + x2) / 2;
-  const my = (y1 + y2) / 2;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.hypot(dx, dy) || 1;
-  const px = -dy / len;
-  const py = dx / len;
-  const toCenterX = 50 - mx;
-  const toCenterY = 50 - my;
-  const towardCenter = px * toCenterX + py * toCenterY;
-  const sign = towardCenter >= 0 ? 1 : -1;
-  const bulge = Math.min(5.2, Math.max(1.1, len * 0.22)) * sign;
-  return { cx: mx + px * bulge, cy: my + py * bulge };
-}
-
+/** Straight road segments between adjacent tiles (gentle midpoints for markers). */
 function buildBoardPathSegments(): BoardPathSegment[] {
   return listPhysicalEdges().flatMap(({ from, to }) => {
     const fromNode = getNodeById(from);
@@ -256,9 +235,8 @@ function buildBoardPathSegments(): BoardPathSegment[] {
     const y2 = scaleY(toNode.y);
     const isMidRoad =
       MID_ROAD_NODE_IDS.has(from) && MID_ROAD_NODE_IDS.has(to);
-    const { cx, cy } = isMidRoad
-      ? { cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 }
-      : curveControlPoint(x1, y1, x2, y2);
+    const cx = (x1 + x2) / 2;
+    const cy = (y1 + y2) / 2;
 
     return [
       {
@@ -271,9 +249,7 @@ function buildBoardPathSegments(): BoardPathSegment[] {
         y2,
         cx,
         cy,
-        d: isMidRoad
-          ? `M ${x1} ${y1} L ${x2} ${y2}`
-          : `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`,
+        d: `M ${x1} ${y1} L ${x2} ${y2}`,
         isMidRoad,
       },
     ];
