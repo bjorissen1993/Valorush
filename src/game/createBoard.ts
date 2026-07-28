@@ -1,7 +1,7 @@
 import { Tile } from "./gameState";
 
 /**
- * Legacy linear board helper — unused by the Kingdom map.
+ * Legacy linear board helper — unused by the clover map.
  * Prefer `boardLayout` from `./boardLayout`.
  */
 export function createBoard(): Tile[] {

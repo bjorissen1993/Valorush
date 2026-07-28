@@ -264,7 +264,6 @@ function enumerateGateConfigs(): { label: string; states: GateStates }[] {
         g2: "right",
         g3: "right",
         g4: "right",
-        g5: "right",
       },
     },
     {
@@ -274,7 +273,6 @@ function enumerateGateConfigs(): { label: string; states: GateStates }[] {
         g2: "left",
         g3: "left",
         g4: "left",
-        g5: "left",
       },
     },
   ];

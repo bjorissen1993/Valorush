@@ -135,7 +135,7 @@ describe("applyUltimate — all playable agents", () => {
 
   it("applies tile / path / edge / player / choice ultimates", () => {
     expect(
-      applyUltimate(baseInput("Brimstone", { targetNodeId: "o3" })).headline
+      applyUltimate(baseInput("Brimstone", { targetNodeId: "tl3" })).headline
     ).toBe("Orbital Strike");
     expect(
       applyUltimate(baseInput("Viper", { targetNodeId: "or2" })).board
@@ -166,7 +166,7 @@ describe("applyUltimate — all playable agents", () => {
       expect(viper.players[0]?.status.inViperPit).toBe(false);
       expect(viper.players[1]?.status.inViperPit).toBe(false);
     }
-    const omen = applyUltimate(baseInput("Omen", { targetNodeId: "o11" }));
+    const omen = applyUltimate(baseInput("Omen", { targetNodeId: "br2" }));
     expect(omen.endTurnImmediately).toBe(true);
     expect(omen.skipLandingActivation).toBe(true);
     expect(
@@ -244,7 +244,7 @@ describe("applyUltimate — all playable agents", () => {
   it("applies formerly stubbed lobby agents", () => {
     expect(
       applyUltimate(
-        baseInput("Harbor", { choiceId: "outer-top", targetNodeId: "outer-top" })
+        baseInput("Harbor", { choiceId: "petal-nw", targetNodeId: "petal-nw" })
       ).headline
     ).toBe("Reckoning");
     expect(
@@ -314,7 +314,7 @@ describe("ultimate board helpers", () => {
   });
 
   it("pulls toward a destination and builds connected zones", () => {
-    expect(moveTowardNode("o11", "start", 3)).not.toBe("o11");
-    expect(collectConnectedZone("o3", 3).size).toBe(3);
+    expect(moveTowardNode("br2", "start", 3)).not.toBe("br2");
+    expect(collectConnectedZone("tl3", 3).size).toBe(3);
   });
 });

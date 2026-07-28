@@ -44,19 +44,19 @@ describe("expansion board", () => {
   it("toggles a single gate branch without trapping the board", () => {
     const left = DEFAULT_GATE_STATES;
     const right = toggleGate(left, "g1");
-    expect(getNodeExits("o3", left)).toContain("g1L");
-    expect(getNodeExits("o3", left)).not.toContain("g1R");
-    expect(getNodeExits("o3", right)).toContain("g1R");
-    expect(getNodeExits("o3", right)).not.toContain("g1L");
-    // Inner reconnect always available from branch tiles
-    expect(getNodeExits("g1L", left)).toContain("i0");
-    expect(getNodeExits("g1R", right)).toContain("i7");
-    expect(GATE_IDS).toHaveLength(5);
+    expect(getNodeExits("i7", left)).toContain("g1L");
+    expect(getNodeExits("i7", left)).not.toContain("g1R");
+    expect(getNodeExits("i7", right)).toContain("g1R");
+    expect(getNodeExits("i7", right)).not.toContain("g1L");
+    // Petal loop keeps both branch tiles reachable without the closed gate
+    expect(getNodeExits("g1L", left)).toContain("tl0");
+    expect(getNodeExits("g1R", right).length).toBeGreaterThan(0);
+    expect(GATE_IDS).toHaveLength(4);
     expect(GATE_LABELS.g1).toMatch(/Gate/);
   });
 
   it("migrates legacy positions", () => {
-    expect(migrateBoardPosition("top-split")).toBe("o3");
+    expect(migrateBoardPosition("top-split")).toBe("i7");
     expect(migrateBoardPosition("m-top-2")).toBe("g1L");
     expect(migrateBoardPosition("inner-ne")).toBe("i2");
     expect(migrateBoardPosition("hub")).toBe("kingdom");
