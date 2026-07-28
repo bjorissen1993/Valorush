@@ -11,7 +11,7 @@ export function buildBoardAdjacency(): Record<string, string[]> {
       if (!adj[next]) adj[next] = new Set();
       adj[next]!.add(node.id);
     }
-    for (const edge of node.midEdges ?? []) {
+    for (const edge of node.gateEdges ?? []) {
       adj[node.id]!.add(edge.to);
       if (!adj[edge.to]) adj[edge.to] = new Set();
       adj[edge.to]!.add(node.id);
@@ -36,13 +36,14 @@ export function moveBackSpaces(startNodeId: string, steps: number): string {
       .filter(
         (node) =>
           node.next.includes(current) ||
-          (node.midEdges ?? []).some((e) => e.to === current)
+          (node.gateEdges ?? []).some((e) => e.to === current)
       )
       .map((node) => node.id);
     if (prevs.length === 0) break;
-    // Prefer non-hub / non-door when multiple inbound.
+    // Prefer outer / non-facility when multiple inbound.
     const preferred =
-      prevs.find((id) => !id.startsWith("d") && id !== "hub") ?? prevs[0]!;
+      prevs.find((id) => id !== "kingdom" && !id.startsWith("btn")) ??
+      prevs[0]!;
     current = preferred;
   }
   return current;
@@ -206,7 +207,7 @@ export function listConnectedEdges(): { from: string; to: string; label: string 
   for (const node of boardLayout) {
     const targets = [
       ...node.next,
-      ...(node.midEdges ?? []).map((e) => e.to),
+      ...(node.gateEdges ?? []).map((e) => e.to),
     ];
     for (const next of targets) {
       const key = node.id < next ? `${node.id}|${next}` : `${next}|${node.id}`;

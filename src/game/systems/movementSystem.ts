@@ -1,9 +1,9 @@
 import type React from "react";
 import {
-  DEFAULT_MID_ROAD_MODE,
+  DEFAULT_GATE_STATES,
   getNodeById,
   getNodeExits,
-  type MidRoadMode,
+  type GateStates,
 } from "../boardLayout";
 
 export const MOVE_STEP_DELAY = 120;
@@ -54,8 +54,8 @@ type TraverseOptions = {
     nodeId: string,
     playerIndex: number
   ) => boolean | Promise<boolean>;
-  /** Mid-road / door mode for directed center paths. */
-  midRoadMode?: MidRoadMode;
+  /** Per-gate open branch states for gated shortcuts. */
+  gateStates?: GateStates;
 };
 
 export function sleep(ms: number) {
@@ -160,20 +160,20 @@ export async function traverseMovement({
   onPassOverSpike,
   isEdgeBlocked,
   onEnterNode,
-  midRoadMode = DEFAULT_MID_ROAD_MODE,
+  gateStates = DEFAULT_GATE_STATES,
 }: TraverseOptions): Promise<MovementResult> {
   let currentNodeId = startNodeId;
   let remainingSteps = steps;
 
   while (remainingSteps > 0) {
     const node = getNodeById(currentNodeId);
-    const exits = getNodeExits(currentNodeId, midRoadMode);
+    const exits = getNodeExits(currentNodeId, gateStates);
     if (!node || exits.length === 0) break;
 
     // Route choice: any tile with multiple exits pauses mid-movement.
     // Landing effects only run on the final tile (handled by GamePage).
     const openExits = exits.filter(
-      (nextId) => !isEdgeBlocked?.(currentNodeId, nextNodeId)
+      (nextId) => !isEdgeBlocked?.(currentNodeId, nextId)
     );
 
     if (exits.length > 1) {

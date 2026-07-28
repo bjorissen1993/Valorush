@@ -1,5 +1,9 @@
 import { Tile } from "./gameState";
 
+/**
+ * Legacy linear board helper — unused by the Kingdom map.
+ * Prefer `boardLayout` from `./boardLayout`.
+ */
 export function createBoard(): Tile[] {
   const tiles: Tile[] = [];
 
@@ -11,13 +15,13 @@ export function createBoard(): Tile[] {
     "empty",
     "minigame",
     "event",
-    "minigame"
+    "minigame",
   ];
 
   for (let i = 0; i < 20; i++) {
     tiles.push({
       id: i,
-      type: types[i % types.length] as any
+      type: types[i % types.length] as Tile["type"],
     });
   }
 

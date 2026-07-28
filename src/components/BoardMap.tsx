@@ -1,13 +1,14 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import {
   boardLayout,
-  DEFAULT_MID_ROAD_MODE,
-  DOOR_TILE_IDS,
+  DEFAULT_GATE_STATES,
+  GATE_BRANCH_NODE_IDS,
+  GATE_LABELS,
   getNodeById,
-  isDoorOpen,
-  listActiveMidEdges,
+  listActiveGateEdges,
+  listClosedGateEdges,
   listPhysicalEdges,
-  type MidRoadMode,
+  type GateStates,
   type TileType,
 } from "../game/boardLayout";
 import { getPlayerTokenPosition } from "../game/tokenLayout";
@@ -95,8 +96,8 @@ type Props = {
   castFx?: BoardCastFx | null;
   /** Persistent ultimate hazards (poison / walls / traps). */
   hazards?: BoardHazardState | null;
-  /** Mid-road / door toggle mode (shared game state). */
-  midRoadMode?: MidRoadMode;
+  /** Per-gate open branch states (shared game state). */
+  gateStates?: GateStates;
   /** Button tile id that was just pressed (visual pulse). */
   pressedButtonId?: string | null;
 };
@@ -140,7 +141,8 @@ function unscaleY(renderY: number) {
   return scaleValue(renderY, RENDER_MIN_Y, RENDER_MAX_Y, LAYOUT_MIN_Y, LAYOUT_MAX_Y);
 }
 
-function getTileLabel(type: TileType) {
+function getTileLabel(type: TileType, nodeId?: string) {
+  if (nodeId === "kingdom") return "Kingdom";
   switch (type) {
     case "start":
       return "START";
@@ -163,7 +165,7 @@ function getTileLabel(type: TileType) {
     case "portal":
       return "Portal";
     case "button":
-      return "Button";
+      return "Gate";
     case "normal":
       return "";
     case "empty":
@@ -218,25 +220,7 @@ type BoardPathSegment = {
   isMidRoad: boolean;
 };
 
-const MID_ROAD_NODE_IDS = new Set([
-  "ot5",
-  "or4",
-  "ob5",
-  "ol4",
-  "mn1",
-  "mn2",
-  "dn",
-  "me1",
-  "me2",
-  "de",
-  "ms1",
-  "ms2",
-  "ds",
-  "mw1",
-  "mw2",
-  "dw",
-  "hub",
-]);
+const MID_ROAD_NODE_IDS = GATE_BRANCH_NODE_IDS;
 
 /** Curve path segments toward board center for a winding Mario Party road feel. */
 function curveControlPoint(
@@ -302,7 +286,8 @@ function edgeKey(from: string, to: string) {
   return `${from}->${to}`;
 }
 
-function getTileClasses(type: TileType) {
+function getTileClasses(type: TileType, nodeId?: string) {
+  if (nodeId === "kingdom") return "board-tile board-tile--kingdom";
   switch (type) {
     case "start":
       return "board-tile board-tile--start";
@@ -372,7 +357,7 @@ function BoardMap({
   onSpikePlantAnimationComplete,
   castFx = null,
   hazards = null,
-  midRoadMode = DEFAULT_MID_ROAD_MODE,
+  gateStates = DEFAULT_GATE_STATES,
   pressedButtonId = null,
 }: Props) {
   const currentPlayer = players[currentPlayerIndex];
@@ -382,9 +367,13 @@ function BoardMap({
   const castFxNodeSet = new Set(castFx?.nodeIds ?? []);
   const castFxPlayerSet = new Set(castFx?.playerIndices ?? []);
   const castFxTheme = castFx?.theme ?? "generic";
-  const activeMidEdges = useMemo(
-    () => listActiveMidEdges(midRoadMode),
-    [midRoadMode]
+  const activeGateEdges = useMemo(
+    () => listActiveGateEdges(gateStates),
+    [gateStates]
+  );
+  const closedGateEdges = useMemo(
+    () => listClosedGateEdges(gateStates),
+    [gateStates]
   );
   const poisonNodeSet = new Set(
     (hazards?.poisonClouds ?? [])
@@ -730,8 +719,8 @@ function BoardMap({
           );
         })}
 
-        {/* One-way mid-road direction arrows */}
-        {activeMidEdges.map((edge) => {
+        {/* Open gate branch accents */}
+        {activeGateEdges.map((edge) => {
           const fromNode = getNodeById(edge.from);
           const toNode = getNodeById(edge.to);
           if (!fromNode || !toNode) return null;
@@ -741,63 +730,61 @@ function BoardMap({
           const y2 = scaleY(toNode.y);
           return (
             <line
-              key={`arrow-${edge.from}-${edge.to}`}
+              key={`gate-open-${edge.from}-${edge.to}`}
               x1={x1}
               y1={y1}
               x2={x2}
               y2={y2}
-              stroke="rgba(248,113,113,0.55)"
-              strokeWidth="0.85"
-              markerEnd="url(#mid-road-arrow)"
-              className="board-mid-road-arrow"
+              stroke="rgba(74,222,128,0.55)"
+              strokeWidth="1.05"
+              strokeLinecap="round"
+              className="board-gate-open"
             />
           );
         })}
 
-        {/* Hub approach doors (open pair syncs with mid-road mode) */}
-        {DOOR_TILE_IDS.map((doorId) => {
-          const door = getNodeById(doorId);
-          if (!door) return null;
-          const open = isDoorOpen(doorId, midRoadMode);
-          const cx = scaleX(door.x);
-          const cy = scaleY(door.y);
-          const vertical = doorId === "dn" || doorId === "ds";
-          // Dashed gate line perpendicular to the spoke
-          const x1 = vertical ? cx - 3.2 : cx;
-          const y1 = vertical ? cy : cy - 3.2;
-          const x2 = vertical ? cx + 3.2 : cx;
-          const y2 = vertical ? cy : cy + 3.2;
+        {/* Closed gate barriers on split entrances */}
+        {closedGateEdges.map((edge) => {
+          const fromNode = getNodeById(edge.from);
+          const toNode = getNodeById(edge.to);
+          if (!fromNode || !toNode) return null;
+          const x1 = scaleX(fromNode.x);
+          const y1 = scaleY(fromNode.y);
+          const x2 = scaleX(toNode.x);
+          const y2 = scaleY(toNode.y);
+          const mx = (x1 + x2) / 2;
+          const my = (y1 + y2) / 2;
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const len = Math.hypot(dx, dy) || 1;
+          const px = (-dy / len) * 2.4;
+          const py = (dx / len) * 2.4;
           return (
             <g
-              key={`door-${doorId}`}
-              className={
-                open ? "board-door board-door--open" : "board-door board-door--closed"
-              }
+              key={`gate-closed-${edge.from}-${edge.to}-${edge.branch}`}
+              className="board-gate board-gate--closed"
             >
               <line
                 x1={x1}
                 y1={y1}
                 x2={x2}
                 y2={y2}
-                stroke={
-                  open ? "rgba(74,222,128,0.85)" : "rgba(24,24,27,0.92)"
-                }
-                strokeWidth={open ? 0.7 : 1.15}
-                strokeDasharray={open ? "1.4 1.1" : "0.9 0.7"}
+                stroke="rgba(24,24,27,0.55)"
+                strokeWidth="1.3"
+                strokeDasharray="1.1 0.9"
+                strokeLinecap="round"
+                opacity="0.7"
+              />
+              <line
+                x1={mx - px}
+                y1={my - py}
+                x2={mx + px}
+                y2={my + py}
+                stroke="rgba(248,113,113,0.9)"
+                strokeWidth="1.25"
                 strokeLinecap="round"
               />
-              {!open && (
-                <line
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
-                  stroke="rgba(248,113,113,0.35)"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  opacity="0.55"
-                />
-              )}
+              <title>{`${GATE_LABELS[edge.gateId]} · ${edge.branch} closed`}</title>
             </g>
           );
         })}
@@ -903,12 +890,16 @@ function BoardMap({
               : "h-[32%] w-[32%]";
         const tokenTextClass =
           tokenCount <= 1 ? "text-[9px]" : "text-[8px]";
-        const tileLabel = getTileLabel(node.type);
-        const tileMark = getTileShortMark(node.type);
+        const tileLabel = getTileLabel(node.type, node.id);
+        const tileMark =
+          node.id === "kingdom" ? "⌂" : getTileShortMark(node.type);
         const isStartTile = node.type === "start";
+        const isKingdom = node.id === "kingdom";
         const tileSize = isStartTile
           ? START_TILE_SIZE_PERCENT
-          : TILE_SIZE_PERCENT;
+          : isKingdom
+            ? 6.2
+            : TILE_SIZE_PERCENT;
         const startDirDeg = isStartTile ? getStartDirectionDeg(node.id) : null;
 
         return (
@@ -921,7 +912,8 @@ function BoardMap({
               onTileClick?.(node.id);
             }}
             className={`tile-pulse-host absolute z-[2] flex flex-col items-center justify-center rounded-full border text-center text-[10px] text-zinc-100 before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-gradient-to-b before:from-white/8 before:to-transparent ${getTileClasses(
-              node.type
+              node.type,
+              node.id
             )} ${
               isCurrentPlayerTile && !isTargetingMode
                 ? "animate-boardCurrentPulse z-[3] border-cyan-300/80 ring-2 ring-cyan-300/50"

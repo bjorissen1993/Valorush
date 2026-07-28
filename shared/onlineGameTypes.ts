@@ -135,8 +135,12 @@ export type OnlineGameSnapshot = {
    */
   ultimateCast?: UltimateCastCue | null;
   /**
-   * Mid-road / door toggle mode (button tiles). Shared so all clients
-   * render arrows + doors and pathfinding matches.
+   * Per-gate open branch (`left` | `right`). Shared so all clients
+   * render barriers and pathfinding matches. Replaces midRoadMode.
+   */
+  gateStates?: Record<string, "left" | "right">;
+  /**
+   * @deprecated Prefer gateStates. Still accepted for older snapshots.
    */
   midRoadMode?: "vertical_in" | "horizontal_in";
   /** Portal land prompt waiting for pay / skip. */

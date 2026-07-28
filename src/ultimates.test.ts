@@ -135,7 +135,7 @@ describe("applyUltimate — all playable agents", () => {
 
   it("applies tile / path / edge / player / choice ultimates", () => {
     expect(
-      applyUltimate(baseInput("Brimstone", { targetNodeId: "ot5" })).headline
+      applyUltimate(baseInput("Brimstone", { targetNodeId: "o3" })).headline
     ).toBe("Orbital Strike");
     expect(
       applyUltimate(baseInput("Viper", { targetNodeId: "or2" })).board
@@ -166,7 +166,7 @@ describe("applyUltimate — all playable agents", () => {
       expect(viper.players[0]?.status.inViperPit).toBe(false);
       expect(viper.players[1]?.status.inViperPit).toBe(false);
     }
-    const omen = applyUltimate(baseInput("Omen", { targetNodeId: "or6" }));
+    const omen = applyUltimate(baseInput("Omen", { targetNodeId: "o11" }));
     expect(omen.endTurnImmediately).toBe(true);
     expect(omen.skipLandingActivation).toBe(true);
     expect(
@@ -314,7 +314,7 @@ describe("ultimate board helpers", () => {
   });
 
   it("pulls toward a destination and builds connected zones", () => {
-    expect(moveTowardNode("or6", "start", 3)).not.toBe("or6");
-    expect(collectConnectedZone("ot5", 3).size).toBe(3);
+    expect(moveTowardNode("o11", "start", 3)).not.toBe("o11");
+    expect(collectConnectedZone("o3", 3).size).toBe(3);
   });
 });

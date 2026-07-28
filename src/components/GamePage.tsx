@@ -66,9 +66,11 @@ import {
   boardLayout,
   getNodeById,
   migrateBoardPosition,
-  DEFAULT_MID_ROAD_MODE,
-  toggleMidRoadMode,
-  type MidRoadMode,
+  migrateGateStates,
+  toggleGate,
+  getGateControlledByButton,
+  GATE_LABELS,
+  type GateStates,
   type TileType,
 } from "../game/boardLayout";
 import { assertBoardGraphValidInDev } from "../game/boardValidator";
@@ -599,8 +601,11 @@ export default function GamePage({
   const [luckyChoicePlayerIndex, setLuckyChoicePlayerIndex] = useState<number | null>(
     null
   );
-  const [midRoadMode, setMidRoadMode] = useState<MidRoadMode>(
-    () => initialSnapshot?.midRoadMode ?? DEFAULT_MID_ROAD_MODE
+  const [gateStates, setGateStates] = useState<GateStates>(() =>
+    migrateGateStates(
+      initialSnapshot?.gateStates as Partial<GateStates> | undefined,
+      initialSnapshot?.midRoadMode
+    )
   );
   const [pendingPortalChoice, setPendingPortalChoice] = useState<{
     playerIndex: number;
@@ -609,8 +614,8 @@ export default function GamePage({
     cost: number;
   } | null>(() => initialSnapshot?.pendingPortalChoice ?? null);
   const [pressedButtonId, setPressedButtonId] = useState<string | null>(null);
-  const midRoadModeRef = useRef(midRoadMode);
-  midRoadModeRef.current = midRoadMode;
+  const gateStatesRef = useRef(gateStates);
+  gateStatesRef.current = gateStates;
   const [cameraIntroPending, setCameraIntroPending] = useState(
     () => !restoredLocal && !hasPresetTurnOrder
   );
@@ -649,6 +654,7 @@ export default function GamePage({
   const [diceDisplayValue, setDiceDisplayValue] = useState<number | null>(
     initialSnapshot?.diceDisplayValue ?? null
   );
+  const [diceFaces, setDiceFaces] = useState<number[] | null>(null);
   const [diceFlowPhase, setDiceFlowPhase] = useState<DiceFlowPhase>(
     initialSnapshot?.diceFlowPhase ?? "hidden"
   );
@@ -713,8 +719,13 @@ export default function GamePage({
         setUltimateCast(cue);
       }
     }
-    if (snapshot.midRoadMode) {
-      setMidRoadMode(snapshot.midRoadMode);
+    if (snapshot.gateStates || snapshot.midRoadMode) {
+      setGateStates(
+        migrateGateStates(
+          snapshot.gateStates as Partial<GateStates> | undefined,
+          snapshot.midRoadMode
+        )
+      );
     }
     if (snapshot.pendingPortalChoice !== undefined) {
       setPendingPortalChoice(snapshot.pendingPortalChoice);
@@ -1511,7 +1522,7 @@ export default function GamePage({
       case "tile_and_move":
       case "area":
       case "multi_shot":
-        return { targetNodeId: "ot5" };
+        return { targetNodeId: "o3" };
       case "path":
         return { choiceId: "outer-top", targetNodeId: "outer-top" };
       case "edge":
@@ -3671,17 +3682,23 @@ export default function GamePage({
     }
 
     if (resolution.kind === "button") {
-      const nextMode = toggleMidRoadMode(midRoadModeRef.current);
-      setMidRoadMode(nextMode);
+      const gateId = getGateControlledByButton(finalNodeId);
+      if (gateId) {
+        const nextStates = toggleGate(gateStatesRef.current, gateId);
+        setGateStates(nextStates);
+        const branch = nextStates[gateId];
+        const gateName = GATE_LABELS[gateId];
+        const subtitle = `${gateName}: ${branch.toUpperCase()} path open`;
+        setStatusTitle(`${player.name} flipped a Gate`);
+        setStatusSubtitle(subtitle);
+        showAnnouncement("Gate Switched", subtitle);
+      } else {
+        setStatusTitle(`${player.name} pressed a Button`);
+        setStatusSubtitle("No linked gate on this switch.");
+        showAnnouncement("Button Pressed", "Nothing happened.");
+      }
       setPressedButtonId(finalNodeId);
       window.setTimeout(() => setPressedButtonId(null), 900);
-      const modeLabel =
-        nextMode === "vertical_in"
-          ? "Vertical roads inward · Horizontal outward (vertical doors open)"
-          : "Horizontal roads inward · Vertical outward (horizontal doors open)";
-      setStatusTitle(`${player.name} pressed a Button`);
-      setStatusSubtitle(modeLabel);
-      showAnnouncement("Button Pressed", modeLabel);
       setBoardEventPulse((n) => n + 1);
       await sleep(AUTO_ADVANCE_DELAY);
       await advanceToNextPlayer(
@@ -3825,16 +3842,22 @@ export default function GamePage({
     setDiceFlowPhase("rolling");
     setLastEventTitle(null);
     const preview = randomDiceRollDetailed();
+    setDiceFaces(preview.dice);
     setDiceDisplayValue(preview.sum);
 
     await sleep(DICE_ROLL_DURATION_MS);
 
     const detailed =
       debugForcedRoll != null
-        ? { dice: [debugForcedRoll], sum: debugForcedRoll, highest: debugForcedRoll }
+        ? {
+            dice: [debugForcedRoll, debugForcedRoll],
+            sum: debugForcedRoll * 2,
+            highest: debugForcedRoll,
+          }
         : randomDiceRollDetailed();
     const rawRoll = detailed.sum;
     const player = playersInGameRef.current[currentPlayerIndex];
+    setDiceFaces(detailed.dice);
 
     // Dice Holder: store highest face from this roll (item kept until reuse).
     if (player?.diceHolderArmed) {
@@ -3947,7 +3970,7 @@ export default function GamePage({
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
       onEnterNode: (nodeId, playerIdx) =>
         handleUltimateHazardEnter(nodeId, playerIdx),
-      midRoadMode: midRoadModeRef.current,
+      gateStates: gateStatesRef.current,
     })) as MovementResult;
 
     if (result.blockedBySplit) {
@@ -4061,7 +4084,7 @@ export default function GamePage({
       updatePlayerPosition,
       onPassOverSpike: (nodeId, playerIdx) =>
         handlePassOverSpike(nodeId, playerIdx),
-      midRoadMode: midRoadModeRef.current,
+      gateStates: gateStatesRef.current,
     })) as MovementResult;
 
     if (result.blockedBySplit) {
@@ -4813,7 +4836,7 @@ export default function GamePage({
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
       onEnterNode: (nodeId, playerIdx) =>
         handleUltimateHazardEnter(nodeId, playerIdx),
-      midRoadMode: midRoadModeRef.current,
+      gateStates: gateStatesRef.current,
     });
 
     setIsMoving(false);
@@ -4902,7 +4925,7 @@ export default function GamePage({
       isEdgeBlocked: (from, to) =>
         !yoruIgnore &&
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
-      midRoadMode: midRoadModeRef.current,
+      gateStates: gateStatesRef.current,
     });
     setIsMoving(false);
     setMovingPlayerIndex(null);
@@ -4928,7 +4951,11 @@ export default function GamePage({
     }
 
     setDiceFlowPhase("ready");
-    setDiceDisplayValue(1);
+    setDiceFaces([1, 1]);
+    setDiceDisplayValue(2);
+    const focusId =
+      playersInGameRef.current[currentPlayerIndex]?.position ?? "start";
+    setCameraEventFocus({ nodeId: focusId, holdMs: 1600 });
   }
 
   useEffect(() => {
@@ -4961,7 +4988,7 @@ export default function GamePage({
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
       boardUltimateState,
       ultimateCast,
-      midRoadMode,
+      gateStates,
       pendingPortalChoice,
     });
   }, [
@@ -4975,7 +5002,7 @@ export default function GamePage({
     hasRolledThisTurn,
     isMoving,
     lastRoll,
-    midRoadMode,
+    gateStates,
     movingPlayerIndex,
     multiplayer?.isHost,
     pendingEventChoice,
@@ -5030,7 +5057,7 @@ export default function GamePage({
       customMatchPhase: toSyncedCustomMatchPhase(customMatchPhase),
       boardUltimateState,
       ultimateCast,
-      midRoadMode,
+      gateStates,
       pendingPortalChoice,
     });
   }, [
@@ -5044,7 +5071,7 @@ export default function GamePage({
     hasRolledThisTurn,
     isMoving,
     lastRoll,
-    midRoadMode,
+    gateStates,
     movingPlayerIndex,
     multiplayer,
     onLocalSnapshotChange,
@@ -5078,7 +5105,13 @@ export default function GamePage({
             return;
           }
           setDiceFlowPhase("ready");
-          setDiceDisplayValue(1);
+          setDiceFaces([1, 1]);
+          setDiceDisplayValue(2);
+          {
+            const focusId =
+              playersInGameRef.current[currentPlayerIndex]?.position ?? "start";
+            setCameraEventFocus({ nodeId: focusId, holdMs: 1600 });
+          }
           break;
         case "roll_dice":
           if (diceFlowPhase === "ready") {
@@ -5777,6 +5810,7 @@ export default function GamePage({
         <DiceRollOverlay
           open
           value={diceDisplayValue}
+          dice={diceFaces}
           playerName={currentPlayer.name}
           phase={diceFlowPhase}
           rollDurationMs={DICE_ROLL_DURATION_MS}
@@ -6255,7 +6289,7 @@ export default function GamePage({
                   traps: boardUltimateState.traps,
                   detainZones: boardUltimateState.detainZones ?? [],
                 }}
-                midRoadMode={midRoadMode}
+                gateStates={gateStates}
                 pressedButtonId={pressedButtonId}
               />
               </BoardCameraViewport>

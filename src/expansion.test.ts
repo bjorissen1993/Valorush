@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   boardLayout,
-  DEFAULT_MID_ROAD_MODE,
+  DEFAULT_GATE_STATES,
+  GATE_IDS,
+  GATE_LABELS,
   getNodeExits,
   migrateBoardPosition,
-  toggleMidRoadMode,
+  toggleGate,
 } from "./game/boardLayout";
 import { validateBoardGraph } from "./game/boardValidator";
 import { stealCredits, rollNormalTileCredits, PORTAL_CREDIT_COST } from "./game/economy";
@@ -25,38 +27,39 @@ describe("expansion board", () => {
     expect(boardLayout.some((n) => n.type === "lucky")).toBe(true);
     expect(boardLayout.some((n) => n.type === "risk")).toBe(true);
     expect(boardLayout.some((n) => n.type === "ult-orb")).toBe(true);
-    // Branching exists under at least one mid-road mode
+    expect(boardLayout.some((n) => n.id === "kingdom")).toBe(true);
     expect(
-      boardLayout.some((n) => getNodeExits(n.id, DEFAULT_MID_ROAD_MODE).length > 1)
+      boardLayout.some((n) => getNodeExits(n.id, DEFAULT_GATE_STATES).length > 1)
     ).toBe(true);
   });
 
-  it("passes graph validation in both mid-road modes", () => {
+  it("passes graph validation across gate configurations", () => {
     const report = validateBoardGraph();
     expect(report.ok, JSON.stringify(report.issues, null, 2)).toBe(true);
-    expect(report.modeReports.vertical_in.reachable).toBe(report.nodeCount);
-    expect(report.modeReports.horizontal_in.reachable).toBe(report.nodeCount);
+    expect(report.modeReports.default?.reachable).toBe(report.nodeCount);
+    expect(report.modeReports.all_right?.reachable).toBe(report.nodeCount);
+    expect(report.modeReports.all_left?.reachable).toBe(report.nodeCount);
   });
 
-  it("toggles mid-road directions so hub always has an exit", () => {
-    const modeA = DEFAULT_MID_ROAD_MODE;
-    const modeB = toggleMidRoadMode(modeA);
-    const exitsA = getNodeExits("hub", modeA);
-    const exitsB = getNodeExits("hub", modeB);
-    expect(exitsA.length).toBe(2);
-    expect(exitsB.length).toBe(2);
-    // Mode A: horizontal out; Mode B: vertical out
-    expect(exitsA.sort()).toEqual(["de", "dw"].sort());
-    expect(exitsB.sort()).toEqual(["dn", "ds"].sort());
-    // Outer north entry only in vertical_in
-    expect(getNodeExits("ot5", modeA)).toContain("mn1");
-    expect(getNodeExits("ot5", modeB)).not.toContain("mn1");
+  it("toggles a single gate branch without trapping the board", () => {
+    const left = DEFAULT_GATE_STATES;
+    const right = toggleGate(left, "g1");
+    expect(getNodeExits("o3", left)).toContain("g1L");
+    expect(getNodeExits("o3", left)).not.toContain("g1R");
+    expect(getNodeExits("o3", right)).toContain("g1R");
+    expect(getNodeExits("o3", right)).not.toContain("g1L");
+    // Inner reconnect always available from branch tiles
+    expect(getNodeExits("g1L", left)).toContain("i0");
+    expect(getNodeExits("g1R", right)).toContain("i7");
+    expect(GATE_IDS).toHaveLength(5);
+    expect(GATE_LABELS.g1).toMatch(/Gate/);
   });
 
   it("migrates legacy positions", () => {
-    expect(migrateBoardPosition("top-split")).toBe("ot5");
-    expect(migrateBoardPosition("m-top-2")).toBe("mn2");
-    expect(migrateBoardPosition("inner-ne")).toBe("de");
+    expect(migrateBoardPosition("top-split")).toBe("o3");
+    expect(migrateBoardPosition("m-top-2")).toBe("g1L");
+    expect(migrateBoardPosition("inner-ne")).toBe("i2");
+    expect(migrateBoardPosition("hub")).toBe("kingdom");
     expect(migrateBoardPosition("unknown-xyz")).toBe("start");
     expect(migrateBoardPosition("start")).toBe("start");
   });
@@ -96,8 +99,8 @@ describe("dice & movement", () => {
 
 describe("token stacking", () => {
   it("fans tokens around the bottom of the circle", () => {
-    const a = getPlayerTokenPosition({ id: "ot1", x: 10, y: 10 }, 0, 3);
-    const b = getPlayerTokenPosition({ id: "ot1", x: 10, y: 10 }, 2, 3);
+    const a = getPlayerTokenPosition({ id: "o0", x: 10, y: 10 }, 0, 3);
+    const b = getPlayerTokenPosition({ id: "o0", x: 10, y: 10 }, 2, 3);
     expect(a.offsetXPercent).not.toBe(b.offsetXPercent);
     expect(a.offsetYPercent).toBeGreaterThan(0);
   });
@@ -105,20 +108,19 @@ describe("token stacking", () => {
 
 describe("area targeting", () => {
   it("counts partial tile hits as full", () => {
-    const hub = getNodeById("hub");
-    expect(hub).toBeTruthy();
+    const kingdom = getNodeById("kingdom");
+    expect(kingdom).toBeTruthy();
     const ids = tileIdsInArea({
-      center: { x: hub!.x, y: hub!.y },
+      center: { x: kingdom!.x, y: kingdom!.y },
       radius: AREA_RADIUS.viper,
     });
-    expect(ids).toContain("hub");
-    // Wider cast should also catch adjacent door tiles on the cross.
+    expect(ids).toContain("kingdom");
     const wide = tileIdsInArea({
-      center: { x: hub!.x, y: hub!.y },
+      center: { x: kingdom!.x, y: kingdom!.y },
       radius: Math.max(AREA_RADIUS.viper, 14),
     });
     expect(wide.length).toBeGreaterThan(1);
-    expect(wide).toContain("dn");
+    expect(wide).toContain("i0");
   });
 });
 

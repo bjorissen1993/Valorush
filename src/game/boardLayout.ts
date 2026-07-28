@@ -1,13 +1,10 @@
 /**
- * Board graph — rectangular outer loop + central hub cross (Paint sketch).
- * Branching is via multiple exits only (no split/merge tile types).
- * Coordinates are layout-space percentages (roughly 5–92).
+ * ValoRush Kingdom board — Mario Party–style organic loops with per-gate splits.
  *
- * - START: NW spur into the top-left of the clockwise outer track
- * - Outer rectangle (rounded TL / BR): clockwise L→R → T→B → R→L → B→T
- * - Mid roads from each side midpoint into a central hub (one-way, toggled)
- * - Doors on the four hub approaches; open pair syncs with mid-road mode
- * - Portals at BL / TR corners; buttons in BL / TR inner quadrants
+ * - Large outer loop + smaller inner loop around the Kingdom Facility
+ * - ~5 gates on split shortcuts (left OR right branch open; never blocks the map)
+ * - Gate Buttons flip a single gate; portals at TR / BL on the outer loop
+ * - Coordinates are layout-space percentages (roughly 6–94)
  */
 
 export type TileType =
@@ -28,29 +25,34 @@ export type TileType =
 /** Legacy tile types from older saves — remapped on load. */
 export type LegacyTileType = TileType | "split" | "merge";
 
-/** Mid-road travel axis relative to the hub. */
-export type MidRoadAxis = "vertical" | "horizontal";
+export type GateId = "g1" | "g2" | "g3" | "g4" | "g5";
+export type GateBranch = "left" | "right";
+export type GateStates = Record<GateId, GateBranch>;
 
-/**
- * Direction of a mid-road edge:
- * - `in`  = toward the hub (outer → center)
- * - `out` = toward the outer track (center → outer)
- */
-export type MidRoadDir = "in" | "out";
+export const GATE_IDS: readonly GateId[] = [
+  "g1",
+  "g2",
+  "g3",
+  "g4",
+  "g5",
+] as const;
 
-/**
- * Global mid-road / door mode (button toggle).
- * Mode A (`vertical_in`): N/S inward, E/W outward — vertical doors open.
- * Mode B (`horizontal_in`): E/W inward, N/S outward — horizontal doors open.
- */
+export const DEFAULT_GATE_STATES: GateStates = {
+  g1: "left",
+  g2: "right",
+  g3: "left",
+  g4: "right",
+  g5: "left",
+};
+
+/** @deprecated Prefer GateStates — kept for old online snapshots. */
 export type MidRoadMode = "vertical_in" | "horizontal_in";
-
 export const DEFAULT_MID_ROAD_MODE: MidRoadMode = "vertical_in";
 
-export type MidEdge = {
+export type GateEdge = {
   to: string;
-  axis: MidRoadAxis;
-  dir: MidRoadDir;
+  gateId: GateId;
+  branch: GateBranch;
 };
 
 export type BoardNode = {
@@ -58,10 +60,12 @@ export type BoardNode = {
   type: TileType;
   x: number;
   y: number;
-  /** Always-on directed exits (outer loop, spurs, button returns). */
+  /** Always-on directed exits (loops, spurs, kingdom spokes). */
   next: string[];
-  /** Mode-gated mid-road exits (one-way; filtered by MidRoadMode). */
-  midEdges?: MidEdge[];
+  /** Gate-filtered exits — active only when that gate's branch matches. */
+  gateEdges?: GateEdge[];
+  /** Button tiles: which gate this switch controls. */
+  controlsGate?: GateId;
 };
 
 /** Credits to teleport between the two portal tiles — see economy.PORTAL_CREDIT_COST. */
@@ -71,61 +75,97 @@ export const PORTAL_PAIR: Readonly<Record<string, string>> = {
   "portal-bl": "portal-tr",
 };
 
-export const BUTTON_TILE_IDS = ["btn-tr", "btn-bl"] as const;
-export const DOOR_TILE_IDS = ["dn", "de", "ds", "dw"] as const;
+export const BUTTON_TILE_IDS = [
+  "btn-g1",
+  "btn-g2",
+  "btn-g3",
+  "btn-g4",
+  "btn-g5",
+] as const;
 
-export function isMidEdgeActive(edge: MidEdge, mode: MidRoadMode): boolean {
-  if (mode === "vertical_in") {
-    return (
-      (edge.axis === "vertical" && edge.dir === "in") ||
-      (edge.axis === "horizontal" && edge.dir === "out")
-    );
-  }
-  return (
-    (edge.axis === "horizontal" && edge.dir === "in") ||
-    (edge.axis === "vertical" && edge.dir === "out")
-  );
+export const GATE_LABELS: Readonly<Record<GateId, string>> = {
+  g1: "North Gate",
+  g2: "East Gate",
+  g3: "South Gate",
+  g4: "West Gate",
+  g5: "Canyon Gate",
+};
+
+export function createDefaultGateStates(): GateStates {
+  return { ...DEFAULT_GATE_STATES };
 }
 
+export function migrateGateStates(
+  raw?: Partial<GateStates> | null,
+  legacyMode?: MidRoadMode | null
+): GateStates {
+  const base = createDefaultGateStates();
+  if (raw && typeof raw === "object") {
+    for (const id of GATE_IDS) {
+      const value = raw[id];
+      if (value === "left" || value === "right") base[id] = value;
+    }
+    return base;
+  }
+  // Old A/B mid-road mode → staggered defaults (still fully traversable).
+  if (legacyMode === "horizontal_in") {
+    return { g1: "right", g2: "left", g3: "right", g4: "left", g5: "right" };
+  }
+  return base;
+}
+
+export function isGateEdgeActive(
+  edge: GateEdge,
+  states: GateStates
+): boolean {
+  return states[edge.gateId] === edge.branch;
+}
+
+export function toggleGate(
+  states: GateStates,
+  gateId: GateId
+): GateStates {
+  return {
+    ...states,
+    [gateId]: states[gateId] === "left" ? "right" : "left",
+  };
+}
+
+/** @deprecated Use toggleGate. */
 export function toggleMidRoadMode(mode: MidRoadMode): MidRoadMode {
   return mode === "vertical_in" ? "horizontal_in" : "vertical_in";
 }
 
-/** Vertical doors open in Mode A (vertical inward); horizontal in Mode B. */
-export function areVerticalDoorsOpen(mode: MidRoadMode): boolean {
-  return mode === "vertical_in";
+export function getGateControlledByButton(
+  nodeId: string
+): GateId | null {
+  return getNodeById(nodeId)?.controlsGate ?? null;
 }
 
-export function areHorizontalDoorsOpen(mode: MidRoadMode): boolean {
-  return mode === "horizontal_in";
-}
-
-export function getDoorAxis(nodeId: string): MidRoadAxis | null {
-  if (nodeId === "dn" || nodeId === "ds") return "vertical";
-  if (nodeId === "de" || nodeId === "dw") return "horizontal";
-  return null;
-}
-
-export function isDoorOpen(nodeId: string, mode: MidRoadMode): boolean {
-  const axis = getDoorAxis(nodeId);
-  if (!axis) return false;
-  return axis === "vertical"
-    ? areVerticalDoorsOpen(mode)
-    : areHorizontalDoorsOpen(mode);
+export function isBranchOpen(
+  gateId: GateId,
+  branch: GateBranch,
+  states: GateStates
+): boolean {
+  return states[gateId] === branch;
 }
 
 /**
- * Effective directed exits for movement / pathfinding under the current mode.
+ * Effective directed exits for movement / pathfinding under current gate states.
  */
 export function getNodeExits(
   nodeId: string,
-  mode: MidRoadMode = DEFAULT_MID_ROAD_MODE
+  modeOrStates: GateStates | MidRoadMode = DEFAULT_GATE_STATES
 ): string[] {
+  const states =
+    typeof modeOrStates === "string"
+      ? migrateGateStates(null, modeOrStates)
+      : modeOrStates;
   const node = getNodeById(nodeId);
   if (!node) return [];
   const exits = [...node.next];
-  for (const edge of node.midEdges ?? []) {
-    if (isMidEdgeActive(edge, mode)) {
+  for (const edge of node.gateEdges ?? []) {
+    if (isGateEdgeActive(edge, states)) {
       exits.push(edge.to);
     }
   }
@@ -146,30 +186,30 @@ export function listPhysicalEdges(
   };
   for (const node of nodes) {
     for (const nextId of node.next) add(node.id, nextId);
-    for (const edge of node.midEdges ?? []) add(node.id, edge.to);
+    for (const edge of node.gateEdges ?? []) add(node.id, edge.to);
   }
   return edges;
 }
 
-/** Active directed mid-road edges for arrow rendering. */
-export function listActiveMidEdges(
-  mode: MidRoadMode,
+/** Active gated edges for open-branch highlighting. */
+export function listActiveGateEdges(
+  states: GateStates,
   nodes: BoardNode[] = boardLayout
-): { from: string; to: string; axis: MidRoadAxis; dir: MidRoadDir }[] {
+): { from: string; to: string; gateId: GateId; branch: GateBranch }[] {
   const result: {
     from: string;
     to: string;
-    axis: MidRoadAxis;
-    dir: MidRoadDir;
+    gateId: GateId;
+    branch: GateBranch;
   }[] = [];
   for (const node of nodes) {
-    for (const edge of node.midEdges ?? []) {
-      if (isMidEdgeActive(edge, mode)) {
+    for (const edge of node.gateEdges ?? []) {
+      if (isGateEdgeActive(edge, states)) {
         result.push({
           from: node.id,
           to: edge.to,
-          axis: edge.axis,
-          dir: edge.dir,
+          gateId: edge.gateId,
+          branch: edge.branch,
         });
       }
     }
@@ -177,347 +217,298 @@ export function listActiveMidEdges(
   return result;
 }
 
+/** Closed gated edges — draw barrier / dimmed road. */
+export function listClosedGateEdges(
+  states: GateStates,
+  nodes: BoardNode[] = boardLayout
+): { from: string; to: string; gateId: GateId; branch: GateBranch }[] {
+  const result: {
+    from: string;
+    to: string;
+    gateId: GateId;
+    branch: GateBranch;
+  }[] = [];
+  for (const node of nodes) {
+    for (const edge of node.gateEdges ?? []) {
+      if (!isGateEdgeActive(edge, states)) {
+        result.push({
+          from: node.id,
+          to: edge.to,
+          gateId: edge.gateId,
+          branch: edge.branch,
+        });
+      }
+    }
+  }
+  return result;
+}
+
+/** @deprecated Prefer listActiveGateEdges. */
+export function listActiveMidEdges(
+  modeOrStates: MidRoadMode | GateStates,
+  nodes: BoardNode[] = boardLayout
+) {
+  const states =
+    typeof modeOrStates === "string"
+      ? migrateGateStates(null, modeOrStates)
+      : modeOrStates;
+  return listActiveGateEdges(states, nodes).map((e) => ({
+    from: e.from,
+    to: e.to,
+    axis: "vertical" as const,
+    dir: "in" as const,
+  }));
+}
+
+/** @deprecated Doors replaced by per-gate branch barriers. */
+export const DOOR_TILE_IDS: readonly string[] = [];
+
+export function isDoorOpen(
+  _nodeId: string,
+  _mode: MidRoadMode | GateStates
+): boolean {
+  return false;
+}
+
+// ── Layout construction ─────────────────────────────────────────────
+
+type MutableNode = BoardNode & { next: string[]; gateEdges: GateEdge[] };
+
+function n(
+  id: string,
+  type: TileType,
+  x: number,
+  y: number,
+  extra?: Partial<BoardNode>
+): MutableNode {
+  return {
+    id,
+    type,
+    x,
+    y,
+    next: [],
+    gateEdges: [],
+    ...extra,
+    // ensure arrays after spread
+    ...(extra?.next ? { next: [...extra.next] } : {}),
+    ...(extra?.gateEdges ? { gateEdges: [...extra.gateEdges] } : {}),
+  };
+}
+
+function linkBoth(a: MutableNode, b: MutableNode) {
+  if (!a.next.includes(b.id)) a.next.push(b.id);
+  if (!b.next.includes(a.id)) b.next.push(a.id);
+}
+
+function gateBoth(
+  a: MutableNode,
+  b: MutableNode,
+  gateId: GateId,
+  branch: GateBranch
+) {
+  if (!a.gateEdges.some((e) => e.to === b.id && e.gateId === gateId)) {
+    a.gateEdges.push({ to: b.id, gateId, branch });
+  }
+  if (!b.gateEdges.some((e) => e.to === a.id && e.gateId === gateId)) {
+    b.gateEdges.push({ to: a.id, gateId, branch });
+  }
+}
+
+function buildKingdomBoard(): BoardNode[] {
+  const byId = new Map<string, MutableNode>();
+  const add = (node: MutableNode) => {
+    byId.set(node.id, node);
+    return node;
+  };
+
+  // ── START spur (NW) ──────────────────────────────────────────────
+  const start = add(n("start", "start", 7, 8));
+  const s1 = add(n("s1", "normal", 13, 14));
+
+  // ── Outer loop (clockwise order; linked bidirectionally) ─────────
+  const outer = [
+    add(n("o0", "normal", 20, 12)),
+    add(n("o0b", "normal", 25, 10)),
+    add(n("o1", "lucky", 30, 9)),
+    add(n("o2", "normal", 40, 8)),
+    add(n("o3", "event", 50, 9)), // G1 fork
+    add(n("o4", "normal", 60, 8)),
+    add(n("o4b", "normal", 65, 9)),
+    add(n("o5", "shop", 70, 11)),
+    add(n("o6", "normal", 78, 15)),
+    add(n("portal-tr", "portal", 87, 20)),
+    add(n("o7", "event", 91, 30)),
+    add(n("o8", "normal", 93, 40)),
+    add(n("o9", "minigame", 92, 50)), // G2 fork
+    add(n("o10", "normal", 91, 60)),
+    add(n("o10b", "normal", 89, 65)),
+    add(n("o11", "spike", 87, 70)),
+    add(n("o12", "risk", 80, 80)),
+    add(n("o13", "shop", 70, 88)),
+    add(n("o14", "normal", 58, 92)), // G3 fork
+    add(n("o15", "event", 46, 92)),
+    add(n("o16", "normal", 34, 89)), // G5 fork
+    add(n("o17", "lucky", 24, 84)),
+    add(n("o17b", "normal", 19, 80)),
+    add(n("portal-bl", "portal", 14, 76)),
+    add(n("o18", "ult-orb", 9, 66)),
+    add(n("o19", "normal", 8, 54)), // G4 fork
+    add(n("o20", "event", 9, 42)),
+    add(n("o21", "shop", 12, 32)),
+    add(n("o21b", "normal", 14, 27)),
+    add(n("o22", "spike", 16, 22)),
+    add(n("o22b", "normal", 17, 18)),
+    add(n("o23", "special", 18, 16)),
+  ];
+
+  for (let i = 0; i < outer.length; i += 1) {
+    linkBoth(outer[i]!, outer[(i + 1) % outer.length]!);
+  }
+  linkBoth(start, s1);
+  linkBoth(s1, outer[0]!);
+
+  // ── Inner loop around Kingdom Facility ───────────────────────────
+  const inner = [
+    add(n("i0", "normal", 50, 33)),
+    add(n("i1", "lucky", 61, 37)),
+    add(n("i2", "event", 67, 48)),
+    add(n("i3", "normal", 61, 59)),
+    add(n("i4", "minigame", 50, 64)),
+    add(n("i5", "risk", 39, 59)),
+    add(n("i6", "ult-orb", 33, 48)),
+    add(n("i7", "normal", 39, 37)),
+  ];
+  for (let i = 0; i < inner.length; i += 1) {
+    linkBoth(inner[i]!, inner[(i + 1) % inner.length]!);
+  }
+
+  const kingdom = add(n("kingdom", "special", 50, 48));
+  linkBoth(kingdom, inner[0]!); // N
+  linkBoth(kingdom, inner[2]!); // E
+  linkBoth(kingdom, inner[4]!); // S
+  linkBoth(kingdom, inner[6]!); // W
+
+  // ── Gate branch tiles ────────────────────────────────────────────
+  // Fork↔branch is gated; branch↔inner is always on so closed lanes stay
+  // reachable from the inner ring (no dead ends / orphans).
+  const o3 = byId.get("o3")!;
+  const o4 = byId.get("o4")!;
+  const o5 = byId.get("o5")!;
+  const o9 = byId.get("o9")!;
+  const o10 = byId.get("o10")!;
+  const o14 = byId.get("o14")!;
+  const o15 = byId.get("o15")!;
+  const o16 = byId.get("o16")!;
+  const o19 = byId.get("o19")!;
+  const o20 = byId.get("o20")!;
+
+  // G1 North: o3 → left/right → i0 / i7
+  const g1L = add(n("g1L", "normal", 50, 21));
+  const g1R = add(n("g1R", "event", 42, 20));
+  gateBoth(o3, g1L, "g1", "left");
+  linkBoth(g1L, inner[0]!);
+  gateBoth(o3, g1R, "g1", "right");
+  linkBoth(g1R, inner[7]!);
+
+  // G2 East: o9 → left/right → i2 / i1
+  const g2L = add(n("g2L", "normal", 80, 54));
+  const g2R = add(n("g2R", "lucky", 78, 40));
+  gateBoth(o9, g2L, "g2", "left");
+  linkBoth(g2L, inner[2]!);
+  gateBoth(o9, g2R, "g2", "right");
+  linkBoth(g2R, inner[1]!);
+
+  // G3 South: o14 → left/right → i4 / i3
+  const g3L = add(n("g3L", "normal", 52, 78));
+  const g3R = add(n("g3R", "risk", 64, 78));
+  gateBoth(o14, g3L, "g3", "left");
+  linkBoth(g3L, inner[4]!);
+  gateBoth(o14, g3R, "g3", "right");
+  linkBoth(g3R, inner[3]!);
+
+  // G4 West: o19 → left/right → i6 / i5
+  const g4L = add(n("g4L", "normal", 20, 52));
+  const g4R = add(n("g4R", "event", 20, 60));
+  gateBoth(o19, g4L, "g4", "left");
+  linkBoth(g4L, inner[6]!);
+  gateBoth(o19, g4R, "g4", "right");
+  linkBoth(g4R, inner[5]!);
+
+  // G5 Canyon (SW): o16 → left/right → i5 / i4
+  const g5L = add(n("g5L", "normal", 30, 74));
+  const g5R = add(n("g5R", "ult-orb", 40, 76));
+  gateBoth(o16, g5L, "g5", "left");
+  linkBoth(g5L, inner[5]!);
+  gateBoth(o16, g5R, "g5", "right");
+  linkBoth(g5R, inner[4]!);
+
+  // ── Gate Buttons (spurs off outer; always reconnect) ─────────────
+  const btn1 = add(
+    n("btn-g1", "button", 54, 18, { controlsGate: "g1" })
+  );
+  const btn2 = add(
+    n("btn-g2", "button", 84, 56, { controlsGate: "g2" })
+  );
+  const btn3 = add(
+    n("btn-g3", "button", 54, 84, { controlsGate: "g3" })
+  );
+  const btn4 = add(
+    n("btn-g4", "button", 16, 46, { controlsGate: "g4" })
+  );
+  const btn5 = add(
+    n("btn-g5", "button", 28, 82, { controlsGate: "g5" })
+  );
+  linkBoth(btn1, o4);
+  linkBoth(btn2, o10);
+  linkBoth(btn3, o15);
+  linkBoth(btn4, o20);
+  linkBoth(btn5, o16);
+
+  return [...byId.values()].map((node) => {
+    const out: BoardNode = {
+      id: node.id,
+      type: node.type,
+      x: node.x,
+      y: node.y,
+      next: [...node.next],
+    };
+    if (node.gateEdges.length > 0) out.gateEdges = [...node.gateEdges];
+    if (node.controlsGate) out.controlsGate = node.controlsGate;
+    return out;
+  });
+}
+
 /**
- * ~56-tile rectangular-cross network matching the Paint sketch.
- * Outer clockwise loop + START spur + 4 mid roads + hub + 2 portals + 2 buttons.
+ * ~58-tile organic Kingdom board:
+ * outer loop + inner ring + Kingdom Facility + 5 gated shortcuts + 2 portals + 5 buttons.
  */
-export const boardLayout: BoardNode[] = [
-  // ── START spur (NW, slightly outside) ──────────────────────────
-  { id: "start", type: "start", x: 5, y: 5, next: ["s1"] },
-  { id: "s1", type: "normal", x: 11, y: 10, next: ["ot1"] },
-
-  // ── Outer TOP (L→R), rounded TL ────────────────────────────────
-  { id: "ot1", type: "normal", x: 18, y: 14, next: ["ot2"] },
-  { id: "ot2", type: "lucky", x: 26, y: 12, next: ["ot3"] },
-  { id: "ot3", type: "normal", x: 34, y: 12, next: ["ot4"] },
-  { id: "ot4", type: "event", x: 42, y: 12, next: ["ot5"] },
-  {
-    id: "ot5",
-    type: "normal",
-    x: 50,
-    y: 12,
-    next: ["ot6"],
-    midEdges: [{ to: "mn1", axis: "vertical", dir: "in" }],
-  },
-  { id: "ot6", type: "shop", x: 58, y: 12, next: ["ot7"] },
-  { id: "ot7", type: "normal", x: 66, y: 12, next: ["ot8", "btn-tr"] },
-  { id: "ot8", type: "event", x: 74, y: 14, next: ["portal-tr"] },
-  { id: "portal-tr", type: "portal", x: 84, y: 18, next: ["or1"] },
-
-  // ── Outer RIGHT (T→B) ──────────────────────────────────────────
-  { id: "or1", type: "normal", x: 88, y: 26, next: ["or2"] },
-  { id: "or2", type: "risk", x: 90, y: 34, next: ["or3"] },
-  { id: "or3", type: "ult-orb", x: 90, y: 42, next: ["or4"] },
-  {
-    id: "or4",
-    type: "minigame",
-    x: 90,
-    y: 50,
-    next: ["or5"],
-    midEdges: [{ to: "me1", axis: "horizontal", dir: "in" }],
-  },
-  { id: "or5", type: "normal", x: 90, y: 58, next: ["or6"] },
-  { id: "or6", type: "spike", x: 88, y: 66, next: ["or7"] },
-  { id: "or7", type: "event", x: 86, y: 74, next: ["ob1"] },
-
-  // ── Outer BOTTOM (R→L), rounded BR ─────────────────────────────
-  { id: "ob1", type: "normal", x: 78, y: 86, next: ["ob2"] },
-  { id: "ob2", type: "lucky", x: 70, y: 90, next: ["ob3"] },
-  { id: "ob3", type: "shop", x: 62, y: 90, next: ["ob4"] },
-  { id: "ob4", type: "normal", x: 56, y: 90, next: ["ob5"] },
-  {
-    id: "ob5",
-    type: "event",
-    x: 50,
-    y: 90,
-    next: ["ob6"],
-    midEdges: [{ to: "ms1", axis: "vertical", dir: "in" }],
-  },
-  { id: "ob6", type: "normal", x: 42, y: 90, next: ["ob7"] },
-  { id: "ob7", type: "risk", x: 34, y: 88, next: ["ob8", "btn-bl"] },
-  { id: "ob8", type: "normal", x: 26, y: 86, next: ["portal-bl"] },
-  { id: "portal-bl", type: "portal", x: 16, y: 82, next: ["ol1"] },
-
-  // ── Outer LEFT (B→T) → close at ot1 (START stays a spur) ───────
-  { id: "ol1", type: "ult-orb", x: 12, y: 74, next: ["ol2"] },
-  { id: "ol2", type: "normal", x: 10, y: 66, next: ["ol3"] },
-  { id: "ol3", type: "event", x: 10, y: 58, next: ["ol4"] },
-  {
-    id: "ol4",
-    type: "minigame",
-    x: 10,
-    y: 50,
-    next: ["ol5"],
-    midEdges: [{ to: "mw1", axis: "horizontal", dir: "in" }],
-  },
-  { id: "ol5", type: "normal", x: 10, y: 42, next: ["ol6"] },
-  { id: "ol6", type: "shop", x: 12, y: 34, next: ["ol7"] },
-  { id: "ol7", type: "spike", x: 14, y: 26, next: ["ol8"] },
-  { id: "ol8", type: "special", x: 16, y: 18, next: ["ot1"] },
-
-  // ── Buttons (inner quadrant spurs; always reachable) ───────────
-  { id: "btn-tr", type: "button", x: 68, y: 28, next: ["ot8"] },
-  { id: "btn-bl", type: "button", x: 32, y: 72, next: ["ob8"] },
-
-  // ── North mid road (outer → hub = in) ──────────────────────────
-  {
-    id: "mn1",
-    type: "normal",
-    x: 50,
-    y: 22,
-    next: [],
-    midEdges: [
-      { to: "ot5", axis: "vertical", dir: "out" },
-      { to: "mn2", axis: "vertical", dir: "in" },
-    ],
-  },
-  {
-    id: "mn2",
-    type: "event",
-    x: 50,
-    y: 30,
-    next: [],
-    midEdges: [
-      { to: "mn1", axis: "vertical", dir: "out" },
-      { to: "dn", axis: "vertical", dir: "in" },
-    ],
-  },
-  {
-    id: "dn",
-    type: "normal",
-    x: 50,
-    y: 38,
-    next: [],
-    midEdges: [
-      { to: "mn2", axis: "vertical", dir: "out" },
-      { to: "hub", axis: "vertical", dir: "in" },
-    ],
-  },
-
-  // ── East mid road ──────────────────────────────────────────────
-  {
-    id: "me1",
-    type: "normal",
-    x: 78,
-    y: 50,
-    next: [],
-    midEdges: [
-      { to: "or4", axis: "horizontal", dir: "out" },
-      { to: "me2", axis: "horizontal", dir: "in" },
-    ],
-  },
-  {
-    id: "me2",
-    type: "lucky",
-    x: 70,
-    y: 50,
-    next: [],
-    midEdges: [
-      { to: "me1", axis: "horizontal", dir: "out" },
-      { to: "de", axis: "horizontal", dir: "in" },
-    ],
-  },
-  {
-    id: "de",
-    type: "normal",
-    x: 62,
-    y: 50,
-    next: [],
-    midEdges: [
-      { to: "me2", axis: "horizontal", dir: "out" },
-      { to: "hub", axis: "horizontal", dir: "in" },
-    ],
-  },
-
-  // ── South mid road ─────────────────────────────────────────────
-  {
-    id: "ms1",
-    type: "normal",
-    x: 50,
-    y: 78,
-    next: [],
-    midEdges: [
-      { to: "ob5", axis: "vertical", dir: "out" },
-      { to: "ms2", axis: "vertical", dir: "in" },
-    ],
-  },
-  {
-    id: "ms2",
-    type: "risk",
-    x: 50,
-    y: 70,
-    next: [],
-    midEdges: [
-      { to: "ms1", axis: "vertical", dir: "out" },
-      { to: "ds", axis: "vertical", dir: "in" },
-    ],
-  },
-  {
-    id: "ds",
-    type: "normal",
-    x: 50,
-    y: 62,
-    next: [],
-    midEdges: [
-      { to: "ms2", axis: "vertical", dir: "out" },
-      { to: "hub", axis: "vertical", dir: "in" },
-    ],
-  },
-
-  // ── West mid road ──────────────────────────────────────────────
-  {
-    id: "mw1",
-    type: "ult-orb",
-    x: 22,
-    y: 50,
-    next: [],
-    midEdges: [
-      { to: "ol4", axis: "horizontal", dir: "out" },
-      { to: "mw2", axis: "horizontal", dir: "in" },
-    ],
-  },
-  {
-    id: "mw2",
-    type: "normal",
-    x: 30,
-    y: 50,
-    next: [],
-    midEdges: [
-      { to: "mw1", axis: "horizontal", dir: "out" },
-      { to: "dw", axis: "horizontal", dir: "in" },
-    ],
-  },
-  {
-    id: "dw",
-    type: "normal",
-    x: 38,
-    y: 50,
-    next: [],
-    midEdges: [
-      { to: "mw2", axis: "horizontal", dir: "out" },
-      { to: "hub", axis: "horizontal", dir: "in" },
-    ],
-  },
-
-  // ── Central hub ────────────────────────────────────────────────
-  {
-    id: "hub",
-    type: "special",
-    x: 50,
-    y: 50,
-    next: [],
-    midEdges: [
-      { to: "dn", axis: "vertical", dir: "out" },
-      { to: "ds", axis: "vertical", dir: "out" },
-      { to: "de", axis: "horizontal", dir: "out" },
-      { to: "dw", axis: "horizontal", dir: "out" },
-    ],
-  },
-];
+export const boardLayout: BoardNode[] = buildKingdomBoard();
 
 const LEGACY_POSITION_REMAP: Record<string, string> = {
-  "top-1": "ot1",
-  "top-2": "ot5",
-  "top-split": "ot5",
-  "top-outer-1": "ot6",
-  "top-inner-1": "mn1",
-  "top-inner-2": "mn2",
-  "right-1": "or1",
-  "right-2": "or4",
-  "right-merge": "or4",
-  "right-3": "or6",
-  "bottom-1": "ob1",
-  "bottom-2": "ob3",
-  "bottom-3": "ob5",
-  "bottom-split": "ob5",
-  "bottom-outer-1": "ob3",
-  "bottom-inner-1": "ms1",
-  "bottom-inner-2": "ms2",
-  "left-3": "ol1",
-  "left-2": "ol4",
-  "left-merge": "ol4",
-  "left-1": "ol8",
-  "m-top-1": "mn1",
-  "m-top-2": "mn2",
-  "m-top-3": "dn",
-  "m-right-1": "me1",
-  "m-right-2": "me2",
-  "m-right-3": "de",
-  "m-bot-1": "ms1",
-  "m-bot-2": "ms2",
-  "m-bot-3": "ds",
-  "m-left-1": "mw1",
-  "m-left-2": "mw2",
-  "m-left-3": "dw",
-  "inner-n": "dn",
-  "inner-ne": "de",
-  "inner-e": "de",
-  "inner-se": "ds",
-  "inner-s": "ds",
-  "inner-sw": "dw",
-  "inner-w": "dw",
-  "inner-nw": "dn",
-  "inner-hub": "hub",
-  "inner-exit-ne": "de",
-  "inner-exit-sw": "dw",
-  // Prior asymmetric outer / mid ids
-  o1: "s1",
-  o2: "ot1",
-  o3: "ot2",
-  o4: "ot5",
-  o5: "ot3",
-  o6: "ot6",
-  o7: "ot7",
-  o8: "ot8",
-  o9: "or1",
-  o10: "or2",
-  o11: "or3",
-  o12: "or4",
-  o13: "or4",
-  o14: "or5",
-  o15: "or6",
-  o16: "or7",
-  o17: "ob1",
-  o18: "ob2",
-  o19: "ob3",
-  o20: "ob3",
-  o21: "ob4",
-  o22: "ob5",
-  o23: "ob6",
-  o24: "ob7",
-  o25: "ob8",
-  o26: "portal-bl",
-  o27: "ol1",
-  o28: "ol2",
-  o29: "ol3",
-  o30: "ol4",
-  o31: "ol4",
-  o32: "ol5",
-  o33: "ol6",
-  o34: "ol7",
-  o35: "ol8",
-  m1: "mn1",
-  m2: "mn2",
-  m3: "dn",
-  m4: "me1",
-  m5: "me2",
-  m6: "de",
-  m7: "ms1",
-  m8: "ms1",
-  m9: "ms2",
-  m10: "ds",
-  m11: "mw1",
-  m12: "mw2",
-  m13: "dw",
-  m14: "mn1",
-  i1: "dn",
-  i2: "hub",
-  i3: "de",
-  i4: "ds",
-  i5: "ds",
-  i6: "dw",
-  i7: "dw",
-  i8: "dn",
+  "inner-n": "i0",
+  "inner-ne": "i2",
+  "inner-e": "i2",
+  "inner-se": "i3",
+  "inner-s": "i4",
+  "inner-sw": "i5",
+  "inner-w": "i6",
+  "inner-nw": "i7",
+  "inner-hub": "kingdom",
+  "inner-exit-ne": "i2",
+  "inner-exit-sw": "i6",
+  de: "i2",
+  dn: "i0",
+  ds: "i4",
+  dw: "i6",
+  hub: "kingdom",
+  "m-top-2": "g1L",
+  mn2: "g1L",
+  "top-split": "o3",
+  ot5: "o3",
+  "btn-tr": "btn-g1",
+  "btn-bl": "btn-g3",
+  "portal-tr": "portal-tr",
+  "portal-bl": "portal-bl",
 };
 
 const KNOWN_TILE_TYPES: ReadonlySet<string> = new Set([
@@ -560,12 +551,12 @@ export function movePlayerBySteps(
   startNodeId: string,
   steps: number,
   preferredPath?: string[],
-  mode: MidRoadMode = DEFAULT_MID_ROAD_MODE
+  states: GateStates = DEFAULT_GATE_STATES
 ): string {
   let currentId = migrateBoardPosition(startNodeId);
 
   for (let i = 0; i < steps; i++) {
-    const exits = getNodeExits(currentId, mode);
+    const exits = getNodeExits(currentId, states);
     if (exits.length === 0) break;
 
     if (exits.length === 1) {
@@ -581,9 +572,9 @@ export function movePlayerBySteps(
 }
 
 export function listBoardBranchPoints(
-  mode: MidRoadMode = DEFAULT_MID_ROAD_MODE
+  states: GateStates = DEFAULT_GATE_STATES
 ): BoardNode[] {
-  return boardLayout.filter((node) => getNodeExits(node.id, mode).length > 1);
+  return boardLayout.filter((node) => getNodeExits(node.id, states).length > 1);
 }
 
 /** Landmark ids used by the match-start camera overview. */
@@ -593,11 +584,42 @@ export function listBoardLandmarks(): { id: string; label: string }[] {
   const portals = boardLayout
     .filter((n) => n.type === "portal")
     .map((n) => n.id);
+  const buttons = boardLayout
+    .filter((n) => n.type === "button")
+    .map((n) => n.id);
   return [
-    { id: "start", label: "START" },
-    { id: "hub", label: "Hub" },
-    ...portals.slice(0, 2).map((id) => ({ id, label: "Portal" })),
+    { id: "kingdom", label: "Kingdom Facility" },
     ...shops.slice(0, 2).map((id) => ({ id, label: "Shop" })),
+    ...portals.slice(0, 2).map((id) => ({ id, label: "Portal" })),
+    ...buttons.slice(0, 2).map((id) => ({ id, label: "Gate" })),
     ...spikes.slice(0, 1).map((id) => ({ id, label: "Spike" })),
   ];
 }
+
+/** Ids used to style gated shortcut roads (straighter / accent stroke). */
+export const GATE_BRANCH_NODE_IDS: ReadonlySet<string> = new Set([
+  "g1L",
+  "g1R",
+  "g2L",
+  "g2R",
+  "g3L",
+  "g3R",
+  "g4L",
+  "g4R",
+  "g5L",
+  "g5R",
+  "o3",
+  "o9",
+  "o14",
+  "o16",
+  "o19",
+  "i0",
+  "i1",
+  "i2",
+  "i3",
+  "i4",
+  "i5",
+  "i6",
+  "i7",
+  "kingdom",
+]);

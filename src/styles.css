@@ -581,6 +581,19 @@ body {
   border-color: rgba(45, 212, 191, 0.7);
 }
 
+.board-tile--kingdom {
+  background:
+    radial-gradient(circle at 50% 35%, rgba(253, 224, 71, 0.55), transparent 55%),
+    linear-gradient(165deg, rgba(120, 53, 15, 0.95), rgba(28, 25, 23, 0.96));
+  border-color: rgba(250, 204, 21, 0.9);
+  color: #fef3c7;
+  box-shadow:
+    0 0 0 2px rgba(245, 158, 11, 0.4),
+    0 0 28px rgba(245, 158, 11, 0.35);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
 .board-tile--portal {
   background:
     radial-gradient(circle at 40% 30%, rgba(186, 230, 253, 0.55), transparent 48%),
@@ -1046,6 +1059,43 @@ body {
 
 .dice-roll-stage--landed .dice-roll-face {
   animation: diceFaceSettle 0.35s ease-out;
+}
+
+.dice-roll-pair {
+  perspective: 600px;
+}
+
+.dice-roll-die--1 {
+  transform: rotate(-8deg);
+}
+
+.dice-roll-die--2 {
+  transform: rotate(7deg);
+}
+
+.dice-roll-stage--bounce .dice-roll-die {
+  animation: diceThrowBounce 0.85s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+.dice-roll-total {
+  text-shadow: 0 0 24px rgba(34, 211, 238, 0.45);
+}
+
+@keyframes diceThrowBounce {
+  0% {
+    transform: translateY(-48px) scale(0.7) rotate(-18deg);
+    opacity: 0.2;
+  }
+  55% {
+    transform: translateY(6px) scale(1.05) rotate(6deg);
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(-10px) scale(0.98) rotate(-3deg);
+  }
+  100% {
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
 }
 
 .dice-roll-face {

@@ -1,8 +1,12 @@
 import {
   boardLayout,
+  GATE_IDS,
   getNodeExits,
   listPhysicalEdges,
+  migrateGateStates,
   type BoardNode,
+  type GateId,
+  type GateStates,
   type MidRoadMode,
 } from "./boardLayout";
 
@@ -25,36 +29,25 @@ export type BoardGraphReport = {
   nodeCount: number;
   branchCount: number;
   issues: BoardGraphIssue[];
-  modeReports: Record<MidRoadMode, { reachable: number; deadEnds: number }>;
+  /** Reachability sampled across default + flipped single-gate variants. */
+  modeReports: Record<string, { reachable: number; deadEnds: number }>;
 };
 
 function collectModeExits(
   nodes: BoardNode[],
-  mode: MidRoadMode
+  states: GateStates
 ): Map<string, string[]> {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
   const exits = new Map<string, string[]>();
   for (const node of nodes) {
-    // Prefer layout helper when validating the live board; fall back for custom graphs.
     if (nodes === boardLayout) {
-      exits.set(node.id, getNodeExits(node.id, mode));
+      exits.set(node.id, getNodeExits(node.id, states));
     } else {
       const list = [...node.next];
-      for (const edge of node.midEdges ?? []) {
-        const verticalIn =
-          mode === "vertical_in" &&
-          ((edge.axis === "vertical" && edge.dir === "in") ||
-            (edge.axis === "horizontal" && edge.dir === "out"));
-        const horizontalIn =
-          mode === "horizontal_in" &&
-          ((edge.axis === "horizontal" && edge.dir === "in") ||
-            (edge.axis === "vertical" && edge.dir === "out"));
-        if (verticalIn || horizontalIn) list.push(edge.to);
+      for (const edge of node.gateEdges ?? []) {
+        if (states[edge.gateId] === edge.branch) list.push(edge.to);
       }
       exits.set(node.id, list);
     }
-    // Ensure referenced targets exist in byId for missing checks below
-    void byId;
   }
   return exits;
 }
@@ -149,7 +142,7 @@ function collectPhysicalSegments(nodes: BoardNode[]): Seg[] {
           };
           for (const node of nodes) {
             for (const nextId of node.next) add(node.id, nextId);
-            for (const edge of node.midEdges ?? []) add(node.id, edge.to);
+            for (const edge of node.gateEdges ?? []) add(node.id, edge.to);
           }
           return edges;
         })();
@@ -174,10 +167,11 @@ function collectPhysicalSegments(nodes: BoardNode[]): Seg[] {
 function validateModeReachability(
   nodes: BoardNode[],
   byId: Map<string, BoardNode>,
-  mode: MidRoadMode,
+  states: GateStates,
+  label: string,
   issues: BoardGraphIssue[]
 ): { reachable: number; deadEnds: number } {
-  const modeExits = collectModeExits(nodes, mode);
+  const modeExits = collectModeExits(nodes, states);
   let deadEnds = 0;
 
   for (const node of nodes) {
@@ -186,12 +180,12 @@ function validateModeReachability(
       deadEnds += 1;
       issues.push({
         code: "empty_next",
-        message: `Dead end in mode ${mode} (no exits): ${node.id}`,
+        message: `Dead end in ${label} (no exits): ${node.id}`,
         nodeId: node.id,
       });
       issues.push({
         code: "dead_end",
-        message: `Node ${node.id} has no exits under ${mode}`,
+        message: `Node ${node.id} has no exits under ${label}`,
         nodeId: node.id,
       });
     }
@@ -199,7 +193,7 @@ function validateModeReachability(
       if (!byId.has(nextId)) {
         issues.push({
           code: "missing_next",
-          message: `Node ${node.id} points to missing id "${nextId}" (${mode})`,
+          message: `Node ${node.id} points to missing id "${nextId}" (${label})`,
           nodeId: node.id,
         });
       }
@@ -207,7 +201,7 @@ function validateModeReachability(
     if (exits.length === 1 && exits[0] === node.id) {
       issues.push({
         code: "self_loop_only",
-        message: `Node ${node.id} only loops to itself (${mode})`,
+        message: `Node ${node.id} only loops to itself (${label})`,
         nodeId: node.id,
       });
     }
@@ -235,7 +229,7 @@ function validateModeReachability(
       if (!reachable.has(node.id)) {
         issues.push({
           code: "unreachable",
-          message: `Unreachable from start under ${mode}: ${node.id}`,
+          message: `Unreachable from start under ${label}: ${node.id}`,
           nodeId: node.id,
         });
       }
@@ -250,7 +244,7 @@ function validateModeReachability(
     if (from.length === 0) {
       issues.push({
         code: "orphan_inbound",
-        message: `No inbound edges to ${node.id} under ${mode}`,
+        message: `No inbound edges to ${node.id} under ${label}`,
         nodeId: node.id,
       });
     }
@@ -259,10 +253,47 @@ function validateModeReachability(
   return { reachable: reachable.size, deadEnds };
 }
 
+/** Representative gate configurations to validate (all 32 is fine but verbose). */
+function enumerateGateConfigs(): { label: string; states: GateStates }[] {
+  const configs: { label: string; states: GateStates }[] = [
+    { label: "default", states: migrateGateStates() },
+    {
+      label: "all_right",
+      states: {
+        g1: "right",
+        g2: "right",
+        g3: "right",
+        g4: "right",
+        g5: "right",
+      },
+    },
+    {
+      label: "all_left",
+      states: {
+        g1: "left",
+        g2: "left",
+        g3: "left",
+        g4: "left",
+        g5: "left",
+      },
+    },
+  ];
+  for (const id of GATE_IDS) {
+    const flipped = migrateGateStates();
+    flipped[id] = flipped[id] === "left" ? "right" : "left";
+    configs.push({ label: `flip_${id}`, states: flipped });
+  }
+  // Legacy mid-road mapping
+  configs.push({
+    label: "legacy_horizontal_in",
+    states: migrateGateStates(null, "horizontal_in" satisfies MidRoadMode),
+  });
+  return configs;
+}
+
 /**
- * Validate board connectivity for both mid-road modes + planar visual edges.
- * Dynamic mid-road edges must leave every tile with an exit in each mode,
- * and both modes must reach the full board from START.
+ * Validate board connectivity across gate configurations + planar visual edges.
+ * Gated branches must never create dead ends; every config reaches the full board.
  */
 export function validateBoardGraph(
   nodes: BoardNode[] = boardLayout
@@ -281,7 +312,6 @@ export function validateBoardGraph(
     byId.set(node.id, node);
   }
 
-  // Static reference integrity for always-on + mid edges
   for (const node of nodes) {
     for (const nextId of node.next) {
       if (!byId.has(nextId)) {
@@ -292,30 +322,36 @@ export function validateBoardGraph(
         });
       }
     }
-    for (const edge of node.midEdges ?? []) {
+    for (const edge of node.gateEdges ?? []) {
       if (!byId.has(edge.to)) {
         issues.push({
           code: "missing_next",
-          message: `Node ${node.id} midEdge points to missing id "${edge.to}"`,
+          message: `Node ${node.id} gateEdge points to missing id "${edge.to}"`,
           nodeId: node.id,
         });
       }
     }
   }
 
-  const modeReports = {
-    vertical_in: validateModeReachability(
+  const modeReports: BoardGraphReport["modeReports"] = {};
+  for (const { label, states } of enumerateGateConfigs()) {
+    modeReports[label] = validateModeReachability(
       nodes,
       byId,
-      "vertical_in",
+      states,
+      label,
       issues
-    ),
-    horizontal_in: validateModeReachability(
-      nodes,
-      byId,
-      "horizontal_in",
-      issues
-    ),
+    );
+  }
+
+  // Keep legacy keys so older tests / logs still read something sensible.
+  modeReports.vertical_in = modeReports.default ?? {
+    reachable: 0,
+    deadEnds: 0,
+  };
+  modeReports.horizontal_in = modeReports.legacy_horizontal_in ?? {
+    reachable: 0,
+    deadEnds: 0,
   };
 
   const segs = collectPhysicalSegments(nodes);
@@ -333,10 +369,9 @@ export function validateBoardGraph(
     }
   }
 
+  const defaultStates = migrateGateStates();
   const branchCount = nodes.filter((n) => {
-    const a = getNodeExits(n.id, "vertical_in").length;
-    const b = getNodeExits(n.id, "horizontal_in").length;
-    return a > 1 || b > 1;
+    return getNodeExits(n.id, defaultStates).length > 1;
   }).length;
 
   return {
@@ -360,7 +395,9 @@ export function assertBoardGraphValidInDev(): void {
   } else {
     console.info(
       `[board] Graph OK — ${report.nodeCount} tiles, ${report.branchCount} branches ` +
-        `(modes: V=${report.modeReports.vertical_in.reachable} H=${report.modeReports.horizontal_in.reachable})`
+        `(default reachable=${report.modeReports.default?.reachable ?? 0})`
     );
   }
 }
+
+export type { GateId, GateStates };
