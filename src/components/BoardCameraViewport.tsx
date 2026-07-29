@@ -55,9 +55,19 @@ type Props = {
   /**
    * Lock to full-board framing: no follow, no auto zoom/pan-in, no wheel zoom.
    * Free pan stays manual (does not snap back to the player).
+   * Also forced on when {@link FOLLOW_PLAYER_CAMERA} is false.
    */
   fitFullBoard?: boolean;
 };
+
+/**
+ * Follow-camera: when true, the viewport smoothly centers on the active/moving player.
+ * Off by default so the full board stays framed (center of layout, no snap-to-player).
+ * Manual pan (drag / Alt-drag) and minimap jump still work either way.
+ *
+ * To re-enable player follow later: set this to `true`.
+ */
+export const FOLLOW_PLAYER_CAMERA = false;
 
 const LERP = 0.12;
 const MANUAL_LERP = 0.28;
@@ -92,8 +102,9 @@ function nodePose(nodeId: string | null | undefined): CameraPose {
 }
 
 /**
- * Board camera: smooth follow, optional event pans, user pan / minimap.
+ * Board camera: optional player follow, event pans, user pan / minimap.
  * Auto zoom-in and match-start cinematic flyover are disabled for now.
+ * Player follow is gated by {@link FOLLOW_PLAYER_CAMERA} (off by default).
  */
 const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
   function BoardCameraViewport(
@@ -111,15 +122,18 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
     },
     ref
   ) {
+    // Full-board lock whenever follow is disabled, or when the editor forces it.
+    const lockFullBoard = fitFullBoard || !FOLLOW_PLAYER_CAMERA;
+
     const [pose, setPose] = useState<CameraPose>(() =>
-      fitFullBoard ? FULL_BOARD_POSE : { ...nodePose(followNodeId), zoom: FOLLOW_ZOOM }
+      lockFullBoard ? FULL_BOARD_POSE : { ...nodePose(followNodeId), zoom: FOLLOW_ZOOM }
     );
     const [isPanning, setIsPanning] = useState(false);
     const poseRef = useRef(pose);
     const targetRef = useRef<CameraPose>(
-      fitFullBoard ? FULL_BOARD_POSE : { ...nodePose(followNodeId), zoom: FOLLOW_ZOOM }
+      lockFullBoard ? FULL_BOARD_POSE : { ...nodePose(followNodeId), zoom: FOLLOW_ZOOM }
     );
-    const modeRef = useRef<BoardCameraMode>(fitFullBoard ? "overview" : "follow");
+    const modeRef = useRef<BoardCameraMode>(lockFullBoard ? "overview" : "follow");
     const introRanRef = useRef(false);
     const eventUntilRef = useRef(0);
     const boardPulseUntilRef = useRef(0);
@@ -130,7 +144,7 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
     const dragLastRef = useRef<{ x: number; y: number } | null>(null);
     const isDraggingRef = useRef(false);
     const didPanRef = useRef(false);
-    const fitFullBoardRef = useRef(fitFullBoard);
+    const lockFullBoardRef = useRef(lockFullBoard);
 
     const setTarget = useCallback((next: CameraPose, mode: BoardCameraMode) => {
       targetRef.current = {
@@ -144,8 +158,8 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
     const enterManual = useCallback(
       (next: CameraPose, holdMs = MANUAL_RESUME_MS) => {
         setTarget({ ...next, zoom: FOLLOW_ZOOM }, "manual");
-        // In fit-full-board mode, never auto-resume follow — keep free pan.
-        manualUntilRef.current = fitFullBoardRef.current
+        // In full-board mode, never auto-resume follow — keep free pan.
+        manualUntilRef.current = lockFullBoardRef.current
           ? Number.POSITIVE_INFINITY
           : performance.now() + holdMs;
       },
@@ -162,11 +176,11 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
       [enterManual]
     );
 
-    // Enter/leave full-board framing (board editor).
+    // Enter/leave full-board framing (follow disabled, or board editor open).
     useEffect(() => {
-      fitFullBoardRef.current = fitFullBoard;
-      if (!fitFullBoard) {
-        // Leaving editor: allow follow to resume immediately.
+      lockFullBoardRef.current = lockFullBoard;
+      if (!lockFullBoard) {
+        // Leaving full-board lock: allow follow to resume immediately.
         manualUntilRef.current = Math.min(manualUntilRef.current, performance.now());
         return;
       }
@@ -176,21 +190,21 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
       setTarget(FULL_BOARD_POSE, "overview");
       poseRef.current = FULL_BOARD_POSE;
       setPose(FULL_BOARD_POSE);
-    }, [fitFullBoard, setTarget]);
+    }, [lockFullBoard, setTarget]);
 
     // Match-start cinematic disabled — skip straight to follow framing.
     useEffect(() => {
-      if (fitFullBoard) return;
+      if (lockFullBoard) return;
       if (!playIntro || introRanRef.current) return;
       introRanRef.current = true;
       modeRef.current = "follow";
       setTarget({ ...nodePose(followNodeId ?? "start"), zoom: FOLLOW_ZOOM }, "follow");
       onIntroComplete?.();
-    }, [playIntro, onIntroComplete, setTarget, followNodeId, fitFullBoard]);
+    }, [playIntro, onIntroComplete, setTarget, followNodeId, lockFullBoard]);
 
     // Event focus (spike / shop / area ult) — pan only, no zoom-in.
     useEffect(() => {
-      if (fitFullBoard) return;
+      if (lockFullBoard) return;
       if (!eventFocus?.nodeId) return;
       const hold = eventFocus.holdMs ?? 1200;
       eventUntilRef.current = performance.now() + hold;
@@ -199,28 +213,28 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
         { ...nodePose(eventFocus.nodeId), zoom: EVENT_ZOOM },
         eventFocus.mode ?? "event"
       );
-    }, [eventFocus, setTarget, fitFullBoard]);
+    }, [eventFocus, setTarget, lockFullBoard]);
 
     // Board-wide event pulse — center board, no zoom.
     useEffect(() => {
-      if (fitFullBoard) return;
+      if (lockFullBoard) return;
       if (!boardEventPulse) return;
       boardPulseUntilRef.current = performance.now() + 1400;
       manualUntilRef.current = 0;
       setTarget({ x: 50, y: 50, zoom: BOARD_EVENT_ZOOM }, "board-event");
-    }, [boardEventPulse, setTarget, fitFullBoard]);
+    }, [boardEventPulse, setTarget, lockFullBoard]);
 
     // Soft re-follow after idle; also resume when the followed piece changes.
     useEffect(() => {
-      if (fitFullBoard) return;
+      if (lockFullBoard) return;
       manualUntilRef.current = Math.min(manualUntilRef.current, performance.now());
-    }, [followNodeId, fitFullBoard]);
+    }, [followNodeId, lockFullBoard]);
 
     // Follow target (when not in overview/event/manual hold). Zoom stays locked at 1×.
     useEffect(() => {
       const tick = () => {
         const now = performance.now();
-        if (fitFullBoardRef.current) {
+        if (lockFullBoardRef.current) {
           if (isDraggingRef.current || now < manualUntilRef.current) {
             if (!isDraggingRef.current && modeRef.current !== "manual") {
               modeRef.current = "manual";
@@ -329,7 +343,7 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
         setIsPanning(false);
-        manualUntilRef.current = fitFullBoardRef.current
+        manualUntilRef.current = lockFullBoardRef.current
           ? Number.POSITIVE_INFINITY
           : performance.now() + MANUAL_RESUME_MS;
         modeRef.current = "manual";
