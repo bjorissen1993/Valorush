@@ -1,20 +1,43 @@
-import { boardLayout, getNodeById } from "../boardLayout";
+import {
+  boardLayout,
+  getNodeById,
+  isStartOneWayTile,
+} from "../boardLayout";
 import type { BoardUltimateState } from "../../../shared/ultimates";
 
-/** Build undirected adjacency from the directed board graph (incl. mid roads). */
+/** Build undirected adjacency from the directed board graph (incl. mid roads).
+ * START one-way spur is forward-only — never create reverse edges onto it.
+ */
 export function buildBoardAdjacency(): Record<string, string[]> {
   const adj: Record<string, Set<string>> = {};
+  const ensure = (id: string) => {
+    if (!adj[id]) adj[id] = new Set();
+    return adj[id]!;
+  };
   for (const node of boardLayout) {
-    if (!adj[node.id]) adj[node.id] = new Set();
+    ensure(node.id);
     for (const next of node.next) {
-      adj[node.id]!.add(next);
-      if (!adj[next]) adj[next] = new Set();
-      adj[next]!.add(node.id);
+      ensure(next).add(node.id);
+      ensure(node.id).add(next);
+      // Drop reverse onto the START corridor so ultimates can't pull players back.
+      if (isStartOneWayTile(next)) {
+        adj[next]!.delete(node.id);
+      }
+      if (isStartOneWayTile(node.id)) {
+        adj[next]!.delete(node.id);
+      }
     }
     for (const edge of node.gateEdges ?? []) {
-      adj[node.id]!.add(edge.to);
-      if (!adj[edge.to]) adj[edge.to] = new Set();
-      adj[edge.to]!.add(node.id);
+      ensure(node.id).add(edge.to);
+      ensure(edge.to).add(node.id);
+    }
+  }
+  // Keep corridor tiles reachable forward for distance checks from START itself,
+  // but strip any inbound from the playable board.
+  for (const id of Object.keys(adj)) {
+    if (isStartOneWayTile(id)) continue;
+    for (const oneWay of [...(adj[id] ?? [])]) {
+      if (isStartOneWayTile(oneWay)) adj[id]!.delete(oneWay);
     }
   }
   const result: Record<string, string[]> = {};
@@ -35,8 +58,9 @@ export function moveBackSpaces(startNodeId: string, steps: number): string {
     const prevs = boardLayout
       .filter(
         (node) =>
-          node.next.includes(current) ||
-          (node.gateEdges ?? []).some((e) => e.to === current)
+          !isStartOneWayTile(node.id) &&
+          (node.next.includes(current) ||
+            (node.gateEdges ?? []).some((e) => e.to === current))
       )
       .map((node) => node.id);
     if (prevs.length === 0) break;
@@ -157,6 +181,8 @@ export function moveTowardNode(
   steps: number
 ): string {
   if (startNodeId === destinationId || steps <= 0) return startNodeId;
+  // START corridor is exit-only — never treat it as a pull destination.
+  if (isStartOneWayTile(destinationId)) return startNodeId;
   const adj = buildBoardAdjacency();
   // Build parent map from destination BFS so we walk the shortest path.
   const parent = new Map<string, string | null>();
@@ -166,6 +192,7 @@ export function moveTowardNode(
     const id = queue.shift()!;
     for (const next of adj[id] ?? []) {
       if (parent.has(next)) continue;
+      if (isStartOneWayTile(next)) continue;
       parent.set(next, id);
       queue.push(next);
     }

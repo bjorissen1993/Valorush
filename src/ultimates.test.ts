@@ -198,7 +198,7 @@ describe("applyUltimate — all playable agents", () => {
       applyUltimate(
         baseInput("Astra", {
           targetNodeId: "start",
-          targetNodeId2: "s1",
+          targetNodeId2: "entry",
         })
       ).board.walls[0]?.fromNodeId
     ).toBe("start");
@@ -314,7 +314,8 @@ describe("ultimate board helpers", () => {
   });
 
   it("pulls toward a destination and builds connected zones", () => {
-    expect(moveTowardNode("br2", "start", 3)).not.toBe("br2");
+    expect(moveTowardNode("br2", "kingdom", 3)).not.toBe("br2");
+    expect(moveTowardNode("br2", "start", 3)).toBe("br2");
     expect(collectConnectedZone("tl3", 3).size).toBe(3);
   });
 });

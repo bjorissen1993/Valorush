@@ -1,7 +1,9 @@
 import {
   boardLayout,
+  BOARD_TILE_PITCH,
   GATE_IDS,
   getNodeExits,
+  isStartOneWayTile,
   listPhysicalEdges,
   migrateGateStates,
   type BoardNode,
@@ -19,7 +21,9 @@ export type BoardGraphIssue = {
     | "orphan_inbound"
     | "empty_next"
     | "self_loop_only"
-    | "visual_crossing";
+    | "visual_crossing"
+    | "start_inbound"
+    | "spacing";
   message: string;
   nodeId?: string;
 };
@@ -238,9 +242,29 @@ function validateModeReachability(
 
   const inbound = buildInboundMap(nodes, modeExits);
   for (const node of nodes) {
-    if (node.id === "start") continue;
-    if (!reachable.has(node.id)) continue;
     const from = inbound.get(node.id) ?? [];
+    if (node.id === "start") {
+      if (from.length > 0) {
+        issues.push({
+          code: "start_inbound",
+          message: `START has inbound edges under ${label}: ${from.join(", ")}`,
+          nodeId: node.id,
+        });
+      }
+      continue;
+    }
+    if (isStartOneWayTile(node.id)) {
+      const fromBoard = from.filter((id) => !isStartOneWayTile(id));
+      if (fromBoard.length > 0) {
+        issues.push({
+          code: "start_inbound",
+          message: `START corridor ${node.id} has inbound from board under ${label}: ${fromBoard.join(", ")}`,
+          nodeId: node.id,
+        });
+      }
+      continue;
+    }
+    if (!reachable.has(node.id)) continue;
     if (from.length === 0) {
       issues.push({
         code: "orphan_inbound",
@@ -362,6 +386,56 @@ export function validateBoardGraph(
           code: "visual_crossing",
           message: `Roads cross visually: ${a.fromId}→${a.toId} × ${b.fromId}→${b.toId}`,
           nodeId: a.fromId,
+        });
+      }
+    }
+  }
+
+  // Uniform pitch: connected tiles share a consistent center-to-center distance.
+  // Kingdom spokes are intentionally longer; START spur may be slightly longer.
+  const byIdForSpacing = new Map(nodes.map((n) => [n.id, n]));
+  const physicalEdges = listPhysicalEdges(nodes);
+  const pitchMin = BOARD_TILE_PITCH - 2.5;
+  const pitchMax = BOARD_TILE_PITCH + 3.5;
+  for (const { from, to } of physicalEdges) {
+    const a = byIdForSpacing.get(from);
+    const b = byIdForSpacing.get(to);
+    if (!a || !b) continue;
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const kingdomSpoke =
+      from === "kingdom" ||
+      to === "kingdom";
+    if (kingdomSpoke) {
+      if (d < pitchMin || d > BOARD_TILE_PITCH + 4) {
+        issues.push({
+          code: "spacing",
+          message: `Kingdom spoke length ${d.toFixed(1)} out of range: ${from}→${to}`,
+          nodeId: from,
+        });
+      }
+      continue;
+    }
+    if (d < pitchMin || d > pitchMax) {
+      issues.push({
+        code: "spacing",
+        message: `Edge length ${d.toFixed(1)} off pitch (~${BOARD_TILE_PITCH}): ${from}→${to}`,
+        nodeId: from,
+      });
+    }
+  }
+
+  // Tiles must not touch/overlap (account for ~4.6 tile diameter + road gap).
+  const minSeparation = 6.5;
+  for (let i = 0; i < nodes.length; i += 1) {
+    for (let j = i + 1; j < nodes.length; j += 1) {
+      const a = nodes[i]!;
+      const b = nodes[j]!;
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d < minSeparation) {
+        issues.push({
+          code: "spacing",
+          message: `Tiles too close (${d.toFixed(1)} < ${minSeparation}): ${a.id} ↔ ${b.id}`,
+          nodeId: a.id,
         });
       }
     }

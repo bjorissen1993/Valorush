@@ -1,11 +1,11 @@
 /**
- * ValoRush clover board — four petal loops around a central hub (concept art).
+ * ValoRush clover board — four petal loops around a central hub.
  *
- * - Small hub ring + Kingdom Facility at center (crossroads)
- * - Four distinct loops (TL / TR / BR / BL) — clover / flower, not outer oval
- * - 4 gates at hub↔petal splits (one branch open; never blocks the map)
- * - Gate Buttons flip a single gate; portals at TR / BL (Bind-style pair)
- * - Coordinates are layout-space percentages (roughly 2–99); petals spread out with straighter runs
+ * - Uniform center-to-center pitch (~9) between adjacent connected tiles
+ * - Hub ring + Kingdom Facility (cardinal spokes) + four readable petals
+ * - START is a top-left one-way entry spur (no inbound edges; never re-land)
+ * - 4 gates at hub↔petal splits; buttons flip a gate; Bind-style portals TR/BL
+ * - Coordinates are layout-space percentages (~2–98)
  */
 
 export type TileType =
@@ -161,6 +161,10 @@ export function getNodeExits(
       exits.push(edge.to);
     }
   }
+  // Board tiles must never offer START corridor as a landing / branch option.
+  if (!isStartOneWayTile(nodeId)) {
+    return exits.filter((id) => !isStartOneWayTile(id));
+  }
   return exits;
 }
 
@@ -291,6 +295,11 @@ function linkBoth(a: MutableNode, b: MutableNode) {
   if (!b.next.includes(a.id)) b.next.push(a.id);
 }
 
+/** One-way directed edge (START entry spur). */
+function linkOne(from: MutableNode, to: MutableNode) {
+  if (!from.next.includes(to.id)) from.next.push(to.id);
+}
+
 function gateBoth(
   a: MutableNode,
   b: MutableNode,
@@ -312,8 +321,24 @@ function linkCycle(nodes: MutableNode[]) {
 }
 
 /**
- * Clover / flower board (~56 tiles):
- * hub ring + Kingdom + 4 petal loops + 4 gates + 2 portals + 4 buttons.
+ * Ids that movement / ultimates must never re-enter after leaving START.
+ * Graph has outgoing edges only; no inbound from the playable board.
+ */
+export const START_ONE_WAY_IDS: ReadonlySet<string> = new Set([
+  "start",
+  "entry",
+]);
+
+export function isStartOneWayTile(nodeId: string): boolean {
+  return START_ONE_WAY_IDS.has(nodeId);
+}
+
+/** Target center-to-center pitch between adjacent connected tiles. */
+export const BOARD_TILE_PITCH = 9;
+
+/**
+ * Clover board (~55 tiles) with uniform ~9 pitch:
+ * hub ring + Kingdom + 4 petal loops + START one-way spur + 4 gates + 2 portals + 4 buttons.
  */
 function buildCloverBoard(): BoardNode[] {
   const byId = new Map<string, MutableNode>();
@@ -322,114 +347,119 @@ function buildCloverBoard(): BoardNode[] {
     return node;
   };
 
-  // ── Central hub ring (crossroads) — slightly larger for clear spokes ─
+  // ── Central hub ring — chord ≈ 9 (r = 9 / (2·sin(π/8))) ──────────
   const hub = [
-    add(n("i0", "normal", 50, 34)), // N
-    add(n("i1", "normal", 61, 39)), // NE — g2 fork
-    add(n("i2", "event", 66, 50)), // E
-    add(n("i3", "normal", 61, 61)), // SE — g3 fork
-    add(n("i4", "normal", 50, 66)), // S
-    add(n("i5", "normal", 39, 61)), // SW — g4 fork
-    add(n("i6", "lucky", 34, 50)), // W
-    add(n("i7", "normal", 39, 39)), // NW — g1 fork
+    add(n("i0", "normal", 50.0, 38.2)), // N
+    add(n("i1", "normal", 58.3, 41.7)), // NE — g2 fork
+    add(n("i2", "event", 61.8, 50.0)), // E
+    add(n("i3", "normal", 58.3, 58.3)), // SE — g3 fork
+    add(n("i4", "normal", 50.0, 61.8)), // S
+    add(n("i5", "normal", 41.7, 58.3)), // SW — g4 fork
+    add(n("i6", "lucky", 38.2, 50.0)), // W
+    add(n("i7", "normal", 41.7, 41.7)), // NW — g1 fork
   ];
   linkCycle(hub);
 
-  const kingdom = add(n("kingdom", "special", 50, 50));
+  const kingdom = add(n("kingdom", "special", 50.0, 50.0));
   linkBoth(kingdom, hub[0]!); // N
   linkBoth(kingdom, hub[2]!); // E
   linkBoth(kingdom, hub[4]!); // S
   linkBoth(kingdom, hub[6]!); // W
 
-  // ── Top-left petal (START + orb) ─────────────────────────────────
-  // Outer loop with even chord spacing; g1L↔g1R closes the petal.
-  const g1L = add(n("g1L", "normal", 29, 33));
-  const g1R = add(n("g1R", "normal", 40, 31));
-  const tl = [
-    g1L,
-    add(n("tl0", "normal", 18, 28)),
-    add(n("tl1", "ult-orb", 9, 19)),
-    add(n("start", "start", 4, 8)),
-    add(n("tl2", "normal", 9, 2)),
-    add(n("tl3", "event", 24, 1)),
-    add(n("tl4", "normal", 38, 3)),
-    add(n("tl5", "normal", 48, 10)),
-    add(n("tl6", "normal", 53, 20)),
-    add(n("tl7", "normal", 49, 28)),
-    g1R,
-  ];
-  linkCycle(tl);
+  // ── Top-left petal (entry from START spur) ───────────────────────
+  // Cycle order: g1L → tl0…tl7 → g1R → g1L (chord ≈ 9.1)
+  const g1L = add(n("g1L", "normal", 33.0, 39.5));
+  const g1R = add(n("g1R", "normal", 39.5, 33.0));
+  const tl0 = add(n("tl0", "normal", 24.0, 40.9));
+  const tl1 = add(n("tl1", "ult-orb", 15.9, 36.7));
+  const tl2 = add(n("tl2", "normal", 11.7, 28.6));
+  const tl3 = add(n("tl3", "event", 13.2, 19.6));
+  const tl4 = add(n("tl4", "normal", 19.6, 13.2));
+  const tl5 = add(n("tl5", "normal", 28.6, 11.7));
+  const tl6 = add(n("tl6", "lucky", 36.7, 15.9));
+  const tl7 = add(n("tl7", "normal", 40.9, 24.0));
+  linkCycle([g1L, tl0, tl1, tl2, tl3, tl4, tl5, tl6, tl7, g1R]);
   gateBoth(hub[7]!, g1L, "g1", "left");
   gateBoth(hub[7]!, g1R, "g1", "right");
 
-  // ── Top-right petal (purple portal) ──────────────────────────────
-  const g2L = add(n("g2L", "normal", 60, 31));
-  const g2R = add(n("g2R", "normal", 71, 34));
+  // START top-left one-way spur: start → entry → tl4 (never return)
+  const start = add(n("start", "start", 6.0, 2.0));
+  const entry = add(n("entry", "ult-orb", 12.0, 7.0));
+  linkOne(start, entry);
+  linkOne(entry, tl4);
+
+  // ── Top-right petal (Bind portal) ────────────────────────────────
+  const g2L = add(n("g2L", "normal", 60.5, 33.0));
+  const g2R = add(n("g2R", "normal", 67.0, 39.5));
   const tr = [
     g2L,
-    add(n("tr0", "normal", 57, 19)),
-    add(n("tr1", "shop", 68, 7)),
-    add(n("tr2", "normal", 82, 2)),
-    add(n("portal-tr", "portal", 95, 11)),
-    add(n("tr3", "risk", 98, 26)),
-    add(n("tr4", "ult-orb", 95, 41)),
-    add(n("tr5", "normal", 85, 49)),
-    add(n("tr6", "normal", 73, 49)),
-    add(n("tr7", "normal", 66, 42)),
+    add(n("tr3", "normal", 59.1, 24.0)),
+    add(n("tr4", "shop", 63.3, 15.9)),
+    add(n("tr5", "normal", 71.4, 11.7)),
+    add(n("tr6", "risk", 80.4, 13.2)),
+    add(n("portal-tr", "portal", 86.8, 19.6)),
+    add(n("tr0", "ult-orb", 88.3, 28.6)),
+    add(n("tr1", "normal", 84.1, 36.7)),
+    add(n("tr2", "normal", 76.0, 40.9)),
     g2R,
   ];
   linkCycle(tr);
   gateBoth(hub[1]!, g2L, "g2", "left");
   gateBoth(hub[1]!, g2R, "g2", "right");
 
-  // ── Bottom-right petal (shops / spike) ───────────────────────────
-  const g3L = add(n("g3L", "normal", 71, 66));
-  const g3R = add(n("g3R", "normal", 60, 71));
+  // ── Bottom-right petal (shop / spike) ────────────────────────────
+  const g3L = add(n("g3L", "normal", 67.0, 60.5));
+  const g3R = add(n("g3R", "normal", 60.5, 67.0));
   const br = [
     g3L,
-    add(n("br0", "shop", 82, 64)),
-    add(n("br1", "normal", 94, 71)),
-    add(n("br2", "spike", 98, 84)),
-    add(n("br3", "minigame", 93, 96)),
-    add(n("br4", "event", 76, 99)),
-    add(n("br5", "normal", 60, 95)),
-    add(n("br6", "normal", 54, 87)),
-    add(n("br7", "normal", 54, 77)),
+    add(n("br0", "shop", 76.0, 59.1)),
+    add(n("br1", "normal", 84.1, 63.3)),
+    add(n("br2", "spike", 88.3, 71.4)),
+    add(n("br3", "minigame", 86.8, 80.4)),
+    add(n("br4", "event", 80.4, 86.8)),
+    add(n("br5", "normal", 71.4, 88.3)),
+    add(n("br6", "normal", 63.3, 84.1)),
+    add(n("br7", "normal", 59.1, 76.0)),
     g3R,
   ];
   linkCycle(br);
   gateBoth(hub[3]!, g3L, "g3", "left");
   gateBoth(hub[3]!, g3R, "g3", "right");
 
-  // ── Bottom-left petal (cyan portal) ──────────────────────────────
-  const g4L = add(n("g4L", "normal", 29, 66));
-  const g4R = add(n("g4R", "normal", 40, 71));
+  // ── Bottom-left petal (Bind portal) ──────────────────────────────
+  const g4L = add(n("g4L", "normal", 39.5, 67.0));
+  const g4R = add(n("g4R", "normal", 33.0, 60.5));
   const bl = [
     g4L,
-    add(n("bl0", "lucky", 18, 64)),
-    add(n("bl1", "event", 8, 71)),
-    add(n("portal-bl", "portal", 2, 84)),
-    add(n("bl2", "minigame", 5, 96)),
-    add(n("bl3", "normal", 20, 99)),
-    add(n("bl4", "normal", 38, 95)),
-    add(n("bl5", "risk", 46, 87)),
-    add(n("bl6", "normal", 46, 77)),
-    add(n("bl7", "normal", 44, 71)),
+    add(n("bl0", "lucky", 40.9, 76.0)),
+    add(n("bl1", "event", 36.7, 84.1)),
+    add(n("bl2", "minigame", 28.6, 88.3)),
+    add(n("bl3", "normal", 19.6, 86.8)),
+    add(n("portal-bl", "portal", 13.2, 80.4)),
+    add(n("bl5", "risk", 11.7, 71.4)),
+    add(n("bl6", "normal", 15.9, 63.3)),
+    add(n("bl7", "normal", 24.0, 59.1)),
     g4R,
   ];
   linkCycle(bl);
   gateBoth(hub[5]!, g4L, "g4", "left");
   gateBoth(hub[5]!, g4R, "g4", "right");
 
-  // ── Gate Buttons (spurs on petals; always reconnect) ─────────────
-  const btn1 = add(n("btn-g1", "button", 32, 1, { controlsGate: "g1" }));
-  const btn2 = add(n("btn-g2", "button", 91, 33, { controlsGate: "g2" }));
-  const btn3 = add(n("btn-g3", "button", 91, 88, { controlsGate: "g3" }));
-  const btn4 = add(n("btn-g4", "button", 10, 84, { controlsGate: "g4" }));
-  linkBoth(btn1, byId.get("tl4")!);
-  linkBoth(btn2, byId.get("tr3")!);
-  linkBoth(btn3, byId.get("br2")!);
-  linkBoth(btn4, byId.get("bl1")!);
+  // ── Gate Buttons (outward spurs; pitch ≈ 9) ──────────────────────
+  const btn1 = add(n("btn-g1", "button", 5.2, 15.5, { controlsGate: "g1" }));
+  const btn2 = add(
+    n("btn-g2", "button", 94.8, 15.5, { controlsGate: "g2" })
+  );
+  const btn3 = add(
+    n("btn-g3", "button", 84.5, 94.8, { controlsGate: "g3" })
+  );
+  const btn4 = add(
+    n("btn-g4", "button", 15.5, 94.8, { controlsGate: "g4" })
+  );
+  linkBoth(btn1, tl3);
+  linkBoth(btn2, byId.get("portal-tr")!);
+  linkBoth(btn3, byId.get("br4")!);
+  linkBoth(btn4, byId.get("bl3")!);
 
   return [...byId.values()].map((node) => {
     const out: BoardNode = {
@@ -446,8 +476,7 @@ function buildCloverBoard(): BoardNode[] {
 }
 
 /**
- * ~56-tile clover board:
- * hub ring + Kingdom Facility + 4 petal loops + 4 gated splits + 2 portals + 4 buttons.
+ * ~55-tile clover board with uniform pitch and one-way START spur.
  */
 export const boardLayout: BoardNode[] = buildCloverBoard();
 
@@ -481,11 +510,11 @@ const LEGACY_POSITION_REMAP: Record<string, string> = {
   o0: "tl0",
   o1: "tl3",
   o2: "tl4",
-  o4: "tr0",
-  o5: "tr1",
-  o6: "tr2",
-  o7: "tr3",
-  o8: "tr4",
+  o4: "tr3",
+  o5: "tr4",
+  o6: "tr5",
+  o7: "tr6",
+  o8: "portal-tr",
   o10: "br0",
   o11: "br2",
   o12: "br3",
@@ -504,6 +533,8 @@ const LEGACY_POSITION_REMAP: Record<string, string> = {
   "btn-g5": "btn-g4",
   "portal-tr": "portal-tr",
   "portal-bl": "portal-bl",
+  // Prior clover had START inside the TL loop — park remaps on the entry spur.
+  tl2: "tl2",
 };
 
 const KNOWN_TILE_TYPES: ReadonlySet<string> = new Set([

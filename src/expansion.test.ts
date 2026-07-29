@@ -33,6 +33,30 @@ describe("expansion board", () => {
     ).toBe(true);
   });
 
+  it("places START top-left as a one-way entry spur", () => {
+    const start = getNodeById("start");
+    expect(start).toBeTruthy();
+    expect(start!.x).toBeLessThan(20);
+    expect(start!.y).toBeLessThan(15);
+    expect(start!.next.length).toBeGreaterThan(0);
+    // Nothing on the board points back at START.
+    for (const node of boardLayout) {
+      if (node.id === "start") continue;
+      expect(node.next.includes("start")).toBe(false);
+      expect((node.gateEdges ?? []).some((e) => e.to === "start")).toBe(false);
+    }
+    // After leaving the corridor, exits never offer START / entry.
+    expect(getNodeExits("tl4", DEFAULT_GATE_STATES)).not.toContain("start");
+    expect(getNodeExits("tl4", DEFAULT_GATE_STATES)).not.toContain("entry");
+    expect(getNodeExits("start", DEFAULT_GATE_STATES)).toContain("entry");
+  });
+
+  it("keeps uniform spacing between connected tiles", () => {
+    const report = validateBoardGraph();
+    const spacing = report.issues.filter((i) => i.code === "spacing");
+    expect(spacing, JSON.stringify(spacing, null, 2)).toEqual([]);
+  });
+
   it("passes graph validation across gate configurations", () => {
     const report = validateBoardGraph();
     expect(report.ok, JSON.stringify(report.issues, null, 2)).toBe(true);

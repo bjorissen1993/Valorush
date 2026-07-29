@@ -1526,7 +1526,7 @@ export default function GamePage({
       case "path":
         return { choiceId: "petal-nw", targetNodeId: "petal-nw" };
       case "edge":
-        return { targetNodeId: "start", targetNodeId2: "s1" };
+        return { targetNodeId: "start", targetNodeId2: "entry" };
       case "player":
         return {
           targetPlayerIndex,
