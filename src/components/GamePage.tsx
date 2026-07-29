@@ -6325,9 +6325,16 @@ export default function GamePage({
               <BoardCameraViewport
                 ref={boardCameraRef}
                 followNodeId={
-                  playersInGame[movingPlayerIndex ?? currentPlayerIndex]?.position
+                  boardEditorOpen
+                    ? null
+                    : playersInGame[movingPlayerIndex ?? currentPlayerIndex]
+                        ?.position
                 }
-                playerNodeIds={playersInGame.map((p) => p.position)}
+                playerNodeIds={
+                  boardEditorOpen
+                    ? []
+                    : playersInGame.map((p) => p.position)
+                }
                 eventFocus={boardEditorOpen ? null : cameraEventFocus}
                 playIntro={
                   !boardEditorOpen && cameraIntroPending && phase === "playing"
@@ -6337,6 +6344,7 @@ export default function GamePage({
                 }}
                 boardEventPulse={boardEditorOpen ? 0 : boardEventPulse}
                 requireAltToPan={boardEditorOpen}
+                fitFullBoard={boardEditorOpen}
               >
               <BoardMap
                 players={playersInGame}

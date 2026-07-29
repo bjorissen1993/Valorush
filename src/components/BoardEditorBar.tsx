@@ -139,9 +139,9 @@ export default function BoardEditorBar({
       </div>
 
       <p className="board-editor-bar__hint">
-        Edits save to localStorage. Export JSON/TS to keep a layout snippet. Pan/zoom and
-        minimap still work — hold Alt while dragging the board to pan instead of moving a
-        tile.
+        Edits save to localStorage. Export JSON/TS to keep a layout snippet. Camera shows
+        the full board (no auto-zoom). Hold Alt while dragging empty space to pan; minimap
+        still jumps the view.
       </p>
     </div>
   );
