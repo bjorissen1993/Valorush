@@ -1,9 +1,11 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   boardLayout,
   DEFAULT_GATE_STATES,
   GATE_BRANCH_NODE_IDS,
   GATE_LABELS,
+  getEdgeColor,
+  getEdgeDirectionMode,
   getNodeById,
   listActiveGateEdges,
   listClosedDoorEdges,
@@ -69,10 +71,31 @@ export type BoardAreaPlacement = {
 
 export type BoardEditorInteraction = {
   enabled: boolean;
+  /** Multi-select set (includes primary). */
+  selectedNodeIds?: string[];
+  /** @deprecated Prefer selectedNodeIds — kept as last/primary id. */
   selectedNodeId?: string | null;
   linkFromId?: string | null;
-  onSelectNode?: (nodeId: string | null) => void;
+  selectedEdge?: { from: string; to: string } | null;
+  /** Editor-only ultimate range glow. */
+  highlightNodeIds?: string[];
+  /** Select tool enables marquee + click toggle. */
+  selectMode?: boolean;
+  /** Move tool / drag repositions selection. */
+  moveMode?: boolean;
+  onSelectNode?: (
+    nodeId: string | null,
+    opts?: { shiftKey?: boolean }
+  ) => void;
+  onMarqueeSelect?: (
+    nodeIds: string[],
+    opts?: { additive?: boolean }
+  ) => void;
   onMoveNode?: (nodeId: string, x: number, y: number) => void;
+  onMoveNodes?: (
+    updates: { id: string; x: number; y: number }[],
+    originId: string
+  ) => void;
   onBoardBackgroundClick?: (point: { x: number; y: number }) => void;
   onEditorEdgeClick?: (from: string, to: string) => void;
 };
@@ -282,6 +305,36 @@ function edgeKey(from: string, to: string) {
   return `${from}->${to}`;
 }
 
+function undirectedSelectKey(from: string, to: string) {
+  return from < to ? `${from}|${to}` : `${to}|${from}`;
+}
+
+/** Midpoint arrow for one-way roads (points toward `to`). */
+function edgeArrowPoints(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  size = 1.35
+): string {
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const px = -uy;
+  const py = ux;
+  const tipX = mx + ux * size * 0.55;
+  const tipY = my + uy * size * 0.55;
+  const leftX = mx - ux * size * 0.45 + px * size * 0.55;
+  const leftY = my - uy * size * 0.45 + py * size * 0.55;
+  const rightX = mx - ux * size * 0.45 - px * size * 0.55;
+  const rightY = my - uy * size * 0.45 - py * size * 0.55;
+  return `${tipX},${tipY} ${leftX},${leftY} ${rightX},${rightY}`;
+}
+
 function getTileClasses(type: TileType, nodeId?: string) {
   if (nodeId === "kingdom") return "board-tile board-tile--kingdom";
   switch (type) {
@@ -431,6 +484,37 @@ function BoardMap({
   const [flyingSpikeTransitionEnabled, setFlyingSpikeTransitionEnabled] =
     useState(false);
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
+  const [marquee, setMarquee] = useState<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    additive: boolean;
+  } | null>(null);
+  const dragOriginRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    positions: Record<string, { x: number; y: number }>;
+  } | null>(null);
+
+  const editorSelectedIds = useMemo(() => {
+    if (!editorEnabled) return new Set<string>();
+    if (editor?.selectedNodeIds?.length) {
+      return new Set(editor.selectedNodeIds);
+    }
+    if (editor?.selectedNodeId) return new Set([editor.selectedNodeId]);
+    return new Set<string>();
+  }, [editorEnabled, editor?.selectedNodeIds, editor?.selectedNodeId]);
+
+  const ultiHighlightIds = useMemo(
+    () => new Set(editor?.highlightNodeIds ?? []),
+    [editor?.highlightNodeIds]
+  );
+
+  const selectedEdgeKey = editor?.selectedEdge
+    ? undirectedSelectKey(editor.selectedEdge.from, editor.selectedEdge.to)
+    : null;
 
   useEffect(() => {
     if (!spikePlantAnimation) {
@@ -504,9 +588,78 @@ function BoardMap({
         }
         const point = clientToLayout(e.clientX, e.clientY, e.currentTarget);
         if (!point) return;
+        if (editor?.selectMode) {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setMarquee({
+            x1: point.x,
+            y1: point.y,
+            x2: point.x,
+            y2: point.y,
+            additive: e.shiftKey,
+          });
+          return;
+        }
         editor?.onBoardBackgroundClick?.(point);
       }}
+      onPointerMove={(e) => {
+        if (!marquee || !editorEnabled) return;
+        const point = clientToLayout(e.clientX, e.clientY, e.currentTarget);
+        if (!point) return;
+        setMarquee((prev) =>
+          prev ? { ...prev, x2: point.x, y2: point.y } : prev
+        );
+      }}
+      onPointerUp={(e) => {
+        if (!marquee || !editorEnabled) return;
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch {
+          /* already released */
+        }
+        const minX = Math.min(marquee.x1, marquee.x2);
+        const maxX = Math.max(marquee.x1, marquee.x2);
+        const minY = Math.min(marquee.y1, marquee.y2);
+        const maxY = Math.max(marquee.y1, marquee.y2);
+        const pad = 0.35;
+        const hit =
+          Math.abs(marquee.x2 - marquee.x1) < 0.8 &&
+          Math.abs(marquee.y2 - marquee.y1) < 0.8
+            ? []
+            : boardLayout
+                .filter(
+                  (n) =>
+                    n.x >= minX - pad &&
+                    n.x <= maxX + pad &&
+                    n.y >= minY - pad &&
+                    n.y <= maxY + pad
+                )
+                .map((n) => n.id);
+        if (hit.length === 0 && !marquee.additive) {
+          editor?.onBoardBackgroundClick?.({
+            x: marquee.x2,
+            y: marquee.y2,
+          });
+        } else {
+          editor?.onMarqueeSelect?.(hit, { additive: marquee.additive });
+        }
+        setMarquee(null);
+      }}
     >
+      {marquee && (
+        <div
+          className="board-editor-marquee"
+          style={{
+            left: `${scaleX(Math.min(marquee.x1, marquee.x2))}%`,
+            top: `${scaleY(Math.min(marquee.y1, marquee.y2))}%`,
+            width: `${Math.abs(
+              scaleX(marquee.x2) - scaleX(marquee.x1)
+            )}%`,
+            height: `${Math.abs(
+              scaleY(marquee.y2) - scaleY(marquee.y1)
+            )}%`,
+          }}
+        />
+      )}
       <img
         src={boardMapBackgroundPath()}
         alt=""
@@ -620,14 +773,45 @@ function BoardMap({
           strokeDasharray="2.2 1.8"
         />
 
-        {pathSegments.map(({ key, from, to, d, isMidRoad }) => {
+        {pathSegments.map(({ key, from, to, d, x1, y1, x2, y2, isMidRoad }) => {
           const selectKey = edgeKey(from, to);
+          const undirectedKey = undirectedSelectKey(from, to);
           const isSelectable = selectableEdgeSet.has(selectKey);
           const isHovered = hoveredEdgeKey === selectKey;
           const isWalled = wallEdgeSet.has(selectKey);
           const dimEdge =
             isTargetingMode && hasSelectableEdges && !isSelectable;
           const editorEdgeHit = editorEnabled && Boolean(editor?.onEditorEdgeClick);
+          const edgeColor = getEdgeColor(from, to);
+          const isEditorSelectedEdge =
+            editorEnabled && selectedEdgeKey === undirectedKey;
+          const direction = getEdgeDirectionMode(from, to);
+          const paintColor = edgeColor
+            ? edgeColor
+            : isWalled
+              ? "rgba(196,181,253,0.9)"
+              : isSelectable
+                ? isHovered
+                  ? "rgba(252,165,165,0.55)"
+                  : "rgba(248,113,113,0.35)"
+                : isEditorSelectedEdge
+                  ? "rgba(250,204,21,0.75)"
+                  : isMidRoad
+                    ? "rgba(248,113,113,0.22)"
+                    : "rgba(34,211,238,0.16)";
+          const topStroke = edgeColor
+            ? edgeColor
+            : isWalled
+              ? "rgba(237,233,254,0.95)"
+              : isSelectable
+                ? isHovered
+                  ? "rgba(254,202,202,0.95)"
+                  : "rgba(252,165,165,0.75)"
+                : isEditorSelectedEdge
+                  ? "rgba(253,224,71,0.95)"
+                  : isMidRoad
+                    ? "rgba(252,165,165,0.45)"
+                    : `url(#board-path-grad-${key})`;
 
           return (
             <g
@@ -664,21 +848,11 @@ function BoardMap({
               <path
                 d={d}
                 fill="none"
-                stroke={
-                  isWalled
-                    ? "rgba(196,181,253,0.9)"
-                    : isSelectable
-                      ? isHovered
-                        ? "rgba(252,165,165,0.55)"
-                        : "rgba(248,113,113,0.35)"
-                      : isMidRoad
-                        ? "rgba(248,113,113,0.22)"
-                        : "rgba(34,211,238,0.16)"
-                }
+                stroke={paintColor}
                 strokeWidth={
                   isWalled
                     ? 4.8
-                    : isSelectable
+                    : isSelectable || isEditorSelectedEdge
                       ? isHovered
                         ? 5.2
                         : 4.2
@@ -693,25 +867,21 @@ function BoardMap({
               <path
                 d={d}
                 fill="none"
-                stroke={
-                  isWalled
-                    ? "rgba(237,233,254,0.95)"
-                    : isSelectable
-                      ? isHovered
-                        ? "rgba(254,202,202,0.95)"
-                        : "rgba(252,165,165,0.75)"
-                      : isMidRoad
-                        ? "rgba(252,165,165,0.45)"
-                        : `url(#board-path-grad-${key})`
-                }
+                stroke={topStroke}
                 strokeWidth={
-                  isWalled ? 2.8 : isSelectable ? (isHovered ? 3.2 : 2.6) : 2.2
+                  isWalled
+                    ? 2.8
+                    : isSelectable || isEditorSelectedEdge
+                      ? isHovered
+                        ? 3.2
+                        : 2.6
+                      : 2.2
                 }
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeDasharray={isWalled ? "3.2 2.4" : undefined}
               />
-              {!isSelectable && !isWalled && (
+              {!isSelectable && !isWalled && !edgeColor && (
                 <>
                   <path
                     d={d}
@@ -730,6 +900,22 @@ function BoardMap({
                     strokeLinecap="round"
                   />
                 </>
+              )}
+              {editorEnabled && direction === "a-to-b" && (
+                <polygon
+                  points={edgeArrowPoints(x1, y1, x2, y2)}
+                  fill={edgeColor ?? "rgba(253,224,71,0.95)"}
+                  stroke="rgba(0,0,0,0.35)"
+                  strokeWidth="0.15"
+                />
+              )}
+              {editorEnabled && direction === "b-to-a" && (
+                <polygon
+                  points={edgeArrowPoints(x2, y2, x1, y1)}
+                  fill={edgeColor ?? "rgba(253,224,71,0.95)"}
+                  stroke="rgba(0,0,0,0.35)"
+                  strokeWidth="0.15"
+                />
               )}
               {isSelectable && (
                 <path
@@ -998,8 +1184,11 @@ function BoardMap({
           : isKingdom
             ? 6.2
             : TILE_SIZE_PERCENT;
-        const isEditorSelected = editorEnabled && editor?.selectedNodeId === node.id;
+        const isEditorSelected =
+          editorEnabled && editorSelectedIds.has(node.id);
         const isEditorLinkFrom = editorEnabled && editor?.linkFromId === node.id;
+        const isUltiHighlight =
+          editorEnabled && ultiHighlightIds.has(node.id);
         const startDirDeg = isStartTile ? getStartDirectionDeg(node.id) : null;
 
         return (
@@ -1008,7 +1197,7 @@ function BoardMap({
             onClick={(event) => {
               if (editorEnabled) {
                 event.stopPropagation();
-                editor?.onSelectNode?.(node.id);
+                editor?.onSelectNode?.(node.id, { shiftKey: event.shiftKey });
                 return;
               }
               if (isTargetingMode && hasSelectableTiles && !isPathChoiceOption) {
@@ -1018,11 +1207,32 @@ function BoardMap({
             }}
             onPointerDown={(event) => {
               if (!editorEnabled || event.button !== 0 || event.altKey) return;
-              if (!editor?.onMoveNode) return;
+              if (editor?.selectMode && !editor?.moveMode) {
+                // Selection handled on click; no drag-move in select tool.
+                return;
+              }
+              if (!editor?.onMoveNode && !editor?.onMoveNodes) return;
               event.stopPropagation();
               event.currentTarget.setPointerCapture(event.pointerId);
+              const selected =
+                editorSelectedIds.has(node.id) && editorSelectedIds.size > 0
+                  ? [...editorSelectedIds]
+                  : [node.id];
+              const positions: Record<string, { x: number; y: number }> = {};
+              for (const id of selected) {
+                const n = getNodeById(id);
+                if (n) positions[id] = { x: n.x, y: n.y };
+              }
+              dragOriginRef.current = {
+                id: node.id,
+                startX: node.x,
+                startY: node.y,
+                positions,
+              };
               setDragNodeId(node.id);
-              editor.onSelectNode?.(node.id);
+              if (!editorSelectedIds.has(node.id)) {
+                editor.onSelectNode?.(node.id);
+              }
             }}
             onPointerMove={(event) => {
               if (!editorEnabled || dragNodeId !== node.id) return;
@@ -1030,10 +1240,31 @@ function BoardMap({
               if (!(root instanceof HTMLElement)) return;
               const point = clientToLayout(event.clientX, event.clientY, root);
               if (!point) return;
+              const origin = dragOriginRef.current;
+              if (
+                origin &&
+                editor?.onMoveNodes &&
+                Object.keys(origin.positions).length > 1
+              ) {
+                const dx = point.x - origin.startX;
+                const dy = point.y - origin.startY;
+                const updates = Object.entries(origin.positions).map(
+                  ([id, pos]) => ({
+                    id,
+                    x: pos.x + dx,
+                    y: pos.y + dy,
+                  })
+                );
+                editor.onMoveNodes(updates, node.id);
+                return;
+              }
               editor?.onMoveNode?.(node.id, point.x, point.y);
             }}
             onPointerUp={(event) => {
-              if (dragNodeId === node.id) setDragNodeId(null);
+              if (dragNodeId === node.id) {
+                setDragNodeId(null);
+                dragOriginRef.current = null;
+              }
               try {
                 event.currentTarget.releasePointerCapture(event.pointerId);
               } catch {
@@ -1080,11 +1311,21 @@ function BoardMap({
                 ? "cursor-pointer transition-transform hover:scale-[1.06] hover:ring-2 hover:ring-cyan-300/60"
                 : ""
             } ${
-              isEditorSelected ? "board-tile--editor-selected z-[5]" : ""
+              isEditorSelected
+                ? editorSelectedIds.size > 1
+                  ? "board-tile--editor-multi-selected z-[5]"
+                  : "board-tile--editor-selected z-[5]"
+                : ""
+            } ${
+              isUltiHighlight ? "board-tile--editor-ulti-range" : ""
             } ${
               isEditorLinkFrom ? "board-tile--editor-link-from z-[5]" : ""
             } ${
-              editorEnabled ? "cursor-grab board-tile--editor-interactive" : ""
+              editorEnabled
+                ? editor?.selectMode && !editor?.moveMode
+                  ? "cursor-pointer board-tile--editor-interactive"
+                  : "cursor-grab board-tile--editor-interactive"
+                : ""
             } ${
               dragNodeId === node.id ? "cursor-grabbing" : ""
             }`}

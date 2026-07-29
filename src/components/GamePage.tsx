@@ -75,14 +75,17 @@ import {
   toggleDoor,
   isDoorOpen,
   getGateControlledByButton,
-  getDoorControlledEdge,
+  getDoorControlledEdges,
   assignDoorControlledEdge,
-  clearDoorControlledEdge,
+  removeDoorControlledEdge,
+  clearDoorControlledEdges,
   setDoorStartsOpen,
   wouldClosingDoorDisconnectBoard,
   GATE_LABELS,
   loadBoardLayoutFromStorage,
   updateBoardNodePosition,
+  updateBoardNodePositions,
+  setBoardNodeTypes,
   addBoardNode,
   removeBoardNode,
   linkBoardNodes,
@@ -91,6 +94,11 @@ import {
   exportBoardLayoutTypeScript,
   resetBoardLayoutToDefault,
   clearStoredBoardLayout,
+  getEdgeColor,
+  setEdgeColor,
+  cycleEdgeDirection,
+  flipDirectionsAmongSelection,
+  cycleDirectionsAmongSelection,
   type DoorStates,
   type GateStates,
   type TileType,
@@ -103,6 +111,7 @@ import {
   RADIANITE_BUY_COST,
 } from "../game/economy";
 import { tileIdsInArea, AREA_RADIUS, PLACEMENT_RADIUS, clampCenterToPlacementRadius } from "../game/ultimates/areaTargeting";
+import { tilesWithinHopRange } from "../game/ultimates/boardHelpers";
 import { detonateKilljoyDevices } from "../game/ultimates/tickStatus";
 import { computeEffectiveRoll, tickMovementModifiers, consumeOneShotMovementBonus, normalizePlayerLoadout, getBoardNodeIds } from "../game/boardEventBridge";
 import {
@@ -1044,13 +1053,23 @@ export default function GamePage({
   const [boardEditorOpen, setBoardEditorOpen] = useState(false);
   const [boardEditorTool, setBoardEditorTool] = useState<BoardEditorTool>("select");
   const [boardEditorAddType, setBoardEditorAddType] = useState<TileType>("normal");
-  const [boardEditorSelectedId, setBoardEditorSelectedId] = useState<string | null>(
-    null
+  const [boardEditorSelectedIds, setBoardEditorSelectedIds] = useState<string[]>(
+    []
   );
   const [boardEditorLinkFromId, setBoardEditorLinkFromId] = useState<string | null>(
     null
   );
   const [boardEditorBidirectional, setBoardEditorBidirectional] = useState(true);
+  const [boardEditorSelectedEdge, setBoardEditorSelectedEdge] = useState<{
+    from: string;
+    to: string;
+  } | null>(null);
+  const [boardEditorUltPreviewId, setBoardEditorUltPreviewId] = useState<
+    string | null
+  >(null);
+
+  const boardEditorSelectedId =
+    boardEditorSelectedIds[boardEditorSelectedIds.length - 1] ?? null;
 
   useEffect(() => {
     loadBoardLayoutFromStorage();
@@ -2320,8 +2339,9 @@ export default function GamePage({
     if (!next) {
       closeDebugOverlay();
       setBoardEditorOpen(false);
-      setBoardEditorSelectedId(null);
+      setBoardEditorSelectedIds([]);
       setBoardEditorLinkFromId(null);
+      setBoardEditorSelectedEdge(null);
     }
   }
 
@@ -2333,21 +2353,26 @@ export default function GamePage({
         setDebugBoardAction(null);
         setBoardEditorTool("select");
       } else {
-        setBoardEditorSelectedId(null);
+        setBoardEditorSelectedIds([]);
         setBoardEditorLinkFromId(null);
+        setBoardEditorSelectedEdge(null);
+        setBoardEditorUltPreviewId(null);
       }
       return next;
     });
   }
 
-  function handleBoardEditorSelectNode(nodeId: string | null) {
+  function handleBoardEditorSelectNode(
+    nodeId: string | null,
+    opts?: { shiftKey?: boolean }
+  ) {
     if (!nodeId) {
-      setBoardEditorSelectedId(null);
+      setBoardEditorSelectedIds([]);
       return;
     }
     if (boardEditorTool === "delete") {
       removeBoardNode(nodeId);
-      setBoardEditorSelectedId(null);
+      setBoardEditorSelectedIds((ids) => ids.filter((id) => id !== nodeId));
       setBoardEditorLinkFromId(null);
       pushDebugLog(`Board editor: deleted tile ${nodeId}`);
       return;
@@ -2359,10 +2384,10 @@ export default function GamePage({
       const clicked = getNodeById(nodeId);
       if (!selected || selected.type !== "door") {
         if (clicked?.type === "door") {
-          setBoardEditorSelectedId(nodeId);
+          setBoardEditorSelectedIds([nodeId]);
           setBoardEditorLinkFromId(null);
         } else {
-          setBoardEditorSelectedId(nodeId);
+          setBoardEditorSelectedIds([nodeId]);
           pushDebugLog("Board editor: select a door tile before assigning a link");
         }
         return;
@@ -2383,7 +2408,7 @@ export default function GamePage({
       setBoardEditorLinkFromId(null);
       if (result.ok) {
         pushDebugLog(
-          `Board editor: door ${selected.id} → ${boardEditorLinkFromId} ↔ ${nodeId}`
+          `Board editor: door ${selected.id} + ${boardEditorLinkFromId} ↔ ${nodeId}`
         );
         if (result.warning) {
           showAnnouncement("Door soft-lock risk", result.warning);
@@ -2397,7 +2422,7 @@ export default function GamePage({
     if (boardEditorTool === "link" || boardEditorTool === "unlink") {
       if (!boardEditorLinkFromId) {
         setBoardEditorLinkFromId(nodeId);
-        setBoardEditorSelectedId(nodeId);
+        setBoardEditorSelectedIds([nodeId]);
         return;
       }
       if (boardEditorLinkFromId === nodeId) {
@@ -2418,16 +2443,46 @@ export default function GamePage({
         );
       }
       setBoardEditorLinkFromId(null);
-      setBoardEditorSelectedId(nodeId);
+      setBoardEditorSelectedIds([nodeId]);
       return;
     }
-    setBoardEditorSelectedId(nodeId);
+    if (boardEditorTool === "select" && opts?.shiftKey) {
+      setBoardEditorSelectedIds((ids) =>
+        ids.includes(nodeId)
+          ? ids.filter((id) => id !== nodeId)
+          : [...ids, nodeId]
+      );
+      return;
+    }
+    if (boardEditorTool === "select") {
+      setBoardEditorSelectedIds((ids) =>
+        ids.length === 1 && ids[0] === nodeId ? [] : [nodeId]
+      );
+      return;
+    }
+    setBoardEditorSelectedIds([nodeId]);
+  }
+
+  function handleBoardEditorMarqueeSelect(
+    nodeIds: string[],
+    opts?: { additive?: boolean }
+  ) {
+    if (opts?.additive) {
+      setBoardEditorSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of nodeIds) next.add(id);
+        return [...next];
+      });
+    } else {
+      setBoardEditorSelectedIds(nodeIds);
+    }
   }
 
   function handleBoardEditorBackgroundClick(point: { x: number; y: number }) {
     if (boardEditorTool !== "add") {
-      setBoardEditorSelectedId(null);
+      setBoardEditorSelectedIds([]);
       setBoardEditorLinkFromId(null);
+      setBoardEditorSelectedEdge(null);
       return;
     }
     const node = addBoardNode({
@@ -2435,7 +2490,7 @@ export default function GamePage({
       x: point.x,
       y: point.y,
     });
-    setBoardEditorSelectedId(node.id);
+    setBoardEditorSelectedIds([node.id]);
     if (node.type === "door") {
       setDoorStates((prev) => migrateDoorStates(prev));
       setBoardEditorTool("assign-door");
@@ -2444,6 +2499,10 @@ export default function GamePage({
   }
 
   function handleBoardEditorEdgeClick(from: string, to: string) {
+    if (boardEditorTool === "color-link" || boardEditorTool === "select") {
+      setBoardEditorSelectedEdge({ from, to });
+      if (boardEditorTool === "color-link") return;
+    }
     if (boardEditorTool === "assign-door") {
       const door =
         (boardEditorSelectedId && getNodeById(boardEditorSelectedId)?.type === "door"
@@ -2456,7 +2515,7 @@ export default function GamePage({
       const result = assignDoorControlledEdge(door.id, from, to);
       setBoardEditorLinkFromId(null);
       if (result.ok) {
-        pushDebugLog(`Board editor: door ${door.id} → ${from} ↔ ${to}`);
+        pushDebugLog(`Board editor: door ${door.id} + ${from} ↔ ${to}`);
         if (result.warning) {
           showAnnouncement("Door soft-lock risk", result.warning);
           pushDebugLog(`Board editor warning: ${result.warning}`);
@@ -2466,9 +2525,14 @@ export default function GamePage({
       }
       return;
     }
-    if (boardEditorTool !== "unlink") return;
-    unlinkBoardNodes(from, to);
-    pushDebugLog(`Board editor: unlinked edge ${from} ↔ ${to}`);
+    if (boardEditorTool === "unlink") {
+      unlinkBoardNodes(from, to);
+      pushDebugLog(`Board editor: unlinked edge ${from} ↔ ${to}`);
+      return;
+    }
+    if (boardEditorTool === "move" || boardEditorTool === "link") {
+      setBoardEditorSelectedEdge({ from, to });
+    }
   }
 
   async function copyBoardEditorExport(kind: "json" | "ts") {
@@ -2509,9 +2573,88 @@ export default function GamePage({
     clearStoredBoardLayout();
     resetBoardLayoutToDefault({ persist: false });
     setDoorStates(createDefaultDoorStates());
-    setBoardEditorSelectedId(null);
+    setBoardEditorSelectedIds([]);
     setBoardEditorLinkFromId(null);
+    setBoardEditorSelectedEdge(null);
     pushDebugLog("Board editor: reset to default layout");
+  }
+
+  const boardEditorUltPreviewOptions = listPlayableUltimates().filter(
+    (ult) =>
+      typeof ult.rangeTiles === "number" ||
+      typeof ult.areaRadius === "number" ||
+      ult.targetKind === "path" ||
+      ult.targetKind === "multi_shot"
+  );
+
+  const boardEditorUltPreviewNodeIds = (() => {
+    if (!boardEditorOpen || !boardEditorUltPreviewId || !boardEditorSelectedId) {
+      return [] as string[];
+    }
+    const ult = boardEditorUltPreviewOptions.find(
+      (u) => u.id === boardEditorUltPreviewId
+    );
+    if (!ult) return [] as string[];
+    const origin = getNodeById(boardEditorSelectedId);
+    if (!origin) return [] as string[];
+    if (typeof ult.rangeTiles === "number") {
+      return tilesWithinHopRange(origin.id, ult.rangeTiles);
+    }
+    if (typeof ult.areaRadius === "number") {
+      return tileIdsInArea({
+        center: { x: origin.x, y: origin.y },
+        radius: ult.areaRadius,
+      });
+    }
+    if (ult.targetKind === "path" || ult.targetKind === "multi_shot") {
+      return tilesWithinHopRange(origin.id, 4);
+    }
+    return [] as string[];
+  })();
+
+  function handleBoardEditorChangeType(type: TileType) {
+    if (boardEditorSelectedIds.length === 0) return;
+    setBoardNodeTypes(boardEditorSelectedIds, type);
+    if (type === "door") {
+      setDoorStates((prev) => migrateDoorStates(prev));
+    }
+    pushDebugLog(
+      `Board editor: set type ${type} on ${boardEditorSelectedIds.length} tile(s)`
+    );
+  }
+
+  function handleBoardEditorFlipDirections() {
+    if (boardEditorSelectedEdge && boardEditorSelectedIds.length < 2) {
+      const mode = cycleEdgeDirection(
+        boardEditorSelectedEdge.from,
+        boardEditorSelectedEdge.to
+      );
+      pushDebugLog(
+        `Board editor: cycled ${boardEditorSelectedEdge.from} ↔ ${boardEditorSelectedEdge.to} → ${mode}`
+      );
+      return;
+    }
+    flipDirectionsAmongSelection(boardEditorSelectedIds);
+    pushDebugLog(
+      `Board editor: flipped directions among ${boardEditorSelectedIds.length} tiles`
+    );
+  }
+
+  function handleBoardEditorCycleDirections() {
+    if (boardEditorSelectedEdge && boardEditorSelectedIds.length < 2) {
+      const mode = cycleEdgeDirection(
+        boardEditorSelectedEdge.from,
+        boardEditorSelectedEdge.to
+      );
+      pushDebugLog(
+        `Board editor: cycled ${boardEditorSelectedEdge.from} ↔ ${boardEditorSelectedEdge.to} → ${mode}`
+      );
+      return;
+    }
+    cycleDirectionsAmongSelection(boardEditorSelectedIds);
+    pushDebugLog(
+      `Board editor: cycled directions among ${boardEditorSelectedIds.length} tiles`
+    );
   }
 
   function toggleDebugOverlay() {
@@ -3952,14 +4095,18 @@ export default function GamePage({
     }
 
     if (resolution.kind === "door") {
-      const edge = getDoorControlledEdge(finalNodeId);
-      if (edge) {
+      const edges = getDoorControlledEdges(finalNodeId);
+      if (edges.length > 0) {
         const nextStates = toggleDoor(doorStatesRef.current, finalNodeId);
         setDoorStates(nextStates);
         const open = isDoorOpen(finalNodeId, nextStates);
+        const linkSummary =
+          edges.length === 1
+            ? `${edges[0]!.a} ↔ ${edges[0]!.b}`
+            : `${edges.length} linked paths`;
         const subtitle = open
-          ? `Path ${edge.a} ↔ ${edge.b} is now OPEN`
-          : `Path ${edge.a} ↔ ${edge.b} is now CLOSED`;
+          ? `${linkSummary} now OPEN`
+          : `${linkSummary} now CLOSED`;
         setStatusTitle(`${player.name} toggled a Door`);
         setStatusSubtitle(subtitle);
         showAnnouncement(open ? "Door Opened" : "Door Closed", subtitle);
@@ -6177,10 +6324,13 @@ export default function GamePage({
                   onToolChange={(tool) => {
                     setBoardEditorTool(tool);
                     setBoardEditorLinkFromId(null);
+                    if (tool !== "color-link") {
+                      /* keep selected edge for color/direction tools */
+                    }
                   }}
                   addTileType={boardEditorAddType}
                   onAddTileTypeChange={setBoardEditorAddType}
-                  selectedNodeId={boardEditorSelectedId}
+                  selectedNodeIds={boardEditorSelectedIds}
                   selectedNodeType={
                     boardEditorSelectedId
                       ? getNodeById(boardEditorSelectedId)?.type ?? null
@@ -6189,10 +6339,10 @@ export default function GamePage({
                   linkFromId={boardEditorLinkFromId}
                   bidirectionalLinks={boardEditorBidirectional}
                   onBidirectionalLinksChange={setBoardEditorBidirectional}
-                  doorControlledEdge={
+                  doorControlledEdges={
                     boardEditorSelectedId
-                      ? getDoorControlledEdge(boardEditorSelectedId)
-                      : null
+                      ? getDoorControlledEdges(boardEditorSelectedId)
+                      : []
                   }
                   doorIsOpen={
                     boardEditorSelectedId &&
@@ -6210,7 +6360,7 @@ export default function GamePage({
                   doorSoftLockWarning={
                     boardEditorSelectedId &&
                     getNodeById(boardEditorSelectedId)?.type === "door" &&
-                    getDoorControlledEdge(boardEditorSelectedId) &&
+                    getDoorControlledEdges(boardEditorSelectedId).length > 0 &&
                     wouldClosingDoorDisconnectBoard(
                       boardEditorSelectedId,
                       gateStates,
@@ -6219,11 +6369,18 @@ export default function GamePage({
                       ? "Closing this door may disconnect the board from START — keep an alternate route."
                       : null
                   }
-                  onClearDoorLink={() => {
+                  onClearDoorLinks={() => {
                     if (!boardEditorSelectedId) return;
-                    clearDoorControlledEdge(boardEditorSelectedId);
+                    clearDoorControlledEdges(boardEditorSelectedId);
                     pushDebugLog(
-                      `Board editor: cleared door link on ${boardEditorSelectedId}`
+                      `Board editor: cleared door links on ${boardEditorSelectedId}`
+                    );
+                  }}
+                  onRemoveDoorLink={(a, b) => {
+                    if (!boardEditorSelectedId) return;
+                    removeDoorControlledEdge(boardEditorSelectedId, a, b);
+                    pushDebugLog(
+                      `Board editor: removed door link ${a} ↔ ${b} from ${boardEditorSelectedId}`
                     );
                   }}
                   onToggleDoorPreview={() => {
@@ -6240,6 +6397,30 @@ export default function GamePage({
                       [boardEditorSelectedId]: startsOpen,
                     }));
                   }}
+                  selectedEdge={boardEditorSelectedEdge}
+                  selectedEdgeColor={
+                    boardEditorSelectedEdge
+                      ? getEdgeColor(
+                          boardEditorSelectedEdge.from,
+                          boardEditorSelectedEdge.to
+                        )
+                      : null
+                  }
+                  onSelectedEdgeColorChange={(color) => {
+                    if (!boardEditorSelectedEdge) return;
+                    setEdgeColor(
+                      boardEditorSelectedEdge.from,
+                      boardEditorSelectedEdge.to,
+                      color
+                    );
+                  }}
+                  onChangeSelectedType={handleBoardEditorChangeType}
+                  onFlipDirections={handleBoardEditorFlipDirections}
+                  onCycleDirections={handleBoardEditorCycleDirections}
+                  ultimatePreviewOptions={boardEditorUltPreviewOptions}
+                  ultimatePreviewId={boardEditorUltPreviewId}
+                  onUltimatePreviewIdChange={setBoardEditorUltPreviewId}
+                  ultimatePreviewCount={boardEditorUltPreviewNodeIds.length}
                   onExportJson={() => {
                     void copyBoardEditorExport("json");
                   }}
@@ -6249,8 +6430,10 @@ export default function GamePage({
                   onResetDefault={handleBoardEditorReset}
                   onClose={() => {
                     setBoardEditorOpen(false);
-                    setBoardEditorSelectedId(null);
+                    setBoardEditorSelectedIds([]);
                     setBoardEditorLinkFromId(null);
+                    setBoardEditorSelectedEdge(null);
+                    setBoardEditorUltPreviewId(null);
                   }}
                 />
               )}
@@ -6693,16 +6876,30 @@ export default function GamePage({
                   boardEditorOpen
                     ? {
                         enabled: true,
+                        selectedNodeIds: boardEditorSelectedIds,
                         selectedNodeId: boardEditorSelectedId,
                         linkFromId: boardEditorLinkFromId,
+                        selectedEdge: boardEditorSelectedEdge,
+                        highlightNodeIds: boardEditorUltPreviewNodeIds,
+                        selectMode: boardEditorTool === "select",
+                        moveMode: boardEditorTool === "move",
                         onSelectNode: handleBoardEditorSelectNode,
+                        onMarqueeSelect: handleBoardEditorMarqueeSelect,
                         onMoveNode:
-                          boardEditorTool === "select"
+                          boardEditorTool === "move"
                             ? updateBoardNodePosition
+                            : undefined,
+                        onMoveNodes:
+                          boardEditorTool === "move"
+                            ? (updates) => updateBoardNodePositions(updates)
                             : undefined,
                         onBoardBackgroundClick: handleBoardEditorBackgroundClick,
                         onEditorEdgeClick:
-                          boardEditorTool === "unlink"
+                          boardEditorTool === "unlink" ||
+                          boardEditorTool === "assign-door" ||
+                          boardEditorTool === "color-link" ||
+                          boardEditorTool === "select" ||
+                          boardEditorTool === "move"
                             ? handleBoardEditorEdgeClick
                             : undefined,
                       }

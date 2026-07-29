@@ -61,6 +61,20 @@ export type GateEdge = {
   branch: GateBranch;
 };
 
+/** Preset path stroke colors for the board editor. */
+export const EDGE_COLOR_PRESETS = [
+  "#22d3ee",
+  "#f472b6",
+  "#fbbf24",
+  "#4ade80",
+  "#a78bfa",
+  "#fb7185",
+  "#38bdf8",
+  "#f97316",
+] as const;
+
+export type EdgeDirectionMode = "a-to-b" | "b-to-a" | "both" | "none";
+
 export type BoardNode = {
   id: string;
   type: TileType;
@@ -73,12 +87,23 @@ export type BoardNode = {
   /** Button tiles: which gate this switch controls. */
   controlsGate?: GateId;
   /**
-   * Door tiles: undirected board link this switch toggles.
-   * Keep an alternate route — closing a sole bridge soft-locks players.
+   * @deprecated Prefer `controlsEdges`. Migrated on load/export.
+   * Door tiles: single undirected board link this switch toggles.
    */
   controlsEdge?: ControlledEdge;
+  /**
+   * Door tiles: undirected board links this switch toggles together.
+   * Landing flips one door state that opens/closes all bound links.
+   * Keep an alternate route — closing a sole bridge soft-locks players.
+   */
+  controlsEdges?: ControlledEdge[];
   /** Initial open state when a match starts (default true). */
   doorStartsOpen?: boolean;
+  /**
+   * Optional stroke colors for roads to neighbor ids (CSS hex).
+   * Undirected lookup checks either endpoint.
+   */
+  linkColors?: Record<string, string>;
 };
 
 /** Credits to teleport between the two portal tiles — see economy.PORTAL_CREDIT_COST. */
@@ -231,12 +256,42 @@ export function toggleDoor(
   };
 }
 
+/** Normalize legacy `controlsEdge` into `controlsEdges` (deduped). */
+export function getDoorControlledEdges(
+  nodeOrId: BoardNode | string
+): ControlledEdge[] {
+  const node =
+    typeof nodeOrId === "string" ? getNodeById(nodeOrId) : nodeOrId;
+  if (!node || node.type !== "door") return [];
+  const edges: ControlledEdge[] = [];
+  const seen = new Set<string>();
+  const push = (edge: ControlledEdge) => {
+    const normalized = normalizeControlledEdge(edge.a, edge.b);
+    const key = undirectedEdgeKey(normalized.a, normalized.b);
+    if (seen.has(key)) return;
+    seen.add(key);
+    edges.push(normalized);
+  };
+  for (const edge of node.controlsEdges ?? []) push(edge);
+  if (node.controlsEdge) push(node.controlsEdge);
+  return edges;
+}
+
+/** @deprecated Prefer getDoorControlledEdges — returns the first bound link. */
 export function getDoorControlledEdge(
   nodeId: string
 ): ControlledEdge | null {
-  const node = getNodeById(nodeId);
-  if (!node || node.type !== "door" || !node.controlsEdge) return null;
-  return node.controlsEdge;
+  return getDoorControlledEdges(nodeId)[0] ?? null;
+}
+
+function doorControlsUndirectedEdge(
+  node: BoardNode,
+  fromId: string,
+  toId: string
+): boolean {
+  return getDoorControlledEdges(node).some((edge) =>
+    isSameUndirectedEdge(edge, fromId, toId)
+  );
 }
 
 /** True when a directed hop is blocked by a closed door controlling that link. */
@@ -247,8 +302,8 @@ export function isEdgeClosedByDoor(
   nodes: BoardNode[] = boardLayout
 ): boolean {
   for (const node of nodes) {
-    if (node.type !== "door" || !node.controlsEdge) continue;
-    if (!isSameUndirectedEdge(node.controlsEdge, fromId, toId)) continue;
+    if (node.type !== "door") continue;
+    if (!doorControlsUndirectedEdge(node, fromId, toId)) continue;
     if (!isDoorOpen(node.id, doorStates)) return true;
   }
   return false;
@@ -262,16 +317,14 @@ export function listClosedDoorEdges(
   const seen = new Set<string>();
   const result: { from: string; to: string; doorId: string }[] = [];
   for (const node of nodes) {
-    if (node.type !== "door" || !node.controlsEdge) continue;
+    if (node.type !== "door") continue;
     if (isDoorOpen(node.id, doorStates)) continue;
-    const key = undirectedEdgeKey(node.controlsEdge.a, node.controlsEdge.b);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push({
-      from: node.controlsEdge.a,
-      to: node.controlsEdge.b,
-      doorId: node.id,
-    });
+    for (const edge of getDoorControlledEdges(node)) {
+      const key = undirectedEdgeKey(edge.a, edge.b);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({ from: edge.a, to: edge.b, doorId: node.id });
+    }
   }
   return result;
 }
@@ -684,6 +737,26 @@ type BoardLayoutListener = () => void;
 const boardLayoutListeners = new Set<BoardLayoutListener>();
 let boardLayoutEpoch = 0;
 
+function cloneLinkColors(
+  colors?: Record<string, string>
+): Record<string, string> | undefined {
+  if (!colors) return undefined;
+  const entries = Object.entries(colors).filter(
+    ([k, v]) => typeof k === "string" && typeof v === "string" && v.length > 0
+  );
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries);
+}
+
+/** Persist door links as `controlsEdges` only (drops legacy single field). */
+function cloneDoorControls(node: BoardNode): Partial<BoardNode> {
+  const edges = getDoorControlledEdges(node);
+  if (edges.length === 0) return {};
+  return {
+    controlsEdges: edges.map((e) => ({ a: e.a, b: e.b })),
+  };
+}
+
 function cloneBoardNodes(nodes: BoardNode[]): BoardNode[] {
   return nodes.map((node) => ({
     id: node.id,
@@ -693,10 +766,11 @@ function cloneBoardNodes(nodes: BoardNode[]): BoardNode[] {
     next: [...node.next],
     ...(node.gateEdges ? { gateEdges: node.gateEdges.map((e) => ({ ...e })) } : {}),
     ...(node.controlsGate ? { controlsGate: node.controlsGate } : {}),
-    ...(node.controlsEdge
-      ? { controlsEdge: { a: node.controlsEdge.a, b: node.controlsEdge.b } }
-      : {}),
+    ...cloneDoorControls(node),
     ...(node.doorStartsOpen === false ? { doorStartsOpen: false } : {}),
+    ...(cloneLinkColors(node.linkColors)
+      ? { linkColors: cloneLinkColors(node.linkColors) }
+      : {}),
   }));
 }
 
@@ -787,14 +861,38 @@ export function loadBoardLayoutFromStorage(): boolean {
       ) {
         node.controlsGate = rec.controlsGate;
       }
-      if (rec.controlsEdge && typeof rec.controlsEdge === "object") {
-        const edge = rec.controlsEdge as Record<string, unknown>;
+      const controlled: ControlledEdge[] = [];
+      const pushControlled = (raw: unknown) => {
+        if (!raw || typeof raw !== "object") return;
+        const edge = raw as Record<string, unknown>;
         if (typeof edge.a === "string" && typeof edge.b === "string") {
-          node.controlsEdge = normalizeControlledEdge(edge.a, edge.b);
+          controlled.push(normalizeControlledEdge(edge.a, edge.b));
         }
+      };
+      if (Array.isArray(rec.controlsEdges)) {
+        for (const item of rec.controlsEdges) pushControlled(item);
+      }
+      pushControlled(rec.controlsEdge);
+      if (controlled.length > 0) {
+        const seen = new Set<string>();
+        node.controlsEdges = controlled.filter((edge) => {
+          const key = undirectedEdgeKey(edge.a, edge.b);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
       }
       if (rec.doorStartsOpen === false) {
         node.doorStartsOpen = false;
+      }
+      if (rec.linkColors && typeof rec.linkColors === "object") {
+        const colors: Record<string, string> = {};
+        for (const [key, value] of Object.entries(
+          rec.linkColors as Record<string, unknown>
+        )) {
+          if (typeof value === "string" && value.length > 0) colors[key] = value;
+        }
+        if (Object.keys(colors).length > 0) node.linkColors = colors;
       }
       nodes.push(node);
     }
@@ -837,11 +935,15 @@ export function exportBoardLayoutTypeScript(
       if (node.controlsGate) {
         parts.push(`controlsGate: ${JSON.stringify(node.controlsGate)}`);
       }
-      if (node.controlsEdge) {
-        parts.push(`controlsEdge: ${JSON.stringify(node.controlsEdge)}`);
+      const doorEdges = getDoorControlledEdges(node);
+      if (doorEdges.length > 0) {
+        parts.push(`controlsEdges: ${JSON.stringify(doorEdges)}`);
       }
       if (node.doorStartsOpen === false) {
         parts.push(`doorStartsOpen: false`);
+      }
+      if (node.linkColors && Object.keys(node.linkColors).length > 0) {
+        parts.push(`linkColors: ${JSON.stringify(node.linkColors)}`);
       }
       return `  { ${parts.join(", ")} }`;
     })
@@ -849,11 +951,57 @@ export function exportBoardLayoutTypeScript(
   return `import type { BoardNode } from "./boardLayout";\n\nexport const boardLayout: BoardNode[] = [\n${body}\n];\n`;
 }
 
+function clampLayoutCoord(value: number): number {
+  return Math.round(Math.max(2, Math.min(98, value)) * 10) / 10;
+}
+
 export function updateBoardNodePosition(nodeId: string, x: number, y: number) {
   const node = boardLayout.find((n) => n.id === nodeId);
   if (!node) return;
-  node.x = Math.round(Math.max(2, Math.min(98, x)) * 10) / 10;
-  node.y = Math.round(Math.max(2, Math.min(98, y)) * 10) / 10;
+  node.x = clampLayoutCoord(x);
+  node.y = clampLayoutCoord(y);
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+/** Move several tiles in one notify/persist (multi-select drag). */
+export function updateBoardNodePositions(
+  updates: { id: string; x: number; y: number }[]
+) {
+  let changed = false;
+  for (const update of updates) {
+    const node = boardLayout.find((n) => n.id === update.id);
+    if (!node) continue;
+    node.x = clampLayoutCoord(update.x);
+    node.y = clampLayoutCoord(update.y);
+    changed = true;
+  }
+  if (!changed) return;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+export function setBoardNodeType(nodeId: string, type: TileType) {
+  setBoardNodeTypes([nodeId], type);
+}
+
+export function setBoardNodeTypes(nodeIds: string[], type: TileType) {
+  const idSet = new Set(nodeIds);
+  let changed = false;
+  for (const node of boardLayout) {
+    if (!idSet.has(node.id) || node.type === type) continue;
+    node.type = type;
+    if (type !== "door") {
+      delete node.controlsEdge;
+      delete node.controlsEdges;
+      delete node.doorStartsOpen;
+    }
+    if (type !== "button") {
+      delete node.controlsGate;
+    }
+    changed = true;
+  }
+  if (!changed) return;
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 }
@@ -897,11 +1045,15 @@ export function removeBoardNode(nodeId: string) {
       node.gateEdges = node.gateEdges.filter((e) => e.to !== nodeId);
       if (node.gateEdges.length === 0) delete node.gateEdges;
     }
-    if (
-      node.controlsEdge &&
-      (node.controlsEdge.a === nodeId || node.controlsEdge.b === nodeId)
-    ) {
-      delete node.controlsEdge;
+    const doorEdges = getDoorControlledEdges(node).filter(
+      (edge) => edge.a !== nodeId && edge.b !== nodeId
+    );
+    delete node.controlsEdge;
+    if (doorEdges.length > 0) node.controlsEdges = doorEdges;
+    else delete node.controlsEdges;
+    if (node.linkColors?.[nodeId]) {
+      delete node.linkColors[nodeId];
+      if (Object.keys(node.linkColors).length === 0) delete node.linkColors;
     }
   }
   persistBoardLayoutToStorage();
@@ -945,20 +1097,29 @@ export function unlinkBoardNodes(aId: string, bId: string) {
     }
   }
   for (const node of boardLayout) {
-    if (
-      node.controlsEdge &&
-      isSameUndirectedEdge(node.controlsEdge, aId, bId)
-    ) {
-      delete node.controlsEdge;
-    }
+    const doorEdges = getDoorControlledEdges(node).filter(
+      (edge) => !isSameUndirectedEdge(edge, aId, bId)
+    );
+    delete node.controlsEdge;
+    if (doorEdges.length > 0) node.controlsEdges = doorEdges;
+    else delete node.controlsEdges;
+  }
+  if (a?.linkColors) {
+    delete a.linkColors[bId];
+    if (Object.keys(a.linkColors).length === 0) delete a.linkColors;
+  }
+  if (b?.linkColors) {
+    delete b.linkColors[aId];
+    if (Object.keys(b.linkColors).length === 0) delete b.linkColors;
   }
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 }
 
 /**
- * Bind a door tile to an undirected link. Ensures a bidirectional `next` edge
- * exists so the path is drawn and can be toggled closed at runtime.
+ * Bind a door tile to an undirected link (adds to the multi-link list).
+ * Ensures a bidirectional `next` edge exists so the path is drawn and can be
+ * toggled closed at runtime.
  */
 export function assignDoorControlledEdge(
   doorId: string,
@@ -978,7 +1139,17 @@ export function assignDoorControlledEdge(
   if (!a.next.includes(bId)) a.next.push(bId);
   if (!b.next.includes(aId)) b.next.push(aId);
 
-  door.controlsEdge = normalizeControlledEdge(aId, bId);
+  const nextEdges = getDoorControlledEdges(door);
+  const normalized = normalizeControlledEdge(aId, bId);
+  if (
+    !nextEdges.some((edge) =>
+      isSameUndirectedEdge(edge, normalized.a, normalized.b)
+    )
+  ) {
+    nextEdges.push(normalized);
+  }
+  door.controlsEdges = nextEdges;
+  delete door.controlsEdge;
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 
@@ -990,10 +1161,32 @@ export function assignDoorControlledEdge(
   return { ok: true, warning };
 }
 
+export function removeDoorControlledEdge(
+  doorId: string,
+  aId: string,
+  bId: string
+) {
+  const door = boardLayout.find((n) => n.id === doorId);
+  if (!door || door.type !== "door") return;
+  const next = getDoorControlledEdges(door).filter(
+    (edge) => !isSameUndirectedEdge(edge, aId, bId)
+  );
+  delete door.controlsEdge;
+  if (next.length > 0) door.controlsEdges = next;
+  else delete door.controlsEdges;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
 export function clearDoorControlledEdge(doorId: string) {
+  clearDoorControlledEdges(doorId);
+}
+
+export function clearDoorControlledEdges(doorId: string) {
   const door = boardLayout.find((n) => n.id === doorId);
   if (!door || door.type !== "door") return;
   delete door.controlsEdge;
+  delete door.controlsEdges;
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 }
@@ -1003,6 +1196,175 @@ export function setDoorStartsOpen(doorId: string, startsOpen: boolean) {
   if (!door || door.type !== "door") return;
   if (startsOpen) delete door.doorStartsOpen;
   else door.doorStartsOpen = false;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+/** Resolve stroke color for an undirected road (either endpoint may store it). */
+export function getEdgeColor(
+  aId: string,
+  bId: string,
+  nodes: BoardNode[] = boardLayout
+): string | null {
+  const aNode = nodes.find((n) => n.id === aId);
+  const bNode = nodes.find((n) => n.id === bId);
+  return aNode?.linkColors?.[bId] ?? bNode?.linkColors?.[aId] ?? null;
+}
+
+export function setEdgeColor(aId: string, bId: string, color: string | null) {
+  if (aId === bId) return;
+  const aNode = boardLayout.find((n) => n.id === aId);
+  const bNode = boardLayout.find((n) => n.id === bId);
+  if (!aNode || !bNode) return;
+  if (!aNode.linkColors) aNode.linkColors = {};
+  if (color) {
+    aNode.linkColors[bId] = color;
+    if (bNode.linkColors) {
+      delete bNode.linkColors[aId];
+      if (Object.keys(bNode.linkColors).length === 0) delete bNode.linkColors;
+    }
+  } else {
+    delete aNode.linkColors[bId];
+    if (bNode.linkColors) {
+      delete bNode.linkColors[aId];
+      if (Object.keys(bNode.linkColors).length === 0) delete bNode.linkColors;
+    }
+  }
+  if (Object.keys(aNode.linkColors).length === 0) delete aNode.linkColors;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+function hasNextEdge(fromId: string, toId: string): boolean {
+  const from = boardLayout.find((n) => n.id === fromId);
+  return Boolean(from?.next.includes(toId));
+}
+
+function hasGateEdgeBetween(aId: string, bId: string): boolean {
+  const aNode = boardLayout.find((n) => n.id === aId);
+  const bNode = boardLayout.find((n) => n.id === bId);
+  return Boolean(
+    aNode?.gateEdges?.some((e) => e.to === bId) ||
+      bNode?.gateEdges?.some((e) => e.to === aId)
+  );
+}
+
+export function getEdgeDirectionMode(
+  aId: string,
+  bId: string
+): EdgeDirectionMode {
+  const aToB = hasNextEdge(aId, bId);
+  const bToA = hasNextEdge(bId, aId);
+  if (aToB && bToA) return "both";
+  if (aToB) return "a-to-b";
+  if (bToA) return "b-to-a";
+  return "none";
+}
+
+/** List directed `next` hops (excludes gateEdges — those stay gate-owned). */
+export function listDirectedNextEdges(
+  nodes: BoardNode[] = boardLayout
+): { from: string; to: string }[] {
+  const edges: { from: string; to: string }[] = [];
+  for (const node of nodes) {
+    for (const to of node.next) {
+      edges.push({ from: node.id, to });
+    }
+  }
+  return edges;
+}
+
+function applyEdgeDirectionMode(
+  aId: string,
+  bId: string,
+  mode: EdgeDirectionMode
+) {
+  if (hasGateEdgeBetween(aId, bId)) return;
+  const aNode = boardLayout.find((n) => n.id === aId);
+  const bNode = boardLayout.find((n) => n.id === bId);
+  if (!aNode || !bNode) return;
+  aNode.next = aNode.next.filter((id) => id !== bId);
+  bNode.next = bNode.next.filter((id) => id !== aId);
+  if (mode === "a-to-b" || mode === "both") aNode.next.push(bId);
+  if (mode === "b-to-a" || mode === "both") bNode.next.push(aId);
+}
+
+/**
+ * Cycle link among pair: a→b → b→a → both → a→b.
+ * Gate edges between the pair are left alone.
+ */
+export function cycleEdgeDirection(aId: string, bId: string): EdgeDirectionMode {
+  if (aId === bId || hasGateEdgeBetween(aId, bId)) {
+    return getEdgeDirectionMode(aId, bId);
+  }
+  const mode = getEdgeDirectionMode(aId, bId);
+  let nextMode: EdgeDirectionMode;
+  if (mode === "a-to-b") nextMode = "b-to-a";
+  else if (mode === "b-to-a") nextMode = "both";
+  else if (mode === "both") nextMode = "a-to-b";
+  else nextMode = "a-to-b";
+  applyEdgeDirectionMode(aId, bId, nextMode);
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+  return nextMode;
+}
+
+/** Reverse all directed `next` edges that stay inside the selection. */
+export function flipDirectionsAmongSelection(nodeIds: string[]) {
+  const idSet = new Set(nodeIds);
+  if (idSet.size < 2) return;
+  const pairs: { a: string; b: string }[] = [];
+  const seen = new Set<string>();
+  for (const node of boardLayout) {
+    if (!idSet.has(node.id)) continue;
+    for (const to of node.next) {
+      if (!idSet.has(to)) continue;
+      const key = undirectedEdgeKey(node.id, to);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pairs.push({ a: node.id, b: to });
+    }
+  }
+  for (const { a: aId, b: bId } of pairs) {
+    if (hasGateEdgeBetween(aId, bId)) continue;
+    const mode = getEdgeDirectionMode(aId, bId);
+    if (mode === "a-to-b") applyEdgeDirectionMode(aId, bId, "b-to-a");
+    else if (mode === "b-to-a") applyEdgeDirectionMode(aId, bId, "a-to-b");
+    // both stays both (symmetric)
+  }
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+/** Cycle direction of every undirected pair among the selection. */
+export function cycleDirectionsAmongSelection(nodeIds: string[]) {
+  const idSet = new Set(nodeIds);
+  if (idSet.size < 2) return;
+  const pairs: { a: string; b: string }[] = [];
+  const seen = new Set<string>();
+  for (const node of boardLayout) {
+    if (!idSet.has(node.id)) continue;
+    for (const to of [
+      ...node.next,
+      ...(node.gateEdges ?? []).map((e) => e.to),
+    ]) {
+      if (!idSet.has(to)) continue;
+      const key = undirectedEdgeKey(node.id, to);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pairs.push({ a: node.id, b: to });
+    }
+  }
+  for (const pair of pairs) {
+    if (hasGateEdgeBetween(pair.a, pair.b)) continue;
+    const mode = getEdgeDirectionMode(pair.a, pair.b);
+    let nextMode: EdgeDirectionMode;
+    if (mode === "a-to-b") nextMode = "b-to-a";
+    else if (mode === "b-to-a") nextMode = "both";
+    else if (mode === "both") nextMode = "a-to-b";
+    else nextMode = "a-to-b";
+    applyEdgeDirectionMode(pair.a, pair.b, nextMode);
+  }
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 }

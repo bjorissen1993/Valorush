@@ -91,6 +91,30 @@ export function boardDistance(fromId: string, toId: string): number {
   return Number.POSITIVE_INFINITY;
 }
 
+/** All tile ids within `range` hops of origin (inclusive), undirected graph. */
+export function tilesWithinHopRange(
+  originId: string,
+  range: number
+): string[] {
+  if (range < 0) return [];
+  const adj = buildBoardAdjacency();
+  if (!adj[originId] && !boardLayout.some((n) => n.id === originId)) return [];
+  const result: string[] = [];
+  const queue: { id: string; dist: number }[] = [{ id: originId, dist: 0 }];
+  const seen = new Set<string>([originId]);
+  while (queue.length > 0) {
+    const { id, dist } = queue.shift()!;
+    result.push(id);
+    if (dist >= range) continue;
+    for (const next of adj[id] ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push({ id: next, dist: dist + 1 });
+    }
+  }
+  return result;
+}
+
 export function isEdgeBlockedByWall(
   board: BoardUltimateState,
   fromNodeId: string,

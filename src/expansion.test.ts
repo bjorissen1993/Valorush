@@ -136,7 +136,7 @@ describe("expansion board", () => {
       x: 50,
       y: 10,
       next: [],
-      controlsEdge: { a, b },
+      controlsEdges: [{ a, b }],
     });
     try {
       const open = { [doorId]: true };
@@ -149,6 +149,36 @@ describe("expansion board", () => {
       expect(listClosedDoorEdges(flipped).some((e) => e.doorId === doorId)).toBe(
         true
       );
+    } finally {
+      const idx = boardLayout.findIndex((n) => n.id === doorId);
+      if (idx >= 0) boardLayout.splice(idx, 1);
+    }
+  });
+
+  it("toggles all links bound to a multi-edge door together", () => {
+    const doorId = "__test-door-multi__";
+    boardLayout.push({
+      id: doorId,
+      type: "door",
+      x: 52,
+      y: 12,
+      next: [],
+      controlsEdge: { a: "n0", b: "n1" },
+      controlsEdges: [
+        { a: "e0", b: "e1" },
+        { a: "s0", b: "s1" },
+      ],
+    });
+    try {
+      const closed = { [doorId]: false };
+      expect(getNodeExits("e0", DEFAULT_GATE_STATES, closed)).not.toContain("e1");
+      expect(getNodeExits("s0", DEFAULT_GATE_STATES, closed)).not.toContain("s1");
+      // Legacy single field is included via migration helper.
+      expect(getNodeExits("n0", DEFAULT_GATE_STATES, closed)).not.toContain("n1");
+      const closedEdges = listClosedDoorEdges(closed).filter(
+        (e) => e.doorId === doorId
+      );
+      expect(closedEdges.length).toBe(3);
     } finally {
       const idx = boardLayout.findIndex((n) => n.id === doorId);
       if (idx >= 0) boardLayout.splice(idx, 1);
