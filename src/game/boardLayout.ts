@@ -22,7 +22,9 @@ export type TileType =
   | "ult-orb"
   | "special"
   | "portal"
-  | "button";
+  | "button"
+  /** Landing toggles one undirected link open/closed (true door). */
+  | "door";
 
 /** Legacy tile types from older saves — remapped on load. */
 export type LegacyTileType = TileType | "split" | "merge";
@@ -30,6 +32,15 @@ export type LegacyTileType = TileType | "split" | "merge";
 export type GateId = "g1" | "g2" | "g3" | "g4";
 export type GateBranch = "left" | "right";
 export type GateStates = Record<GateId, GateBranch>;
+
+/** Undirected edge a door tile opens/closes (endpoints unordered in practice). */
+export type ControlledEdge = { a: string; b: string };
+
+/**
+ * Per-door open/closed map keyed by door tile id.
+ * `true` = open (traversable), `false` = closed. Missing keys default to open.
+ */
+export type DoorStates = Record<string, boolean>;
 
 export const GATE_IDS: readonly GateId[] = ["g1", "g2", "g3", "g4"] as const;
 
@@ -61,6 +72,13 @@ export type BoardNode = {
   gateEdges?: GateEdge[];
   /** Button tiles: which gate this switch controls. */
   controlsGate?: GateId;
+  /**
+   * Door tiles: undirected board link this switch toggles.
+   * Keep an alternate route — closing a sole bridge soft-locks players.
+   */
+  controlsEdge?: ControlledEdge;
+  /** Initial open state when a match starts (default true). */
+  doorStartsOpen?: boolean;
 };
 
 /** Credits to teleport between the two portal tiles — see economy.PORTAL_CREDIT_COST. */
@@ -143,12 +161,128 @@ export function isBranchOpen(
   return states[gateId] === branch;
 }
 
+/** Normalize undirected endpoint pair for comparisons. */
+export function undirectedEdgeKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+export function isSameUndirectedEdge(
+  edge: ControlledEdge,
+  a: string,
+  b: string
+): boolean {
+  return undirectedEdgeKey(edge.a, edge.b) === undirectedEdgeKey(a, b);
+}
+
+export function normalizeControlledEdge(a: string, b: string): ControlledEdge {
+  return a <= b ? { a, b } : { a: b, b: a };
+}
+
+/** Door tiles that bind a controlled link. */
+export function listDoorTiles(
+  nodes: BoardNode[] = boardLayout
+): BoardNode[] {
+  return nodes.filter((n) => n.type === "door");
+}
+
+export function createDefaultDoorStates(
+  nodes: BoardNode[] = boardLayout
+): DoorStates {
+  const states: DoorStates = {};
+  for (const node of nodes) {
+    if (node.type !== "door") continue;
+    states[node.id] = node.doorStartsOpen !== false;
+  }
+  return states;
+}
+
+export function migrateDoorStates(
+  raw?: DoorStates | null,
+  nodes: BoardNode[] = boardLayout
+): DoorStates {
+  const base = createDefaultDoorStates(nodes);
+  if (!raw || typeof raw !== "object") return base;
+  for (const node of nodes) {
+    if (node.type !== "door") continue;
+    if (typeof raw[node.id] === "boolean") base[node.id] = raw[node.id]!;
+  }
+  return base;
+}
+
+export function isDoorOpen(
+  doorId: string,
+  doorStates: DoorStates = {}
+): boolean {
+  if (Object.prototype.hasOwnProperty.call(doorStates, doorId)) {
+    return doorStates[doorId] === true;
+  }
+  const node = getNodeById(doorId);
+  if (node?.type === "door") return node.doorStartsOpen !== false;
+  return true;
+}
+
+export function toggleDoor(
+  doorStates: DoorStates,
+  doorId: string
+): DoorStates {
+  return {
+    ...doorStates,
+    [doorId]: !isDoorOpen(doorId, doorStates),
+  };
+}
+
+export function getDoorControlledEdge(
+  nodeId: string
+): ControlledEdge | null {
+  const node = getNodeById(nodeId);
+  if (!node || node.type !== "door" || !node.controlsEdge) return null;
+  return node.controlsEdge;
+}
+
+/** True when a directed hop is blocked by a closed door controlling that link. */
+export function isEdgeClosedByDoor(
+  fromId: string,
+  toId: string,
+  doorStates: DoorStates,
+  nodes: BoardNode[] = boardLayout
+): boolean {
+  for (const node of nodes) {
+    if (node.type !== "door" || !node.controlsEdge) continue;
+    if (!isSameUndirectedEdge(node.controlsEdge, fromId, toId)) continue;
+    if (!isDoorOpen(node.id, doorStates)) return true;
+  }
+  return false;
+}
+
+/** Closed door links for barrier visuals (deduped undirected). */
+export function listClosedDoorEdges(
+  doorStates: DoorStates,
+  nodes: BoardNode[] = boardLayout
+): { from: string; to: string; doorId: string }[] {
+  const seen = new Set<string>();
+  const result: { from: string; to: string; doorId: string }[] = [];
+  for (const node of nodes) {
+    if (node.type !== "door" || !node.controlsEdge) continue;
+    if (isDoorOpen(node.id, doorStates)) continue;
+    const key = undirectedEdgeKey(node.controlsEdge.a, node.controlsEdge.b);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({
+      from: node.controlsEdge.a,
+      to: node.controlsEdge.b,
+      doorId: node.id,
+    });
+  }
+  return result;
+}
+
 /**
- * Effective directed exits for movement / pathfinding under current gate states.
+ * Effective directed exits for movement / pathfinding under gate + door states.
  */
 export function getNodeExits(
   nodeId: string,
-  modeOrStates: GateStates | MidRoadMode = DEFAULT_GATE_STATES
+  modeOrStates: GateStates | MidRoadMode = DEFAULT_GATE_STATES,
+  doorStates: DoorStates = {}
 ): string[] {
   const states =
     typeof modeOrStates === "string"
@@ -162,11 +296,14 @@ export function getNodeExits(
       exits.push(edge.to);
     }
   }
+  const filtered = exits.filter(
+    (toId) => !isEdgeClosedByDoor(nodeId, toId, doorStates)
+  );
   // Board tiles must never offer START corridor as a landing / branch option.
   if (!isStartOneWayTile(nodeId)) {
-    return exits.filter((id) => !isStartOneWayTile(id));
+    return filtered.filter((id) => !isStartOneWayTile(id));
   }
-  return exits;
+  return filtered;
 }
 
 /** All physical undirected connections (for drawing / ultimates / planarity). */
@@ -257,14 +394,66 @@ export function listActiveMidEdges(
   }));
 }
 
-/** @deprecated Doors replaced by per-gate branch barriers. */
-export const DOOR_TILE_IDS: readonly string[] = [];
+/** Door tile ids currently on the live layout (dynamic; empty on default clover). */
+export function listDoorTileIds(
+  nodes: BoardNode[] = boardLayout
+): readonly string[] {
+  return listDoorTiles(nodes).map((n) => n.id);
+}
 
-export function isDoorOpen(
-  _nodeId: string,
-  _mode: MidRoadMode | GateStates
+/**
+ * BFS from start under gate + door states. Used for soft-lock warnings.
+ * Designers should keep an alternate route when a door closes.
+ */
+export function isBoardReachableFromStart(
+  gateStates: GateStates = DEFAULT_GATE_STATES,
+  doorStates: DoorStates = {},
+  nodes: BoardNode[] = boardLayout
 ): boolean {
-  return false;
+  if (nodes.length === 0) return true;
+  const startId = nodes.some((n) => n.id === "start")
+    ? "start"
+    : nodes[0]!.id;
+  const idSet = new Set(nodes.map((n) => n.id));
+  const exitsFor = (id: string): string[] => {
+    if (nodes === boardLayout) {
+      return getNodeExits(id, gateStates, doorStates);
+    }
+    const node = nodes.find((n) => n.id === id);
+    if (!node) return [];
+    const exits = [...node.next];
+    for (const edge of node.gateEdges ?? []) {
+      if (isGateEdgeActive(edge, gateStates)) exits.push(edge.to);
+    }
+    return exits.filter(
+      (toId) =>
+        idSet.has(toId) && !isEdgeClosedByDoor(id, toId, doorStates, nodes)
+    );
+  };
+  const seen = new Set<string>();
+  const queue = [startId];
+  seen.add(startId);
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const next of exitsFor(cur)) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  const playable = nodes.filter((n) => !isStartOneWayTile(n.id) || n.id === startId);
+  return playable.every((n) => seen.has(n.id) || isStartOneWayTile(n.id));
+}
+
+/** True if closing this door would leave some tiles unreachable from start. */
+export function wouldClosingDoorDisconnectBoard(
+  doorId: string,
+  gateStates: GateStates = DEFAULT_GATE_STATES,
+  doorStates: DoorStates = {},
+  nodes: BoardNode[] = boardLayout
+): boolean {
+  const closedPreview: DoorStates = { ...doorStates, [doorId]: false };
+  return !isBoardReachableFromStart(gateStates, closedPreview, nodes);
 }
 
 // ── Layout construction ─────────────────────────────────────────────
@@ -504,6 +693,10 @@ function cloneBoardNodes(nodes: BoardNode[]): BoardNode[] {
     next: [...node.next],
     ...(node.gateEdges ? { gateEdges: node.gateEdges.map((e) => ({ ...e })) } : {}),
     ...(node.controlsGate ? { controlsGate: node.controlsGate } : {}),
+    ...(node.controlsEdge
+      ? { controlsEdge: { a: node.controlsEdge.a, b: node.controlsEdge.b } }
+      : {}),
+    ...(node.doorStartsOpen === false ? { doorStartsOpen: false } : {}),
   }));
 }
 
@@ -594,6 +787,15 @@ export function loadBoardLayoutFromStorage(): boolean {
       ) {
         node.controlsGate = rec.controlsGate;
       }
+      if (rec.controlsEdge && typeof rec.controlsEdge === "object") {
+        const edge = rec.controlsEdge as Record<string, unknown>;
+        if (typeof edge.a === "string" && typeof edge.b === "string") {
+          node.controlsEdge = normalizeControlledEdge(edge.a, edge.b);
+        }
+      }
+      if (rec.doorStartsOpen === false) {
+        node.doorStartsOpen = false;
+      }
       nodes.push(node);
     }
     if (nodes.length === 0) return false;
@@ -634,6 +836,12 @@ export function exportBoardLayoutTypeScript(
       }
       if (node.controlsGate) {
         parts.push(`controlsGate: ${JSON.stringify(node.controlsGate)}`);
+      }
+      if (node.controlsEdge) {
+        parts.push(`controlsEdge: ${JSON.stringify(node.controlsEdge)}`);
+      }
+      if (node.doorStartsOpen === false) {
+        parts.push(`doorStartsOpen: false`);
       }
       return `  { ${parts.join(", ")} }`;
     })
@@ -689,6 +897,12 @@ export function removeBoardNode(nodeId: string) {
       node.gateEdges = node.gateEdges.filter((e) => e.to !== nodeId);
       if (node.gateEdges.length === 0) delete node.gateEdges;
     }
+    if (
+      node.controlsEdge &&
+      (node.controlsEdge.a === nodeId || node.controlsEdge.b === nodeId)
+    ) {
+      delete node.controlsEdge;
+    }
   }
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
@@ -730,6 +944,65 @@ export function unlinkBoardNodes(aId: string, bId: string) {
       if (b.gateEdges.length === 0) delete b.gateEdges;
     }
   }
+  for (const node of boardLayout) {
+    if (
+      node.controlsEdge &&
+      isSameUndirectedEdge(node.controlsEdge, aId, bId)
+    ) {
+      delete node.controlsEdge;
+    }
+  }
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+/**
+ * Bind a door tile to an undirected link. Ensures a bidirectional `next` edge
+ * exists so the path is drawn and can be toggled closed at runtime.
+ */
+export function assignDoorControlledEdge(
+  doorId: string,
+  aId: string,
+  bId: string
+): { ok: boolean; warning?: string } {
+  if (aId === bId) return { ok: false, warning: "Pick two different tiles." };
+  const door = boardLayout.find((n) => n.id === doorId);
+  if (!door || door.type !== "door") {
+    return { ok: false, warning: "Select a door tile first." };
+  }
+  const a = boardLayout.find((n) => n.id === aId);
+  const b = boardLayout.find((n) => n.id === bId);
+  if (!a || !b) return { ok: false, warning: "Both tiles must exist." };
+
+  // Ensure physical link exists (two-way) so the road is drawn.
+  if (!a.next.includes(bId)) a.next.push(bId);
+  if (!b.next.includes(aId)) b.next.push(aId);
+
+  door.controlsEdge = normalizeControlledEdge(aId, bId);
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+
+  let warning: string | undefined;
+  if (wouldClosingDoorDisconnectBoard(doorId)) {
+    warning =
+      "Closing this door may disconnect the board from START — keep an alternate route.";
+  }
+  return { ok: true, warning };
+}
+
+export function clearDoorControlledEdge(doorId: string) {
+  const door = boardLayout.find((n) => n.id === doorId);
+  if (!door || door.type !== "door") return;
+  delete door.controlsEdge;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+export function setDoorStartsOpen(doorId: string, startsOpen: boolean) {
+  const door = boardLayout.find((n) => n.id === doorId);
+  if (!door || door.type !== "door") return;
+  if (startsOpen) delete door.doorStartsOpen;
+  else door.doorStartsOpen = false;
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 }
@@ -809,6 +1082,7 @@ const KNOWN_TILE_TYPES: ReadonlySet<string> = new Set([
   "special",
   "portal",
   "button",
+  "door",
 ]);
 
 export function getNodeById(nodeId: string): BoardNode | undefined {
@@ -835,12 +1109,13 @@ export function movePlayerBySteps(
   startNodeId: string,
   steps: number,
   preferredPath?: string[],
-  states: GateStates = DEFAULT_GATE_STATES
+  states: GateStates = DEFAULT_GATE_STATES,
+  doorStates: DoorStates = {}
 ): string {
   let currentId = migrateBoardPosition(startNodeId);
 
   for (let i = 0; i < steps; i++) {
-    const exits = getNodeExits(currentId, states);
+    const exits = getNodeExits(currentId, states, doorStates);
     if (exits.length === 0) break;
 
     if (exits.length === 1) {
@@ -856,9 +1131,12 @@ export function movePlayerBySteps(
 }
 
 export function listBoardBranchPoints(
-  states: GateStates = DEFAULT_GATE_STATES
+  states: GateStates = DEFAULT_GATE_STATES,
+  doorStates: DoorStates = {}
 ): BoardNode[] {
-  return boardLayout.filter((node) => getNodeExits(node.id, states).length > 1);
+  return boardLayout.filter(
+    (node) => getNodeExits(node.id, states, doorStates).length > 1
+  );
 }
 
 /** Landmark ids used by the match-start camera overview. */
@@ -871,12 +1149,14 @@ export function listBoardLandmarks(): { id: string; label: string }[] {
   const buttons = boardLayout
     .filter((n) => n.type === "button")
     .map((n) => n.id);
+  const doors = boardLayout.filter((n) => n.type === "door").map((n) => n.id);
   return [
     { id: "kingdom", label: "Kingdom Facility" },
     { id: "start", label: "Start" },
     ...shops.slice(0, 2).map((id) => ({ id, label: "Shop" })),
     ...portals.slice(0, 2).map((id) => ({ id, label: "Portal" })),
     ...buttons.slice(0, 2).map((id) => ({ id, label: "Gate" })),
+    ...doors.slice(0, 2).map((id) => ({ id, label: "Door" })),
     ...spikes.slice(0, 1).map((id) => ({ id, label: "Spike" })),
   ];
 }

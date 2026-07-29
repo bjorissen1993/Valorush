@@ -140,6 +140,11 @@ export type OnlineGameSnapshot = {
    */
   gateStates?: Record<string, "left" | "right">;
   /**
+   * Per-door open/closed map keyed by door tile id (`true` = open).
+   * Shared so all clients block closed links the same way.
+   */
+  doorStates?: Record<string, boolean>;
+  /**
    * @deprecated Prefer gateStates. Still accepted for older snapshots.
    */
   midRoadMode?: "vertical_in" | "horizontal_in";

@@ -3,6 +3,7 @@ import {
   DEFAULT_GATE_STATES,
   getNodeById,
   getNodeExits,
+  type DoorStates,
   type GateStates,
 } from "../boardLayout";
 
@@ -56,6 +57,8 @@ type TraverseOptions = {
   ) => boolean | Promise<boolean>;
   /** Per-gate open branch states for gated shortcuts. */
   gateStates?: GateStates;
+  /** Per-door open/closed map (door tile id → open). */
+  doorStates?: DoorStates;
 };
 
 export function sleep(ms: number) {
@@ -161,13 +164,14 @@ export async function traverseMovement({
   isEdgeBlocked,
   onEnterNode,
   gateStates = DEFAULT_GATE_STATES,
+  doorStates = {},
 }: TraverseOptions): Promise<MovementResult> {
   let currentNodeId = startNodeId;
   let remainingSteps = steps;
 
   while (remainingSteps > 0) {
     const node = getNodeById(currentNodeId);
-    const exits = getNodeExits(currentNodeId, gateStates);
+    const exits = getNodeExits(currentNodeId, gateStates, doorStates);
     if (!node || exits.length === 0) break;
 
     // Route choice: any tile with multiple exits pauses mid-movement.

@@ -7,7 +7,10 @@ import {
   GATE_IDS,
   GATE_LABELS,
   getNodeExits,
+  isDoorOpen,
+  listClosedDoorEdges,
   migrateBoardPosition,
+  toggleDoor,
   toggleGate,
 } from "./game/boardLayout";
 import { validateBoardGraph } from "./game/boardValidator";
@@ -120,6 +123,36 @@ describe("expansion board", () => {
     expect(getNodeExits("g1R", right).length).toBeGreaterThan(0);
     expect(GATE_IDS).toHaveLength(4);
     expect(GATE_LABELS.g1).toMatch(/Gate/);
+  });
+
+  it("toggles a door-controlled link open and closed", () => {
+    const a = "n0";
+    const b = "n1";
+    // Temporarily bind a door on the north rim without mutating default forever.
+    const doorId = "__test-door__";
+    boardLayout.push({
+      id: doorId,
+      type: "door",
+      x: 50,
+      y: 10,
+      next: [],
+      controlsEdge: { a, b },
+    });
+    try {
+      const open = { [doorId]: true };
+      const closed = { [doorId]: false };
+      expect(getNodeExits(a, DEFAULT_GATE_STATES, open)).toContain(b);
+      expect(getNodeExits(a, DEFAULT_GATE_STATES, closed)).not.toContain(b);
+      expect(getNodeExits(b, DEFAULT_GATE_STATES, closed)).not.toContain(a);
+      const flipped = toggleDoor(open, doorId);
+      expect(isDoorOpen(doorId, flipped)).toBe(false);
+      expect(listClosedDoorEdges(flipped).some((e) => e.doorId === doorId)).toBe(
+        true
+      );
+    } finally {
+      const idx = boardLayout.findIndex((n) => n.id === doorId);
+      if (idx >= 0) boardLayout.splice(idx, 1);
+    }
   });
 
   it("migrates legacy positions", () => {

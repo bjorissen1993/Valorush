@@ -1,10 +1,11 @@
-import type { TileType } from "../game/boardLayout";
+import type { ControlledEdge, TileType } from "../game/boardLayout";
 
 export type BoardEditorTool =
   | "select"
   | "add"
   | "link"
   | "unlink"
+  | "assign-door"
   | "delete";
 
 const TILE_TYPES: TileType[] = [
@@ -19,6 +20,7 @@ const TILE_TYPES: TileType[] = [
   "special",
   "portal",
   "button",
+  "door",
   "start",
   "empty",
 ];
@@ -29,9 +31,17 @@ type Props = {
   addTileType: TileType;
   onAddTileTypeChange: (type: TileType) => void;
   selectedNodeId: string | null;
+  selectedNodeType: TileType | null;
   linkFromId: string | null;
   bidirectionalLinks: boolean;
   onBidirectionalLinksChange: (value: boolean) => void;
+  doorControlledEdge: ControlledEdge | null;
+  doorIsOpen: boolean | null;
+  doorStartsOpen: boolean | null;
+  doorSoftLockWarning: string | null;
+  onClearDoorLink: () => void;
+  onToggleDoorPreview: () => void;
+  onDoorStartsOpenChange: (startsOpen: boolean) => void;
   onExportJson: () => void;
   onExportTs: () => void;
   onResetDefault: () => void;
@@ -43,6 +53,11 @@ const TOOLS: { id: BoardEditorTool; label: string; hint: string }[] = [
   { id: "add", label: "Add", hint: "Click empty board space to place a tile" },
   { id: "link", label: "Link", hint: "Click two tiles to connect a path" },
   { id: "unlink", label: "Unlink", hint: "Click a path or two tiles to remove the edge" },
+  {
+    id: "assign-door",
+    label: "Assign link",
+    hint: "Select a door, then click an edge or two tiles it should open/close",
+  },
   { id: "delete", label: "Delete", hint: "Click a tile to remove it" },
 ];
 
@@ -52,22 +67,42 @@ export default function BoardEditorBar({
   addTileType,
   onAddTileTypeChange,
   selectedNodeId,
+  selectedNodeType,
   linkFromId,
   bidirectionalLinks,
   onBidirectionalLinksChange,
+  doorControlledEdge,
+  doorIsOpen,
+  doorStartsOpen,
+  doorSoftLockWarning,
+  onClearDoorLink,
+  onToggleDoorPreview,
+  onDoorStartsOpenChange,
   onExportJson,
   onExportTs,
   onResetDefault,
   onClose,
 }: Props) {
+  const isDoorSelected = selectedNodeType === "door";
+
   const status =
-    tool === "link" || tool === "unlink"
-      ? linkFromId
-        ? `From: ${linkFromId} — click target tile`
-        : "Click first tile"
-      : selectedNodeId
-        ? `Selected: ${selectedNodeId}`
-        : "No tile selected";
+    tool === "assign-door"
+      ? !selectedNodeId || selectedNodeType !== "door"
+        ? "Select a door tile, then pick the path it controls"
+        : linkFromId
+          ? `Door ${selectedNodeId}: from ${linkFromId} — click target tile or edge`
+          : doorControlledEdge
+            ? `Door ${selectedNodeId} → ${doorControlledEdge.a} ↔ ${doorControlledEdge.b} — click edge/tiles to reassign`
+            : `Door ${selectedNodeId}: click an edge or two tiles to assign`
+      : tool === "link" || tool === "unlink"
+        ? linkFromId
+          ? `From: ${linkFromId} — click target tile`
+          : "Click first tile"
+        : selectedNodeId
+          ? `Selected: ${selectedNodeId}${
+              selectedNodeType ? ` (${selectedNodeType})` : ""
+            }`
+          : "No tile selected";
 
   return (
     <div className="board-editor-bar" role="toolbar" aria-label="Board editor">
@@ -110,7 +145,7 @@ export default function BoardEditorBar({
           >
             {TILE_TYPES.map((type) => (
               <option key={type} value={type}>
-                {type}
+                {type === "door" ? "door (gate switch)" : type}
               </option>
             ))}
           </select>
@@ -138,9 +173,55 @@ export default function BoardEditorBar({
         </button>
       </div>
 
+      {isDoorSelected && selectedNodeId && (
+        <div className="board-editor-bar__door">
+          <p className="board-editor-bar__door-title">Door / gate control</p>
+          <p className="board-editor-bar__door-meta">
+            {doorControlledEdge
+              ? `Controls link: ${doorControlledEdge.a} ↔ ${doorControlledEdge.b}`
+              : "No link assigned — use Assign link, then click an edge or two tiles."}
+          </p>
+          <div className="board-editor-bar__row">
+            <span className="board-editor-bar__door-state">
+              Preview:{" "}
+              {doorIsOpen == null ? "—" : doorIsOpen ? "Open" : "Closed"}
+            </span>
+            <button
+              type="button"
+              className="board-editor-bar__btn"
+              onClick={onToggleDoorPreview}
+              disabled={!doorControlledEdge}
+            >
+              Toggle preview
+            </button>
+            <button
+              type="button"
+              className="board-editor-bar__btn"
+              onClick={onClearDoorLink}
+              disabled={!doorControlledEdge}
+            >
+              Clear link
+            </button>
+            <label className="board-editor-bar__check">
+              <input
+                type="checkbox"
+                checked={doorStartsOpen !== false}
+                onChange={(e) => onDoorStartsOpenChange(e.target.checked)}
+              />
+              Starts open
+            </label>
+          </div>
+          {doorSoftLockWarning && (
+            <p className="board-editor-bar__door-warn">{doorSoftLockWarning}</p>
+          )}
+        </div>
+      )}
+
       <p className="board-editor-bar__hint">
-        Saves to localStorage. Export JSON/TS for a layout snippet. Full-board camera; Alt+drag
-        empty space to pan; minimap still jumps.
+        Add type <strong>door</strong>, place it, then <strong>Assign link</strong> to bind a
+        path. Landing on the door toggles that link open/closed. Keep an alternate route so
+        players are not soft-locked. Saves to localStorage; export JSON/TS for snippets.
+        Full-board camera; Alt+drag empty space to pan.
       </p>
     </div>
   );

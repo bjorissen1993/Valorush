@@ -59,6 +59,9 @@ export type LandingResolution =
       kind: "button";
     }
   | {
+      kind: "door";
+    }
+  | {
       kind: "portal";
       destinationId: string;
       cost: number;
@@ -148,6 +151,10 @@ export function resolveLandingTile({
     return { kind: "button" };
   }
 
+  if (landedNode.type === "door") {
+    return { kind: "door" };
+  }
+
   if (landedNode.type === "portal") {
     const destinationId =
       PORTAL_PAIR[landedNode.id] ??
@@ -229,6 +236,11 @@ export function getNormalTileMessage(
       return {
         title: "Button",
         subtitle: "Flipped mid-road directions and doors for everyone.",
+      };
+    case "door":
+      return {
+        title: "Door",
+        subtitle: "Toggled a path link open or closed.",
       };
     case "portal":
       return {

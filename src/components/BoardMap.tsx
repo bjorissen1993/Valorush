@@ -6,8 +6,10 @@ import {
   GATE_LABELS,
   getNodeById,
   listActiveGateEdges,
+  listClosedDoorEdges,
   listClosedGateEdges,
   listPhysicalEdges,
+  type DoorStates,
   type GateStates,
   type TileType,
 } from "../game/boardLayout";
@@ -108,6 +110,8 @@ type Props = {
   hazards?: BoardHazardState | null;
   /** Per-gate open branch states (shared game state). */
   gateStates?: GateStates;
+  /** Per-door open/closed map (door tile id → open). */
+  doorStates?: DoorStates;
   /** Button tile id that was just pressed (visual pulse). */
   pressedButtonId?: string | null;
   /** Bump when live boardLayout changes so paths/tiles refresh. */
@@ -180,6 +184,8 @@ function getTileLabel(type: TileType, nodeId?: string) {
       return "Portal";
     case "button":
       return "Gate";
+    case "door":
+      return "Door";
     case "normal":
       return "";
     case "empty":
@@ -212,6 +218,8 @@ function getTileShortMark(type: TileType) {
       return "◎";
     case "button":
       return "●";
+    case "door":
+      return "▣";
     case "normal":
     case "empty":
     default:
@@ -299,6 +307,8 @@ function getTileClasses(type: TileType, nodeId?: string) {
       return "board-tile board-tile--portal";
     case "button":
       return "board-tile board-tile--button";
+    case "door":
+      return "board-tile board-tile--door";
     case "normal":
       return "board-tile board-tile--normal";
     case "empty":
@@ -346,6 +356,7 @@ function BoardMap({
   castFx = null,
   hazards = null,
   gateStates = DEFAULT_GATE_STATES,
+  doorStates = {},
   pressedButtonId = null,
   layoutEpoch = 0,
   editor = null,
@@ -373,6 +384,11 @@ function BoardMap({
     () => listClosedGateEdges(gateStates),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [gateStates, layoutEpoch]
+  );
+  const closedDoorEdges = useMemo(
+    () => listClosedDoorEdges(doorStates),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doorStates, layoutEpoch]
   );
   const poisonNodeSet = new Set(
     (hazards?.poisonClouds ?? [])
@@ -821,6 +837,52 @@ function BoardMap({
                 strokeLinecap="round"
               />
               <title>{`${GATE_LABELS[edge.gateId]} · ${edge.branch} closed`}</title>
+            </g>
+          );
+        })}
+
+        {/* Closed door barriers (true on/off links) */}
+        {closedDoorEdges.map((edge) => {
+          const fromNode = getNodeById(edge.from);
+          const toNode = getNodeById(edge.to);
+          if (!fromNode || !toNode) return null;
+          const x1 = scaleX(fromNode.x);
+          const y1 = scaleY(fromNode.y);
+          const x2 = scaleX(toNode.x);
+          const y2 = scaleY(toNode.y);
+          const mx = (x1 + x2) / 2;
+          const my = (y1 + y2) / 2;
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const len = Math.hypot(dx, dy) || 1;
+          const px = (-dy / len) * 2.4;
+          const py = (dx / len) * 2.4;
+          return (
+            <g
+              key={`door-closed-${edge.doorId}-${edge.from}-${edge.to}`}
+              className="board-gate board-gate--closed board-door--closed"
+            >
+              <line
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="rgba(24,24,27,0.55)"
+                strokeWidth="1.3"
+                strokeDasharray="1.1 0.9"
+                strokeLinecap="round"
+                opacity="0.7"
+              />
+              <line
+                x1={mx - px}
+                y1={my - py}
+                x2={mx + px}
+                y2={my + py}
+                stroke="rgba(251,146,60,0.95)"
+                strokeWidth="1.35"
+                strokeLinecap="round"
+              />
+              <title>{`Door ${edge.doorId} closed`}</title>
             </g>
           );
         })}

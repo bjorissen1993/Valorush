@@ -742,6 +742,12 @@ export default function DebugPanel({
                 Land on button
               </DebugButton>
               <DebugButton
+                onClick={() => onLandOnTile("door")}
+                tooltip="Simulate landing on a door switch (toggles a linked path)."
+              >
+                Land on door
+              </DebugButton>
+              <DebugButton
                 onClick={() => onLandOnTile("start")}
                 tooltip="Teleport selected player to Start for board checks."
               >

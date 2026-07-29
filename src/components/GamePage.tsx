@@ -69,8 +69,17 @@ import {
   getNodeById,
   migrateBoardPosition,
   migrateGateStates,
+  migrateDoorStates,
+  createDefaultDoorStates,
   toggleGate,
+  toggleDoor,
+  isDoorOpen,
   getGateControlledByButton,
+  getDoorControlledEdge,
+  assignDoorControlledEdge,
+  clearDoorControlledEdge,
+  setDoorStartsOpen,
+  wouldClosingDoorDisconnectBoard,
   GATE_LABELS,
   loadBoardLayoutFromStorage,
   updateBoardNodePosition,
@@ -82,6 +91,7 @@ import {
   exportBoardLayoutTypeScript,
   resetBoardLayoutToDefault,
   clearStoredBoardLayout,
+  type DoorStates,
   type GateStates,
   type TileType,
 } from "../game/boardLayout";
@@ -619,6 +629,9 @@ export default function GamePage({
       initialSnapshot?.midRoadMode
     )
   );
+  const [doorStates, setDoorStates] = useState<DoorStates>(() =>
+    migrateDoorStates(initialSnapshot?.doorStates ?? null)
+  );
   const [pendingPortalChoice, setPendingPortalChoice] = useState<{
     playerIndex: number;
     nodeId: string;
@@ -628,6 +641,8 @@ export default function GamePage({
   const [pressedButtonId, setPressedButtonId] = useState<string | null>(null);
   const gateStatesRef = useRef(gateStates);
   gateStatesRef.current = gateStates;
+  const doorStatesRef = useRef(doorStates);
+  doorStatesRef.current = doorStates;
   const [cameraIntroPending, setCameraIntroPending] = useState(
     () => !restoredLocal && !hasPresetTurnOrder
   );
@@ -738,6 +753,9 @@ export default function GamePage({
           snapshot.midRoadMode
         )
       );
+    }
+    if (snapshot.doorStates) {
+      setDoorStates(migrateDoorStates(snapshot.doorStates));
     }
     if (snapshot.pendingPortalChoice !== undefined) {
       setPendingPortalChoice(snapshot.pendingPortalChoice);
@@ -1036,7 +1054,13 @@ export default function GamePage({
 
   useEffect(() => {
     loadBoardLayoutFromStorage();
+    setDoorStates((prev) => migrateDoorStates(prev));
   }, []);
+
+  // Keep door open/closed keys aligned when the editor adds/removes door tiles.
+  useEffect(() => {
+    setDoorStates((prev) => migrateDoorStates(prev));
+  }, [boardLayoutEpoch]);
 
   // Keep debug "Selected player" synced to the active turn seat.
   useEffect(() => {
@@ -2328,6 +2352,48 @@ export default function GamePage({
       pushDebugLog(`Board editor: deleted tile ${nodeId}`);
       return;
     }
+    if (boardEditorTool === "assign-door") {
+      const selected = boardEditorSelectedId
+        ? getNodeById(boardEditorSelectedId)
+        : null;
+      const clicked = getNodeById(nodeId);
+      if (!selected || selected.type !== "door") {
+        if (clicked?.type === "door") {
+          setBoardEditorSelectedId(nodeId);
+          setBoardEditorLinkFromId(null);
+        } else {
+          setBoardEditorSelectedId(nodeId);
+          pushDebugLog("Board editor: select a door tile before assigning a link");
+        }
+        return;
+      }
+      if (!boardEditorLinkFromId) {
+        setBoardEditorLinkFromId(nodeId);
+        return;
+      }
+      if (boardEditorLinkFromId === nodeId) {
+        setBoardEditorLinkFromId(null);
+        return;
+      }
+      const result = assignDoorControlledEdge(
+        selected.id,
+        boardEditorLinkFromId,
+        nodeId
+      );
+      setBoardEditorLinkFromId(null);
+      if (result.ok) {
+        pushDebugLog(
+          `Board editor: door ${selected.id} → ${boardEditorLinkFromId} ↔ ${nodeId}`
+        );
+        if (result.warning) {
+          showAnnouncement("Door soft-lock risk", result.warning);
+          pushDebugLog(`Board editor warning: ${result.warning}`);
+        }
+      } else if (result.warning) {
+        pushDebugLog(`Board editor: ${result.warning}`);
+      }
+      return;
+    }
     if (boardEditorTool === "link" || boardEditorTool === "unlink") {
       if (!boardEditorLinkFromId) {
         setBoardEditorLinkFromId(nodeId);
@@ -2370,10 +2436,36 @@ export default function GamePage({
       y: point.y,
     });
     setBoardEditorSelectedId(node.id);
+    if (node.type === "door") {
+      setDoorStates((prev) => migrateDoorStates(prev));
+      setBoardEditorTool("assign-door");
+    }
     pushDebugLog(`Board editor: added ${node.type} (${node.id})`);
   }
 
   function handleBoardEditorEdgeClick(from: string, to: string) {
+    if (boardEditorTool === "assign-door") {
+      const door =
+        (boardEditorSelectedId && getNodeById(boardEditorSelectedId)?.type === "door"
+          ? getNodeById(boardEditorSelectedId)
+          : null) ?? null;
+      if (!door) {
+        pushDebugLog("Board editor: select a door tile before assigning a link");
+        return;
+      }
+      const result = assignDoorControlledEdge(door.id, from, to);
+      setBoardEditorLinkFromId(null);
+      if (result.ok) {
+        pushDebugLog(`Board editor: door ${door.id} → ${from} ↔ ${to}`);
+        if (result.warning) {
+          showAnnouncement("Door soft-lock risk", result.warning);
+          pushDebugLog(`Board editor warning: ${result.warning}`);
+        }
+      } else if (result.warning) {
+        pushDebugLog(`Board editor: ${result.warning}`);
+      }
+      return;
+    }
     if (boardEditorTool !== "unlink") return;
     unlinkBoardNodes(from, to);
     pushDebugLog(`Board editor: unlinked edge ${from} ↔ ${to}`);
@@ -2416,6 +2508,7 @@ export default function GamePage({
     }
     clearStoredBoardLayout();
     resetBoardLayoutToDefault({ persist: false });
+    setDoorStates(createDefaultDoorStates());
     setBoardEditorSelectedId(null);
     setBoardEditorLinkFromId(null);
     pushDebugLog("Board editor: reset to default layout");
@@ -3858,6 +3951,34 @@ export default function GamePage({
       return;
     }
 
+    if (resolution.kind === "door") {
+      const edge = getDoorControlledEdge(finalNodeId);
+      if (edge) {
+        const nextStates = toggleDoor(doorStatesRef.current, finalNodeId);
+        setDoorStates(nextStates);
+        const open = isDoorOpen(finalNodeId, nextStates);
+        const subtitle = open
+          ? `Path ${edge.a} ↔ ${edge.b} is now OPEN`
+          : `Path ${edge.a} ↔ ${edge.b} is now CLOSED`;
+        setStatusTitle(`${player.name} toggled a Door`);
+        setStatusSubtitle(subtitle);
+        showAnnouncement(open ? "Door Opened" : "Door Closed", subtitle);
+      } else {
+        setStatusTitle(`${player.name} hit a Door switch`);
+        setStatusSubtitle("No path linked to this door.");
+        showAnnouncement("Door", "Nothing happened — assign a link in the editor.");
+      }
+      setPressedButtonId(finalNodeId);
+      window.setTimeout(() => setPressedButtonId(null), 900);
+      setBoardEventPulse((n) => n + 1);
+      await sleep(AUTO_ADVANCE_DELAY);
+      await advanceToNextPlayer(
+        `Next player: ${getResolvedNextPlayerName(playerIndex)}`,
+        `${getResolvedNextPlayerName(playerIndex)} is now up`
+      );
+      return;
+    }
+
     if (resolution.kind === "portal") {
       setPendingPortalChoice({
         playerIndex,
@@ -4121,6 +4242,7 @@ export default function GamePage({
       onEnterNode: (nodeId, playerIdx) =>
         handleUltimateHazardEnter(nodeId, playerIdx),
       gateStates: gateStatesRef.current,
+      doorStates: doorStatesRef.current,
     })) as MovementResult;
 
     if (result.blockedBySplit) {
@@ -4235,6 +4357,7 @@ export default function GamePage({
       onPassOverSpike: (nodeId, playerIdx) =>
         handlePassOverSpike(nodeId, playerIdx),
       gateStates: gateStatesRef.current,
+      doorStates: doorStatesRef.current,
     })) as MovementResult;
 
     if (result.blockedBySplit) {
@@ -4987,6 +5110,7 @@ export default function GamePage({
       onEnterNode: (nodeId, playerIdx) =>
         handleUltimateHazardEnter(nodeId, playerIdx),
       gateStates: gateStatesRef.current,
+      doorStates: doorStatesRef.current,
     });
 
     setIsMoving(false);
@@ -5076,6 +5200,7 @@ export default function GamePage({
         !yoruIgnore &&
         isEdgeBlockedByWall(boardUltimateStateRef.current, from, to),
       gateStates: gateStatesRef.current,
+      doorStates: doorStatesRef.current,
     });
     setIsMoving(false);
     setMovingPlayerIndex(null);
@@ -5139,6 +5264,7 @@ export default function GamePage({
       boardUltimateState,
       ultimateCast,
       gateStates,
+      doorStates,
       pendingPortalChoice,
     });
   }, [
@@ -5153,6 +5279,7 @@ export default function GamePage({
     isMoving,
     lastRoll,
     gateStates,
+    doorStates,
     movingPlayerIndex,
     multiplayer?.isHost,
     pendingEventChoice,
@@ -5208,6 +5335,7 @@ export default function GamePage({
       boardUltimateState,
       ultimateCast,
       gateStates,
+      doorStates,
       pendingPortalChoice,
     });
   }, [
@@ -5222,6 +5350,7 @@ export default function GamePage({
     isMoving,
     lastRoll,
     gateStates,
+    doorStates,
     movingPlayerIndex,
     multiplayer,
     onLocalSnapshotChange,
@@ -6052,9 +6181,65 @@ export default function GamePage({
                   addTileType={boardEditorAddType}
                   onAddTileTypeChange={setBoardEditorAddType}
                   selectedNodeId={boardEditorSelectedId}
+                  selectedNodeType={
+                    boardEditorSelectedId
+                      ? getNodeById(boardEditorSelectedId)?.type ?? null
+                      : null
+                  }
                   linkFromId={boardEditorLinkFromId}
                   bidirectionalLinks={boardEditorBidirectional}
                   onBidirectionalLinksChange={setBoardEditorBidirectional}
+                  doorControlledEdge={
+                    boardEditorSelectedId
+                      ? getDoorControlledEdge(boardEditorSelectedId)
+                      : null
+                  }
+                  doorIsOpen={
+                    boardEditorSelectedId &&
+                    getNodeById(boardEditorSelectedId)?.type === "door"
+                      ? isDoorOpen(boardEditorSelectedId, doorStates)
+                      : null
+                  }
+                  doorStartsOpen={
+                    boardEditorSelectedId &&
+                    getNodeById(boardEditorSelectedId)?.type === "door"
+                      ? getNodeById(boardEditorSelectedId)?.doorStartsOpen !==
+                        false
+                      : null
+                  }
+                  doorSoftLockWarning={
+                    boardEditorSelectedId &&
+                    getNodeById(boardEditorSelectedId)?.type === "door" &&
+                    getDoorControlledEdge(boardEditorSelectedId) &&
+                    wouldClosingDoorDisconnectBoard(
+                      boardEditorSelectedId,
+                      gateStates,
+                      doorStates
+                    )
+                      ? "Closing this door may disconnect the board from START — keep an alternate route."
+                      : null
+                  }
+                  onClearDoorLink={() => {
+                    if (!boardEditorSelectedId) return;
+                    clearDoorControlledEdge(boardEditorSelectedId);
+                    pushDebugLog(
+                      `Board editor: cleared door link on ${boardEditorSelectedId}`
+                    );
+                  }}
+                  onToggleDoorPreview={() => {
+                    if (!boardEditorSelectedId) return;
+                    setDoorStates((prev) =>
+                      toggleDoor(prev, boardEditorSelectedId)
+                    );
+                  }}
+                  onDoorStartsOpenChange={(startsOpen) => {
+                    if (!boardEditorSelectedId) return;
+                    setDoorStartsOpen(boardEditorSelectedId, startsOpen);
+                    setDoorStates((prev) => ({
+                      ...prev,
+                      [boardEditorSelectedId]: startsOpen,
+                    }));
+                  }}
                   onExportJson={() => {
                     void copyBoardEditorExport("json");
                   }}
@@ -6501,6 +6686,7 @@ export default function GamePage({
                   detainZones: boardUltimateState.detainZones ?? [],
                 }}
                 gateStates={gateStates}
+                doorStates={doorStates}
                 pressedButtonId={pressedButtonId}
                 layoutEpoch={boardLayoutEpoch}
                 editor={
