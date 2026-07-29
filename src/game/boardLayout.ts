@@ -4,7 +4,7 @@
  * - Uniform center-to-center pitch (~9) between adjacent connected tiles
  * - Hub ring + Kingdom Facility (cardinal spokes) + four readable petals
  * - Outer rim bridges between adjacent petals (travel without Kingdom)
- * - START is a top-left one-way entry spur (~1 pitch off the circuit)
+ * - START is a top-left one-way entry spur (~1 pitch off the circuit via entry)
  * - Gate Y-forks at hub↔petal; buttons sit ON petal roads (not stubs)
  * - Bind-style portals TR/BL; coordinates are layout-space percentages (~2–98)
  */
@@ -385,9 +385,10 @@ function buildCloverBoard(): BoardNode[] {
   gateBoth(hub[7]!, g1L, "g1", "left");
   gateBoth(hub[7]!, g1R, "g1", "right");
 
-  // START top-left one-way spur: ~1 pitch off the circuit via entry
-  const start = add(n("start", "start", 4.0, 3.0));
-  const entry = add(n("entry", "ult-orb", 10.5, 9.0));
+  // START top-left one-way spur: sit just off the petal (~min pitch hops).
+  // start → entry → tl4; visually ~1.5 pitches from the running board (not ~2+).
+  const start = add(n("start", "start", 8.4, 5.8));
+  const entry = add(n("entry", "ult-orb", 14.0, 9.5));
   linkOne(start, entry);
   linkOne(entry, tl4);
 
@@ -479,8 +480,259 @@ function buildCloverBoard(): BoardNode[] {
 
 /**
  * ~57-tile clover board: outer rims, on-path gate buttons, one-way START spur.
+ * Live mutable array — game systems read this; the board editor mutates in place.
  */
 export const boardLayout: BoardNode[] = buildCloverBoard();
+
+/** Immutable factory snapshot used to reset the live layout. */
+export function createDefaultBoardLayout(): BoardNode[] {
+  return buildCloverBoard();
+}
+
+const BOARD_LAYOUT_STORAGE_KEY = "valorush_board_layout_v1";
+
+type BoardLayoutListener = () => void;
+const boardLayoutListeners = new Set<BoardLayoutListener>();
+let boardLayoutEpoch = 0;
+
+function cloneBoardNodes(nodes: BoardNode[]): BoardNode[] {
+  return nodes.map((node) => ({
+    id: node.id,
+    type: node.type,
+    x: node.x,
+    y: node.y,
+    next: [...node.next],
+    ...(node.gateEdges ? { gateEdges: node.gateEdges.map((e) => ({ ...e })) } : {}),
+    ...(node.controlsGate ? { controlsGate: node.controlsGate } : {}),
+  }));
+}
+
+function notifyBoardLayoutListeners() {
+  boardLayoutEpoch += 1;
+  for (const listener of boardLayoutListeners) listener();
+}
+
+/** Subscribe to live boardLayout mutations (editor / localStorage restore). */
+export function subscribeBoardLayout(listener: BoardLayoutListener): () => void {
+  boardLayoutListeners.add(listener);
+  return () => {
+    boardLayoutListeners.delete(listener);
+  };
+}
+
+export function getBoardLayoutEpoch(): number {
+  return boardLayoutEpoch;
+}
+
+/** Replace live layout contents (keeps the same array reference for importers). */
+export function replaceBoardLayout(nodes: BoardNode[], opts?: { persist?: boolean }) {
+  const next = cloneBoardNodes(nodes);
+  boardLayout.length = 0;
+  boardLayout.push(...next);
+  if (opts?.persist !== false) {
+    persistBoardLayoutToStorage();
+  }
+  notifyBoardLayoutListeners();
+}
+
+export function resetBoardLayoutToDefault(opts?: { persist?: boolean }) {
+  replaceBoardLayout(createDefaultBoardLayout(), opts);
+}
+
+export function persistBoardLayoutToStorage() {
+  try {
+    localStorage.setItem(
+      BOARD_LAYOUT_STORAGE_KEY,
+      JSON.stringify(cloneBoardNodes(boardLayout))
+    );
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function loadBoardLayoutFromStorage(): boolean {
+  try {
+    const raw = localStorage.getItem(BOARD_LAYOUT_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return false;
+    const nodes: BoardNode[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const rec = item as Record<string, unknown>;
+      if (typeof rec.id !== "string" || typeof rec.type !== "string") continue;
+      if (typeof rec.x !== "number" || typeof rec.y !== "number") continue;
+      if (!Array.isArray(rec.next)) continue;
+      const node: BoardNode = {
+        id: rec.id,
+        type: migrateTileType(rec.type),
+        x: rec.x,
+        y: rec.y,
+        next: rec.next.filter((id): id is string => typeof id === "string"),
+      };
+      if (Array.isArray(rec.gateEdges)) {
+        node.gateEdges = rec.gateEdges
+          .filter((e): e is GateEdge => {
+            if (!e || typeof e !== "object") return false;
+            const edge = e as Record<string, unknown>;
+            return (
+              typeof edge.to === "string" &&
+              (edge.gateId === "g1" ||
+                edge.gateId === "g2" ||
+                edge.gateId === "g3" ||
+                edge.gateId === "g4") &&
+              (edge.branch === "left" || edge.branch === "right")
+            );
+          })
+          .map((e) => ({ to: e.to, gateId: e.gateId, branch: e.branch }));
+      }
+      if (
+        rec.controlsGate === "g1" ||
+        rec.controlsGate === "g2" ||
+        rec.controlsGate === "g3" ||
+        rec.controlsGate === "g4"
+      ) {
+        node.controlsGate = rec.controlsGate;
+      }
+      nodes.push(node);
+    }
+    if (nodes.length === 0) return false;
+    replaceBoardLayout(nodes, { persist: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearStoredBoardLayout() {
+  try {
+    localStorage.removeItem(BOARD_LAYOUT_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function exportBoardLayoutJson(nodes: BoardNode[] = boardLayout): string {
+  return JSON.stringify(cloneBoardNodes(nodes), null, 2);
+}
+
+/** TypeScript snippet matching `boardLayout` export shape for pasting into code. */
+export function exportBoardLayoutTypeScript(
+  nodes: BoardNode[] = boardLayout
+): string {
+  const body = nodes
+    .map((node) => {
+      const parts = [
+        `id: ${JSON.stringify(node.id)}`,
+        `type: ${JSON.stringify(node.type)}`,
+        `x: ${Number(node.x.toFixed(2))}`,
+        `y: ${Number(node.y.toFixed(2))}`,
+        `next: ${JSON.stringify(node.next)}`,
+      ];
+      if (node.gateEdges?.length) {
+        parts.push(`gateEdges: ${JSON.stringify(node.gateEdges)}`);
+      }
+      if (node.controlsGate) {
+        parts.push(`controlsGate: ${JSON.stringify(node.controlsGate)}`);
+      }
+      return `  { ${parts.join(", ")} }`;
+    })
+    .join(",\n");
+  return `import type { BoardNode } from "./boardLayout";\n\nexport const boardLayout: BoardNode[] = [\n${body}\n];\n`;
+}
+
+export function updateBoardNodePosition(nodeId: string, x: number, y: number) {
+  const node = boardLayout.find((n) => n.id === nodeId);
+  if (!node) return;
+  node.x = Math.round(Math.max(2, Math.min(98, x)) * 10) / 10;
+  node.y = Math.round(Math.max(2, Math.min(98, y)) * 10) / 10;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+export function addBoardNode(partial: {
+  id?: string;
+  type: TileType;
+  x: number;
+  y: number;
+}): BoardNode {
+  let id = partial.id?.trim() || "";
+  if (!id || boardLayout.some((n) => n.id === id)) {
+    const base = partial.type === "start" ? "start" : `tile`;
+    let i = boardLayout.length + 1;
+    id = `${base}-${i}`;
+    while (boardLayout.some((n) => n.id === id)) {
+      i += 1;
+      id = `${base}-${i}`;
+    }
+  }
+  const node: BoardNode = {
+    id,
+    type: partial.type,
+    x: Math.round(Math.max(2, Math.min(98, partial.x)) * 10) / 10,
+    y: Math.round(Math.max(2, Math.min(98, partial.y)) * 10) / 10,
+    next: [],
+  };
+  boardLayout.push(node);
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+  return node;
+}
+
+export function removeBoardNode(nodeId: string) {
+  const idx = boardLayout.findIndex((n) => n.id === nodeId);
+  if (idx < 0) return;
+  boardLayout.splice(idx, 1);
+  for (const node of boardLayout) {
+    node.next = node.next.filter((id) => id !== nodeId);
+    if (node.gateEdges) {
+      node.gateEdges = node.gateEdges.filter((e) => e.to !== nodeId);
+      if (node.gateEdges.length === 0) delete node.gateEdges;
+    }
+  }
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+/** Add a directed edge from → to. When bidirectional, also adds to → from. */
+export function linkBoardNodes(
+  fromId: string,
+  toId: string,
+  opts?: { bidirectional?: boolean }
+) {
+  if (fromId === toId) return;
+  const from = boardLayout.find((n) => n.id === fromId);
+  const to = boardLayout.find((n) => n.id === toId);
+  if (!from || !to) return;
+  if (!from.next.includes(toId)) from.next.push(toId);
+  if (opts?.bidirectional !== false && !to.next.includes(fromId)) {
+    to.next.push(fromId);
+  }
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+/** Remove undirected connection (both directions + gate edges between the pair). */
+export function unlinkBoardNodes(aId: string, bId: string) {
+  const a = boardLayout.find((n) => n.id === aId);
+  const b = boardLayout.find((n) => n.id === bId);
+  if (a) {
+    a.next = a.next.filter((id) => id !== bId);
+    if (a.gateEdges) {
+      a.gateEdges = a.gateEdges.filter((e) => e.to !== bId);
+      if (a.gateEdges.length === 0) delete a.gateEdges;
+    }
+  }
+  if (b) {
+    b.next = b.next.filter((id) => id !== aId);
+    if (b.gateEdges) {
+      b.gateEdges = b.gateEdges.filter((e) => e.to !== aId);
+      if (b.gateEdges.length === 0) delete b.gateEdges;
+    }
+  }
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
 
 const LEGACY_POSITION_REMAP: Record<string, string> = {
   "inner-n": "i0",

@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv, type Plugin } from "vite";
+﻿import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 function readJsonBody(req: import("http").IncomingMessage): Promise<unknown> {
@@ -180,6 +180,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       envFile: false,
+      setupFiles: ["src/vitest.setup.ts"],
     },
   };
 });

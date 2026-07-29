@@ -10,7 +10,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { boardLayout, getNodeById, listBoardLandmarks, listPhysicalEdges } from "../game/boardLayout";
+import { boardLayout, getNodeById, listPhysicalEdges } from "../game/boardLayout";
 
 export type BoardCameraMode =
   | "overview"
@@ -50,20 +50,23 @@ type Props = {
   /** Brief zoom-out for board-wide events. */
   boardEventPulse?: number;
   className?: string;
+  /** When true, left-drag only pans if Alt is held (board editor tile dragging). */
+  requireAltToPan?: boolean;
 };
 
 const LERP = 0.12;
 const MANUAL_LERP = 0.28;
-const FOLLOW_ZOOM = 1.55;
-const CLUSTER_ZOOM = 1.2;
+/** Keep near 1× so CSS tiles stay crisp (large scale() rasterizes blurry). */
+const FOLLOW_ZOOM = 1;
+const CLUSTER_ZOOM = 1;
 const OVERVIEW_ZOOM = 1;
-const EVENT_ZOOM = 1.7;
-const BOARD_EVENT_ZOOM = 1.05;
-const MINIMAP_NAV_ZOOM = 1.45;
+const EVENT_ZOOM = 1.08;
+const BOARD_EVENT_ZOOM = 1;
+const MINIMAP_NAV_ZOOM = 1;
 const MANUAL_RESUME_MS = 2600;
 const DRAG_THRESHOLD_PX = 6;
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 2.2;
+const MIN_ZOOM = 0.85;
+const MAX_ZOOM = 1.6;
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -97,8 +100,8 @@ function clusterSpread(nodeIds: string[]): number {
 }
 
 /**
- * Mario Party–like board camera: overview intro, smooth follow, dynamic zoom,
- * brief event pans, board-event pulse, plus user pan / wheel zoom / minimap nav.
+ * Board camera: smooth follow, optional event pans, user pan / wheel zoom / minimap.
+ * Match-start cinematic flyover is disabled (re-enable via playIntro later if desired).
  */
 const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
   function BoardCameraViewport(
@@ -111,17 +114,20 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
       onIntroComplete,
       boardEventPulse = 0,
       className = "",
+      requireAltToPan = false,
     },
     ref
   ) {
-    const [pose, setPose] = useState<CameraPose>({
-      x: 50,
-      y: 50,
-      zoom: OVERVIEW_ZOOM,
-    });
+    const [pose, setPose] = useState<CameraPose>(() => ({
+      ...nodePose(followNodeId),
+      zoom: FOLLOW_ZOOM,
+    }));
     const [isPanning, setIsPanning] = useState(false);
     const poseRef = useRef(pose);
-    const targetRef = useRef<CameraPose>({ x: 50, y: 50, zoom: OVERVIEW_ZOOM });
+    const targetRef = useRef<CameraPose>({
+      ...nodePose(followNodeId),
+      zoom: FOLLOW_ZOOM,
+    });
     const modeRef = useRef<BoardCameraMode>("follow");
     const introRanRef = useRef(false);
     const eventUntilRef = useRef(0);
@@ -161,37 +167,14 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
       [enterManual]
     );
 
-    // Match-start overview: full board → landmark pans → zoom into start.
+    // Match-start cinematic disabled — skip straight to follow framing.
     useEffect(() => {
       if (!playIntro || introRanRef.current) return;
       introRanRef.current = true;
-      let cancelled = false;
-      const landmarks = listBoardLandmarks();
-      const sequence: { pose: CameraPose; hold: number }[] = [
-        { pose: { x: 50, y: 50, zoom: OVERVIEW_ZOOM }, hold: 900 },
-        ...landmarks.map((lm) => ({
-          pose: { ...nodePose(lm.id), zoom: EVENT_ZOOM },
-          hold: 700,
-        })),
-        { pose: { ...nodePose("start"), zoom: FOLLOW_ZOOM }, hold: 800 },
-      ];
-
-      (async () => {
-        for (const step of sequence) {
-          if (cancelled) return;
-          manualUntilRef.current = 0;
-          setTarget(step.pose, "overview");
-          await new Promise((r) => setTimeout(r, step.hold));
-        }
-        if (cancelled) return;
-        modeRef.current = "follow";
-        onIntroComplete?.();
-      })();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [playIntro, onIntroComplete, setTarget]);
+      modeRef.current = "follow";
+      setTarget({ ...nodePose(followNodeId ?? "start"), zoom: FOLLOW_ZOOM }, "follow");
+      onIntroComplete?.();
+    }, [playIntro, onIntroComplete, setTarget, followNodeId]);
 
     // Event focus (spike / shop / area ult).
     useEffect(() => {
@@ -242,7 +225,7 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
                 : []
           );
           const zoom =
-            spread > 28 ? CLUSTER_ZOOM : spread > 14 ? 1.35 : FOLLOW_ZOOM;
+            spread > 28 ? CLUSTER_ZOOM : spread > 14 ? 1 : FOLLOW_ZOOM;
           setTarget({ ...nodePose(followNodeId), zoom }, "follow");
         }
 
@@ -288,9 +271,11 @@ const BoardCameraViewport = forwardRef<BoardCameraHandle, Props>(
 
     const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
+      if (requireAltToPan && !e.altKey) return;
       // Ignore UI chrome inside the stage (banners, etc.) that should keep clicks.
       const target = e.target as HTMLElement | null;
       if (target?.closest("button, a, input, textarea, select")) return;
+      if (target?.closest(".board-tile, .board-tile-host")) return;
 
       didPanRef.current = false;
       isDraggingRef.current = false;

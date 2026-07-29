@@ -33,6 +33,7 @@ import CustomMatchLobby from "./CustomMatchLobby";
 import SpikeDefuseModal from "./SpikeDefuseModal";
 import DirectorPresentation from "./DirectorPresentation";
 import DebugPanel from "./DebugPanel";
+import BoardEditorBar, { type BoardEditorTool } from "./BoardEditorBar";
 import ShopModal, { type ShopOffer } from "./ShopModal";
 import DiceRollOverlay, { type DiceOverlayPhase } from "./DiceRollOverlay";
 import { DICE_REVEAL_BLINK_MS } from "./DiceFace";
@@ -42,6 +43,7 @@ import RoomChatWidget from "./lobby/RoomChatWidget";
 import { isEffectivePerformanceMode } from "../hooks/usePerformanceSettings";
 import type { usePerformanceSettings } from "../hooks/usePerformanceSettings";
 import { useDebugMode } from "../hooks/useDebugMode";
+import { useBoardLayoutEpoch } from "../hooks/useBoardLayout";
 import {
   traverseMovement,
   sleep,
@@ -70,6 +72,16 @@ import {
   toggleGate,
   getGateControlledByButton,
   GATE_LABELS,
+  loadBoardLayoutFromStorage,
+  updateBoardNodePosition,
+  addBoardNode,
+  removeBoardNode,
+  linkBoardNodes,
+  unlinkBoardNodes,
+  exportBoardLayoutJson,
+  exportBoardLayoutTypeScript,
+  resetBoardLayoutToDefault,
+  clearStoredBoardLayout,
   type GateStates,
   type TileType,
 } from "../game/boardLayout";
@@ -1010,6 +1022,21 @@ export default function GamePage({
   >(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const directorIntroLockRef = useRef(false);
+  const boardLayoutEpoch = useBoardLayoutEpoch();
+  const [boardEditorOpen, setBoardEditorOpen] = useState(false);
+  const [boardEditorTool, setBoardEditorTool] = useState<BoardEditorTool>("select");
+  const [boardEditorAddType, setBoardEditorAddType] = useState<TileType>("normal");
+  const [boardEditorSelectedId, setBoardEditorSelectedId] = useState<string | null>(
+    null
+  );
+  const [boardEditorLinkFromId, setBoardEditorLinkFromId] = useState<string | null>(
+    null
+  );
+  const [boardEditorBidirectional, setBoardEditorBidirectional] = useState(true);
+
+  useEffect(() => {
+    loadBoardLayoutFromStorage();
+  }, []);
 
   // Keep debug "Selected player" synced to the active turn seat.
   useEffect(() => {
@@ -2268,7 +2295,130 @@ export default function GamePage({
     setDebugMode(next);
     if (!next) {
       closeDebugOverlay();
+      setBoardEditorOpen(false);
+      setBoardEditorSelectedId(null);
+      setBoardEditorLinkFromId(null);
     }
+  }
+
+  function toggleBoardEditor() {
+    setBoardEditorOpen((open) => {
+      const next = !open;
+      if (next) {
+        setDebugOverlayOpen(false);
+        setDebugBoardAction(null);
+        setBoardEditorTool("select");
+      } else {
+        setBoardEditorSelectedId(null);
+        setBoardEditorLinkFromId(null);
+      }
+      return next;
+    });
+  }
+
+  function handleBoardEditorSelectNode(nodeId: string | null) {
+    if (!nodeId) {
+      setBoardEditorSelectedId(null);
+      return;
+    }
+    if (boardEditorTool === "delete") {
+      removeBoardNode(nodeId);
+      setBoardEditorSelectedId(null);
+      setBoardEditorLinkFromId(null);
+      pushDebugLog(`Board editor: deleted tile ${nodeId}`);
+      return;
+    }
+    if (boardEditorTool === "link" || boardEditorTool === "unlink") {
+      if (!boardEditorLinkFromId) {
+        setBoardEditorLinkFromId(nodeId);
+        setBoardEditorSelectedId(nodeId);
+        return;
+      }
+      if (boardEditorLinkFromId === nodeId) {
+        setBoardEditorLinkFromId(null);
+        return;
+      }
+      if (boardEditorTool === "link") {
+        linkBoardNodes(boardEditorLinkFromId, nodeId, {
+          bidirectional: boardEditorBidirectional,
+        });
+        pushDebugLog(
+          `Board editor: linked ${boardEditorLinkFromId} → ${nodeId}`
+        );
+      } else {
+        unlinkBoardNodes(boardEditorLinkFromId, nodeId);
+        pushDebugLog(
+          `Board editor: unlinked ${boardEditorLinkFromId} ↔ ${nodeId}`
+        );
+      }
+      setBoardEditorLinkFromId(null);
+      setBoardEditorSelectedId(nodeId);
+      return;
+    }
+    setBoardEditorSelectedId(nodeId);
+  }
+
+  function handleBoardEditorBackgroundClick(point: { x: number; y: number }) {
+    if (boardEditorTool !== "add") {
+      setBoardEditorSelectedId(null);
+      setBoardEditorLinkFromId(null);
+      return;
+    }
+    const node = addBoardNode({
+      type: boardEditorAddType,
+      x: point.x,
+      y: point.y,
+    });
+    setBoardEditorSelectedId(node.id);
+    pushDebugLog(`Board editor: added ${node.type} (${node.id})`);
+  }
+
+  function handleBoardEditorEdgeClick(from: string, to: string) {
+    if (boardEditorTool !== "unlink") return;
+    unlinkBoardNodes(from, to);
+    pushDebugLog(`Board editor: unlinked edge ${from} ↔ ${to}`);
+  }
+
+  async function copyBoardEditorExport(kind: "json" | "ts") {
+    const text =
+      kind === "json" ? exportBoardLayoutJson() : exportBoardLayoutTypeScript();
+    try {
+      await navigator.clipboard.writeText(text);
+      pushDebugLog(
+        `Board editor: ${kind.toUpperCase()} layout copied to clipboard`
+      );
+      showAnnouncement(
+        "Layout exported",
+        `${kind.toUpperCase()} copied to clipboard (${boardLayout.length} tiles).`
+      );
+    } catch {
+      // Fallback: downloadable blob
+      const blob = new Blob([text], {
+        type: kind === "json" ? "application/json" : "text/plain",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = kind === "json" ? "board-layout.json" : "board-layout.ts";
+      a.click();
+      URL.revokeObjectURL(url);
+      pushDebugLog(`Board editor: ${kind.toUpperCase()} layout downloaded`);
+    }
+  }
+
+  function handleBoardEditorReset() {
+    if (
+      !window.confirm(
+        "Reset board layout to the default clover board? This clears localStorage edits."
+      )
+    ) {
+      return;
+    }
+    clearStoredBoardLayout();
+    resetBoardLayoutToDefault({ persist: false });
+    setBoardEditorSelectedId(null);
+    setBoardEditorLinkFromId(null);
+    pushDebugLog("Board editor: reset to default layout");
   }
 
   function toggleDebugOverlay() {
@@ -6145,18 +6295,48 @@ export default function GamePage({
             )}
 
             <div className="game-board-area">
+              {boardEditorOpen && (
+                <BoardEditorBar
+                  tool={boardEditorTool}
+                  onToolChange={(tool) => {
+                    setBoardEditorTool(tool);
+                    setBoardEditorLinkFromId(null);
+                  }}
+                  addTileType={boardEditorAddType}
+                  onAddTileTypeChange={setBoardEditorAddType}
+                  selectedNodeId={boardEditorSelectedId}
+                  linkFromId={boardEditorLinkFromId}
+                  bidirectionalLinks={boardEditorBidirectional}
+                  onBidirectionalLinksChange={setBoardEditorBidirectional}
+                  onExportJson={() => {
+                    void copyBoardEditorExport("json");
+                  }}
+                  onExportTs={() => {
+                    void copyBoardEditorExport("ts");
+                  }}
+                  onResetDefault={handleBoardEditorReset}
+                  onClose={() => {
+                    setBoardEditorOpen(false);
+                    setBoardEditorSelectedId(null);
+                    setBoardEditorLinkFromId(null);
+                  }}
+                />
+              )}
               <BoardCameraViewport
                 ref={boardCameraRef}
                 followNodeId={
                   playersInGame[movingPlayerIndex ?? currentPlayerIndex]?.position
                 }
                 playerNodeIds={playersInGame.map((p) => p.position)}
-                eventFocus={cameraEventFocus}
-                playIntro={cameraIntroPending && phase === "playing"}
+                eventFocus={boardEditorOpen ? null : cameraEventFocus}
+                playIntro={
+                  !boardEditorOpen && cameraIntroPending && phase === "playing"
+                }
                 onIntroComplete={() => {
                   setCameraIntroPending(false);
                 }}
-                boardEventPulse={boardEventPulse}
+                boardEventPulse={boardEditorOpen ? 0 : boardEventPulse}
+                requireAltToPan={boardEditorOpen}
               >
               <BoardMap
                 players={playersInGame}
@@ -6165,6 +6345,7 @@ export default function GamePage({
                 animatedToken={animatedToken}
                 round={round}
                 maxRounds={MAX_ROUNDS}
+                highlightCurrentPlayer={!boardEditorOpen}
                 activeSpikeNodeId={
                   activeSpike &&
                   (activeSpike.status === "planted" ||
@@ -6178,13 +6359,17 @@ export default function GamePage({
                     ? activeSpike.status
                     : null
                 }
-                onTileClick={handleBoardTileClick}
-                onEdgeClick={handleUltimateEdgeClick}
-                onPlayerTokenClick={handleUltimatePlayerTarget}
-                onAreaPlace={handleAreaPlace}
-                onAreaCursorMove={setAreaCursorPreview}
+                onTileClick={boardEditorOpen ? undefined : handleBoardTileClick}
+                onEdgeClick={boardEditorOpen ? undefined : handleUltimateEdgeClick}
+                onPlayerTokenClick={
+                  boardEditorOpen ? undefined : handleUltimatePlayerTarget
+                }
+                onAreaPlace={boardEditorOpen ? undefined : handleAreaPlace}
+                onAreaCursorMove={
+                  boardEditorOpen ? undefined : setAreaCursorPreview
+                }
                 areaPlacement={
-                  ultimateTargeting?.targetKind === "area"
+                  !boardEditorOpen && ultimateTargeting?.targetKind === "area"
                     ? {
                         radius:
                           getUltimateForAgent(ultimateTargeting.agentName)
@@ -6210,9 +6395,13 @@ export default function GamePage({
                       }
                     : null
                 }
-                debugClickable={debugMode && debugBoardAction !== null}
+                debugClickable={
+                  !boardEditorOpen && debugMode && debugBoardAction !== null
+                }
                 selectableNodeIds={
-                  ultimateTargeting?.targetKind === "area" && areaCursorPreview
+                  boardEditorOpen
+                    ? []
+                    : ultimateTargeting?.targetKind === "area" && areaCursorPreview
                     ? tileIdsInArea({
                         center: areaCursorPreview,
                         radius:
@@ -6229,12 +6418,16 @@ export default function GamePage({
                       : pendingPathChoice?.options ?? []
                 }
                 selectableEdges={
-                  ultimateTargeting
+                  boardEditorOpen
+                    ? []
+                    : ultimateTargeting
                     ? getSelectableEdgesForUltimate(ultimateTargeting.targetKind)
                     : []
                 }
                 selectablePlayerIndices={
-                  ultimateTargeting &&
+                  boardEditorOpen
+                    ? []
+                    : ultimateTargeting &&
                   (ultimateTargeting.targetKind === "player" ||
                     ultimateTargeting.targetKind === "player_or_choice" ||
                     ultimateTargeting.targetKind === "multi_shot")
@@ -6243,9 +6436,11 @@ export default function GamePage({
                         .filter((index) => index !== currentPlayerIndex)
                     : []
                 }
-                dimNonSelectable={ultimateTargeting != null}
+                dimNonSelectable={!boardEditorOpen && ultimateTargeting != null}
                 targetingBanner={
-                  ultimateTargeting
+                  boardEditorOpen
+                    ? null
+                    : ultimateTargeting
                     ? {
                         title:
                           ultimateTargeting.targetKind === "multi_shot"
@@ -6268,14 +6463,18 @@ export default function GamePage({
                     : null
                 }
                 pathChoiceHint={
-                  !ultimateTargeting && pendingPathChoice
+                  boardEditorOpen
+                    ? null
+                    : !ultimateTargeting && pendingPathChoice
                     ? `${playersInGame[pendingPathChoice.playerIndex]?.name ?? "Player"} — choose your route, click a highlighted tile`
                     : null
                 }
-                spikePlantAnimation={spikePlantAnimation}
+                spikePlantAnimation={boardEditorOpen ? null : spikePlantAnimation}
                 onSpikePlantAnimationComplete={handleSpikePlantAnimationComplete}
                 castFx={
-                  ultimateCast
+                  boardEditorOpen
+                    ? null
+                    : ultimateCast
                     ? {
                         theme: ultimateCast.theme,
                         nodeIds: ultimateCast.highlightNodeIds,
@@ -6291,6 +6490,26 @@ export default function GamePage({
                 }}
                 gateStates={gateStates}
                 pressedButtonId={pressedButtonId}
+                layoutEpoch={boardLayoutEpoch}
+                editor={
+                  boardEditorOpen
+                    ? {
+                        enabled: true,
+                        selectedNodeId: boardEditorSelectedId,
+                        linkFromId: boardEditorLinkFromId,
+                        onSelectNode: handleBoardEditorSelectNode,
+                        onMoveNode:
+                          boardEditorTool === "select"
+                            ? updateBoardNodePosition
+                            : undefined,
+                        onBoardBackgroundClick: handleBoardEditorBackgroundClick,
+                        onEditorEdgeClick:
+                          boardEditorTool === "unlink"
+                            ? handleBoardEditorEdgeClick
+                            : undefined,
+                      }
+                    : null
+                }
               />
               </BoardCameraViewport>
               <BoardMinimap
@@ -6557,6 +6776,8 @@ export default function GamePage({
           onTriggerShop={debugTriggerShop}
           logs={debugLogs}
           onClearLogs={() => setDebugLogs([])}
+          boardEditorEnabled={boardEditorOpen}
+          onToggleBoardEditor={toggleBoardEditor}
         />
       )}
     </div >

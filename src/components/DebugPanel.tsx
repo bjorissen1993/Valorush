@@ -75,6 +75,8 @@ type DebugPanelProps = {
   onTriggerShop: () => void;
   logs?: string[];
   onClearLogs?: () => void;
+  boardEditorEnabled?: boolean;
+  onToggleBoardEditor?: () => void;
 };
 
 function DebugSection({ title, children }: { title: string; children: ReactNode }) {
@@ -171,6 +173,8 @@ export default function DebugPanel({
   onTriggerShop,
   logs = [],
   onClearLogs,
+  boardEditorEnabled = false,
+  onToggleBoardEditor,
 }: DebugPanelProps) {
   const selectedPlayer = players[selectedPlayerIndex];
   const selectedPlayerName = selectedPlayer?.name ?? "player";
@@ -199,6 +203,24 @@ export default function DebugPanel({
         </header>
 
         <div className="debug-panel__body valorant-scrollbar">
+          <DebugSection title="Board editor">
+            <div className="debug-panel__grid-2">
+              <DebugButton
+                onClick={() => onToggleBoardEditor?.()}
+                active={boardEditorEnabled}
+                className="debug-panel__span-2"
+                disabled={!onToggleBoardEditor}
+                tooltip="Open the in-game board layout editor: drag tiles, add tiles, link/unlink paths, export JSON/TS."
+              >
+                {boardEditorEnabled ? "Board editor: ON" : "Open board editor"}
+              </DebugButton>
+            </div>
+            <p className="debug-panel__hint">
+              Design the clover board live. Edits persist in localStorage; use Export
+              JSON / TS from the editor bar to keep a snippet.
+            </p>
+          </DebugSection>
+
           <DebugSection title="Action Log">
             <div className="debug-panel__log-toolbar">
               <p className="debug-panel__log-meta">

@@ -65,6 +65,16 @@ export type BoardAreaPlacement = {
   previewNodeIds?: string[];
 };
 
+export type BoardEditorInteraction = {
+  enabled: boolean;
+  selectedNodeId?: string | null;
+  linkFromId?: string | null;
+  onSelectNode?: (nodeId: string | null) => void;
+  onMoveNode?: (nodeId: string, x: number, y: number) => void;
+  onBoardBackgroundClick?: (point: { x: number; y: number }) => void;
+  onEditorEdgeClick?: (from: string, to: string) => void;
+};
+
 type Props = {
   players: PlayerInGame[];
   currentPlayerIndex: number;
@@ -100,6 +110,10 @@ type Props = {
   gateStates?: GateStates;
   /** Button tile id that was just pressed (visual pulse). */
   pressedButtonId?: string | null;
+  /** Bump when live boardLayout changes so paths/tiles refresh. */
+  layoutEpoch?: number;
+  /** Debug board-design mode (drag / link / add). */
+  editor?: BoardEditorInteraction | null;
 };
 
 const LAYOUT_MIN_X = 2;
@@ -256,8 +270,6 @@ function buildBoardPathSegments(): BoardPathSegment[] {
   });
 }
 
-const BOARD_PATH_SEGMENTS = buildBoardPathSegments();
-
 function edgeKey(from: string, to: string) {
   return `${from}->${to}`;
 }
@@ -335,6 +347,8 @@ function BoardMap({
   hazards = null,
   gateStates = DEFAULT_GATE_STATES,
   pressedButtonId = null,
+  layoutEpoch = 0,
+  editor = null,
 }: Props) {
   const currentPlayer = players[currentPlayerIndex];
   const currentPlayerNodeId = currentPlayer?.position;
@@ -343,13 +357,22 @@ function BoardMap({
   const castFxNodeSet = new Set(castFx?.nodeIds ?? []);
   const castFxPlayerSet = new Set(castFx?.playerIndices ?? []);
   const castFxTheme = castFx?.theme ?? "generic";
+  const editorEnabled = Boolean(editor?.enabled);
+  const pathSegments = useMemo(
+    () => buildBoardPathSegments(),
+    // Rebuild whenever the live layout mutates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layoutEpoch]
+  );
   const activeGateEdges = useMemo(
     () => listActiveGateEdges(gateStates),
-    [gateStates]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gateStates, layoutEpoch]
   );
   const closedGateEdges = useMemo(
     () => listClosedGateEdges(gateStates),
-    [gateStates]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gateStates, layoutEpoch]
   );
   const poisonNodeSet = new Set(
     (hazards?.poisonClouds ?? [])
@@ -391,6 +414,7 @@ function BoardMap({
   } | null>(null);
   const [flyingSpikeTransitionEnabled, setFlyingSpikeTransitionEnabled] =
     useState(false);
+  const [dragNodeId, setDragNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!spikePlantAnimation) {
@@ -435,7 +459,15 @@ function BoardMap({
       window.clearTimeout(startTimer);
       window.clearTimeout(completeTimer);
     };
-  }, [spikePlantAnimation, onSpikePlantAnimationComplete]);
+  }, [spikePlantAnimation, onSpikePlantAnimationComplete, layoutEpoch]);
+
+  const clientToLayout = (clientX: number, clientY: number, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    const renderX = ((clientX - rect.left) / rect.width) * 100;
+    const renderY = ((clientY - rect.top) / rect.height) * 100;
+    return { x: unscaleX(renderX), y: unscaleY(renderY) };
+  };
 
   const banner = targetingBanner ??
     (pathChoiceHint
@@ -446,7 +478,18 @@ function BoardMap({
     <div
       className={`board-map-root relative h-full min-h-0 w-full overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl ${
         castFx ? `board-map-root--ult-cast board-map-root--ult-cast-${castFxTheme}` : ""
-      }`}
+      } ${editorEnabled ? "board-map-root--editor" : ""}`}
+      onPointerDown={(e) => {
+        if (!editorEnabled || e.button !== 0) return;
+        if (e.altKey) return; // allow camera pan
+        const target = e.target as HTMLElement | null;
+        if (target?.closest(".board-tile, button, a, input, textarea, select")) {
+          return;
+        }
+        const point = clientToLayout(e.clientX, e.clientY, e.currentTarget);
+        if (!point) return;
+        editor?.onBoardBackgroundClick?.(point);
+      }}
     >
       <img
         src={boardMapBackgroundPath()}
@@ -531,7 +574,7 @@ function BoardMap({
           >
             <path d="M 0 1.2 L 9 5 L 0 8.8 Z" fill="rgba(248,113,113,0.95)" />
           </marker>
-          {BOARD_PATH_SEGMENTS.map(({ key, x1, y1, x2, y2 }) => (
+          {pathSegments.map(({ key, x1, y1, x2, y2 }) => (
             <linearGradient
               key={`grad-${key}`}
               id={`board-path-grad-${key}`}
@@ -561,13 +604,14 @@ function BoardMap({
           strokeDasharray="2.2 1.8"
         />
 
-        {BOARD_PATH_SEGMENTS.map(({ key, from, to, d, isMidRoad }) => {
+        {pathSegments.map(({ key, from, to, d, isMidRoad }) => {
           const selectKey = edgeKey(from, to);
           const isSelectable = selectableEdgeSet.has(selectKey);
           const isHovered = hoveredEdgeKey === selectKey;
           const isWalled = wallEdgeSet.has(selectKey);
           const dimEdge =
             isTargetingMode && hasSelectableEdges && !isSelectable;
+          const editorEdgeHit = editorEnabled && Boolean(editor?.onEditorEdgeClick);
 
           return (
             <g
@@ -576,6 +620,7 @@ function BoardMap({
               className={[
                 isSelectable ? "board-map-edge--selectable" : "",
                 isWalled ? "board-map-edge--walled" : "",
+                editorEdgeHit ? "board-map-edge--editor" : "",
               ]
                 .filter(Boolean)
                 .join(" ") || undefined}
@@ -688,6 +733,21 @@ function BoardMap({
                   onClick={(event) => {
                     event.stopPropagation();
                     onEdgeClick?.(from, to);
+                  }}
+                />
+              )}
+              {editorEdgeHit && !isSelectable && (
+                <path
+                  d={d}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth="14"
+                  strokeLinecap="round"
+                  className="cursor-pointer"
+                  style={{ pointerEvents: "stroke" }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    editor?.onEditorEdgeClick?.(from, to);
                   }}
                 />
               )}
@@ -876,22 +936,53 @@ function BoardMap({
           : isKingdom
             ? 6.2
             : TILE_SIZE_PERCENT;
+        const isEditorSelected = editorEnabled && editor?.selectedNodeId === node.id;
+        const isEditorLinkFrom = editorEnabled && editor?.linkFromId === node.id;
         const startDirDeg = isStartTile ? getStartDirectionDeg(node.id) : null;
 
         return (
           <div
             key={node.id}
-            onClick={() => {
+            onClick={(event) => {
+              if (editorEnabled) {
+                event.stopPropagation();
+                editor?.onSelectNode?.(node.id);
+                return;
+              }
               if (isTargetingMode && hasSelectableTiles && !isPathChoiceOption) {
                 return;
               }
               onTileClick?.(node.id);
             }}
-            className={`tile-pulse-host absolute z-[2] flex flex-col items-center justify-center rounded-full border text-center text-[10px] text-zinc-100 before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-gradient-to-b before:from-white/8 before:to-transparent ${getTileClasses(
+            onPointerDown={(event) => {
+              if (!editorEnabled || event.button !== 0 || event.altKey) return;
+              if (!editor?.onMoveNode) return;
+              event.stopPropagation();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              setDragNodeId(node.id);
+              editor.onSelectNode?.(node.id);
+            }}
+            onPointerMove={(event) => {
+              if (!editorEnabled || dragNodeId !== node.id) return;
+              const root = event.currentTarget.closest(".board-map-root");
+              if (!(root instanceof HTMLElement)) return;
+              const point = clientToLayout(event.clientX, event.clientY, root);
+              if (!point) return;
+              editor?.onMoveNode?.(node.id, point.x, point.y);
+            }}
+            onPointerUp={(event) => {
+              if (dragNodeId === node.id) setDragNodeId(null);
+              try {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              } catch {
+                /* already released */
+              }
+            }}
+            className={`tile-pulse-host board-tile-host absolute z-[2] flex flex-col items-center justify-center rounded-full border text-center text-[10px] text-zinc-100 before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-gradient-to-b before:from-white/8 before:to-transparent ${getTileClasses(
               node.type,
               node.id
             )} ${
-              isCurrentPlayerTile && !isTargetingMode
+              isCurrentPlayerTile && !isTargetingMode && !editorEnabled
                 ? "animate-boardCurrentPulse z-[3] border-cyan-300/80 ring-2 ring-cyan-300/50"
                 : "shadow-[0_6px_18px_rgba(0,0,0,0.28)]"
             } ${
@@ -923,9 +1014,17 @@ function BoardMap({
             } ${
               isDimmed ? "pointer-events-none opacity-35 saturate-50" : ""
             } ${
-              debugClickable && !isPathChoiceOption
+              debugClickable && !isPathChoiceOption && !editorEnabled
                 ? "cursor-pointer transition-transform hover:scale-[1.06] hover:ring-2 hover:ring-cyan-300/60"
                 : ""
+            } ${
+              isEditorSelected ? "board-tile--editor-selected z-[5]" : ""
+            } ${
+              isEditorLinkFrom ? "board-tile--editor-link-from z-[5]" : ""
+            } ${
+              editorEnabled ? "cursor-grab board-tile--editor-interactive" : ""
+            } ${
+              dragNodeId === node.id ? "cursor-grabbing" : ""
             }`}
             style={{
               left: `${scaleX(node.x)}%`,
@@ -1003,7 +1102,7 @@ function BoardMap({
                 <span className="sm:hidden">{tileMark || tileLabel}</span>
               </div>
             )}
-            {(debugClickable || SHOW_NODE_IDS) && (
+            {(debugClickable || SHOW_NODE_IDS || editorEnabled) && (
               <p className="pointer-events-none absolute left-1/2 top-[8%] z-[1] -translate-x-1/2 text-[7px] text-cyan-300">
                 {node.id}
               </p>

@@ -46,10 +46,10 @@ describe("expansion board", () => {
     expect(start!.y).toBeLessThan(15);
     expect(start!.next).toEqual(["entry"]);
     expect(entry!.next).toEqual(["tl4"]);
-    // Spur is spatially detached: start is ~1–2 pitches from the circuit.
+    // Spur sits just off the circuit (~min-pitch hops via entry).
     const distStartToLand = Math.hypot(start!.x - land!.x, start!.y - land!.y);
     expect(distStartToLand).toBeGreaterThan(BOARD_TILE_PITCH);
-    expect(distStartToLand).toBeLessThan(BOARD_TILE_PITCH * 3);
+    expect(distStartToLand).toBeLessThan(BOARD_TILE_PITCH * 2.1);
     // Nothing on the board points back at START.
     for (const node of boardLayout) {
       if (node.id === "start") continue;
