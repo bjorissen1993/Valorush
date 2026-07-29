@@ -135,7 +135,7 @@ describe("applyUltimate — all playable agents", () => {
 
   it("applies tile / path / edge / player / choice ultimates", () => {
     expect(
-      applyUltimate(baseInput("Brimstone", { targetNodeId: "tl3" })).headline
+      applyUltimate(baseInput("Brimstone", { targetNodeId: "btn-g1" })).headline
     ).toBe("Orbital Strike");
     expect(
       applyUltimate(baseInput("Viper", { targetNodeId: "or2" })).board
@@ -316,6 +316,6 @@ describe("ultimate board helpers", () => {
   it("pulls toward a destination and builds connected zones", () => {
     expect(moveTowardNode("br2", "kingdom", 3)).not.toBe("br2");
     expect(moveTowardNode("br2", "start", 3)).toBe("br2");
-    expect(collectConnectedZone("tl3", 3).size).toBe(3);
+    expect(collectConnectedZone("btn-g1", 3).size).toBe(3);
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   boardLayout,
+  BOARD_TILE_PITCH,
+  BUTTON_TILE_IDS,
   DEFAULT_GATE_STATES,
   GATE_IDS,
   GATE_LABELS,
@@ -35,10 +37,19 @@ describe("expansion board", () => {
 
   it("places START top-left as a one-way entry spur", () => {
     const start = getNodeById("start");
+    const entry = getNodeById("entry");
+    const land = getNodeById("tl4");
     expect(start).toBeTruthy();
+    expect(entry).toBeTruthy();
+    expect(land).toBeTruthy();
     expect(start!.x).toBeLessThan(20);
     expect(start!.y).toBeLessThan(15);
-    expect(start!.next.length).toBeGreaterThan(0);
+    expect(start!.next).toEqual(["entry"]);
+    expect(entry!.next).toEqual(["tl4"]);
+    // Spur is spatially detached: start is ~1–2 pitches from the circuit.
+    const distStartToLand = Math.hypot(start!.x - land!.x, start!.y - land!.y);
+    expect(distStartToLand).toBeGreaterThan(BOARD_TILE_PITCH);
+    expect(distStartToLand).toBeLessThan(BOARD_TILE_PITCH * 3);
     // Nothing on the board points back at START.
     for (const node of boardLayout) {
       if (node.id === "start") continue;
@@ -49,6 +60,38 @@ describe("expansion board", () => {
     expect(getNodeExits("tl4", DEFAULT_GATE_STATES)).not.toContain("start");
     expect(getNodeExits("tl4", DEFAULT_GATE_STATES)).not.toContain("entry");
     expect(getNodeExits("start", DEFAULT_GATE_STATES)).toContain("entry");
+  });
+
+  it("places gate buttons on the playable road (no cul-de-sac stubs)", () => {
+    for (const id of BUTTON_TILE_IDS) {
+      const btn = getNodeById(id);
+      expect(btn, id).toBeTruthy();
+      expect(btn!.type).toBe("button");
+      // Through-tile: at least two undirected neighbors on the path.
+      const neighbors = new Set(btn!.next);
+      for (const node of boardLayout) {
+        if (node.next.includes(id)) neighbors.add(node.id);
+        for (const edge of node.gateEdges ?? []) {
+          if (edge.to === id) neighbors.add(node.id);
+        }
+      }
+      expect(neighbors.size, `${id} should not be a dead-end stub`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("connects petals via outer rim bridges (not only Kingdom)", () => {
+    for (const id of ["n0", "n1", "e0", "s0", "s1", "w0"]) {
+      expect(getNodeById(id), id).toBeTruthy();
+    }
+    // North / east / south / west rim edges exist.
+    expect(getNodeById("tl6")!.next).toContain("n0");
+    expect(getNodeById("n1")!.next).toContain("tr4");
+    expect(getNodeById("tr2")!.next).toContain("e0");
+    expect(getNodeById("e0")!.next).toContain("br0");
+    expect(getNodeById("br6")!.next).toContain("s0");
+    expect(getNodeById("s1")!.next).toContain("bl0");
+    expect(getNodeById("bl7")!.next).toContain("w0");
+    expect(getNodeById("w0")!.next).toContain("tl0");
   });
 
   it("keeps uniform spacing between connected tiles", () => {

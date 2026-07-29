@@ -1522,7 +1522,7 @@ export default function GamePage({
       case "tile_and_move":
       case "area":
       case "multi_shot":
-        return { targetNodeId: "tl3" };
+        return { targetNodeId: "btn-g1" };
       case "path":
         return { choiceId: "petal-nw", targetNodeId: "petal-nw" };
       case "edge":
