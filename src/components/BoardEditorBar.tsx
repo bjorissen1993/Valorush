@@ -139,9 +139,8 @@ export default function BoardEditorBar({
       </div>
 
       <p className="board-editor-bar__hint">
-        Edits save to localStorage. Export JSON/TS to keep a layout snippet. Camera shows
-        the full board (no auto-zoom). Hold Alt while dragging empty space to pan; minimap
-        still jumps the view.
+        Saves to localStorage. Export JSON/TS for a layout snippet. Full-board camera; Alt+drag
+        empty space to pan; minimap still jumps.
       </p>
     </div>
   );

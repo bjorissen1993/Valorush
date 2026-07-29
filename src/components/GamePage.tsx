@@ -6037,7 +6037,38 @@ export default function GamePage({
       <div className="game-play-viewport">
         <div className="game-play-shell">
           {currentPlayer && (
-            <aside className="game-inventory-sidebar">
+            <aside
+              className={`game-inventory-sidebar${
+                boardEditorOpen ? " game-inventory-sidebar--board-editor" : ""
+              }`}
+            >
+              {boardEditorOpen && (
+                <BoardEditorBar
+                  tool={boardEditorTool}
+                  onToolChange={(tool) => {
+                    setBoardEditorTool(tool);
+                    setBoardEditorLinkFromId(null);
+                  }}
+                  addTileType={boardEditorAddType}
+                  onAddTileTypeChange={setBoardEditorAddType}
+                  selectedNodeId={boardEditorSelectedId}
+                  linkFromId={boardEditorLinkFromId}
+                  bidirectionalLinks={boardEditorBidirectional}
+                  onBidirectionalLinksChange={setBoardEditorBidirectional}
+                  onExportJson={() => {
+                    void copyBoardEditorExport("json");
+                  }}
+                  onExportTs={() => {
+                    void copyBoardEditorExport("ts");
+                  }}
+                  onResetDefault={handleBoardEditorReset}
+                  onClose={() => {
+                    setBoardEditorOpen(false);
+                    setBoardEditorSelectedId(null);
+                    setBoardEditorLinkFromId(null);
+                  }}
+                />
+              )}
               <PlayerInventorySidebar
                 player={currentPlayer}
                 agentName={getAgentName(currentPlayer)}
@@ -6295,33 +6326,6 @@ export default function GamePage({
             )}
 
             <div className="game-board-area">
-              {boardEditorOpen && (
-                <BoardEditorBar
-                  tool={boardEditorTool}
-                  onToolChange={(tool) => {
-                    setBoardEditorTool(tool);
-                    setBoardEditorLinkFromId(null);
-                  }}
-                  addTileType={boardEditorAddType}
-                  onAddTileTypeChange={setBoardEditorAddType}
-                  selectedNodeId={boardEditorSelectedId}
-                  linkFromId={boardEditorLinkFromId}
-                  bidirectionalLinks={boardEditorBidirectional}
-                  onBidirectionalLinksChange={setBoardEditorBidirectional}
-                  onExportJson={() => {
-                    void copyBoardEditorExport("json");
-                  }}
-                  onExportTs={() => {
-                    void copyBoardEditorExport("ts");
-                  }}
-                  onResetDefault={handleBoardEditorReset}
-                  onClose={() => {
-                    setBoardEditorOpen(false);
-                    setBoardEditorSelectedId(null);
-                    setBoardEditorLinkFromId(null);
-                  }}
-                />
-              )}
               <BoardCameraViewport
                 ref={boardCameraRef}
                 followNodeId={

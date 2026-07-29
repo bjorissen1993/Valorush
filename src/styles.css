@@ -547,21 +547,21 @@ body {
 
 .board-editor-bar {
   position: absolute;
-  left: 0.75rem;
-  right: 0.75rem;
-  top: 0.75rem;
-  z-index: 40;
+  inset: 0;
+  z-index: 50;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
   padding: 0.65rem 0.75rem;
-  border-radius: 0.9rem;
+  border-radius: 1rem;
   border: 1px solid rgba(250, 204, 21, 0.35);
-  background: rgba(9, 12, 20, 0.94);
+  background: rgba(9, 12, 20, 0.96);
   backdrop-filter: blur(10px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   color: #e4e4e7;
   pointer-events: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .board-editor-bar__row {
@@ -582,8 +582,8 @@ body {
 
 .board-editor-bar__status {
   margin: 0;
-  flex: 1;
-  min-width: 8rem;
+  flex: 1 1 100%;
+  min-width: 0;
   font-size: 0.75rem;
   color: #a1a1aa;
 }
@@ -3173,6 +3173,7 @@ body {
 }
 
 .game-inventory-sidebar {
+  position: relative;
   display: none;
   width: clamp(16.5rem, 18vw, 20rem);
   min-width: clamp(16.5rem, 18vw, 20rem);
@@ -3185,6 +3186,22 @@ body {
   .game-inventory-sidebar {
     display: flex;
     flex-direction: column;
+  }
+}
+
+/* Board editor overlays the active-player sidebar so the map stays clear. */
+@media (max-width: 1023px) {
+  .game-inventory-sidebar--board-editor {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    left: 0.5rem;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    z-index: 60;
+    width: min(20rem, calc(100% - 1rem));
+    min-width: 0;
+    max-width: min(20rem, calc(100% - 1rem));
   }
 }
 
