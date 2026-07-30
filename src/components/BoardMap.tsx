@@ -7,10 +7,13 @@ import {
   getEdgeColor,
   getEdgeDirectionMode,
   getNodeById,
+  isButtonOn,
+  getButtonControlledLinks,
   listActiveGateEdges,
   listClosedDoorEdges,
   listClosedGateEdges,
   listPhysicalEdges,
+  isButtonOn,
   type DoorStates,
   type GateStates,
   type TileType,
@@ -206,7 +209,7 @@ function getTileLabel(type: TileType, nodeId?: string) {
     case "portal":
       return "Portal";
     case "button":
-      return "Gate";
+      return "Button";
     case "door":
       return "Door";
     case "normal":
@@ -361,7 +364,7 @@ function getTileClasses(type: TileType, nodeId?: string) {
     case "button":
       return "board-tile board-tile--button";
     case "door":
-      return "board-tile board-tile--door";
+      return "board-tile board-tile--button";
     case "normal":
       return "board-tile board-tile--normal";
     case "empty":
@@ -379,6 +382,29 @@ function getStartDirectionDeg(nodeId: string): number | null {
   const dy = scaleY(next.y) - scaleY(node.y);
   // CSS degrees: 0 = up, clockwise — atan2(dx, -dy) from screen coords
   return (Math.atan2(dx, -dy) * 180) / Math.PI;
+}
+
+/** Outgoing walk directions for rim markers (directed `next` + gate edges). */
+function getTileOutgoingDirections(nodeId: string): {
+  angleDeg: number;
+  isGate?: boolean;
+}[] {
+  const node = getNodeById(nodeId);
+  if (!node) return [];
+  const dirs: { angleDeg: number; isGate?: boolean }[] = [];
+  const pushDir = (toId: string, isGate = false) => {
+    const to = getNodeById(toId);
+    if (!to) return;
+    const dx = scaleX(to.x) - scaleX(node.x);
+    const dy = scaleY(to.y) - scaleY(node.y);
+    dirs.push({
+      angleDeg: (Math.atan2(dx, -dy) * 180) / Math.PI,
+      ...(isGate ? { isGate: true } : {}),
+    });
+  };
+  for (const toId of node.next) pushDir(toId);
+  for (const edge of node.gateEdges ?? []) pushDir(edge.to, true);
+  return dirs;
 }
 
 function BoardMap({
@@ -901,18 +927,40 @@ function BoardMap({
                   />
                 </>
               )}
-              {editorEnabled && direction === "a-to-b" && (
+              {direction === "a-to-b" && (
                 <polygon
-                  points={edgeArrowPoints(x1, y1, x2, y2)}
-                  fill={edgeColor ?? "rgba(253,224,71,0.95)"}
+                  points={edgeArrowPoints(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    editorEnabled ? 1.35 : 1.05
+                  )}
+                  fill={
+                    edgeColor ??
+                    (editorEnabled
+                      ? "rgba(253,224,71,0.95)"
+                      : "rgba(34,211,238,0.75)")
+                  }
                   stroke="rgba(0,0,0,0.35)"
                   strokeWidth="0.15"
                 />
               )}
-              {editorEnabled && direction === "b-to-a" && (
+              {direction === "b-to-a" && (
                 <polygon
-                  points={edgeArrowPoints(x2, y2, x1, y1)}
-                  fill={edgeColor ?? "rgba(253,224,71,0.95)"}
+                  points={edgeArrowPoints(
+                    x2,
+                    y2,
+                    x1,
+                    y1,
+                    editorEnabled ? 1.35 : 1.05
+                  )}
+                  fill={
+                    edgeColor ??
+                    (editorEnabled
+                      ? "rgba(253,224,71,0.95)"
+                      : "rgba(34,211,238,0.75)")
+                  }
                   stroke="rgba(0,0,0,0.35)"
                   strokeWidth="0.15"
                 />
@@ -1190,6 +1238,14 @@ function BoardMap({
         const isUltiHighlight =
           editorEnabled && ultiHighlightIds.has(node.id);
         const startDirDeg = isStartTile ? getStartDirectionDeg(node.id) : null;
+        const outgoingDirs = getTileOutgoingDirections(node.id);
+        const isButtonTile = node.type === "button";
+        const buttonLinks = isButtonTile
+          ? getButtonControlledLinks(node.id)
+          : [];
+        const buttonHasLinkControl = buttonLinks.length > 0;
+        const buttonOn =
+          buttonHasLinkControl && isButtonOn(node.id, doorStates);
 
         return (
           <div
@@ -1303,6 +1359,12 @@ function BoardMap({
             } ${
               isDetainTile ? "board-hazard-tile board-hazard-tile--detain" : ""
             } ${
+              isButtonTile && buttonHasLinkControl
+                ? buttonOn
+                  ? "board-tile--button-on"
+                  : "board-tile--button-off"
+                : ""
+            } ${
               pressedButtonId === node.id ? "board-tile--button-pressed" : ""
             } ${
               isDimmed ? "pointer-events-none opacity-35 saturate-50" : ""
@@ -1345,6 +1407,29 @@ function BoardMap({
                 style={{ transform: `translate(-50%, -50%) rotate(${startDirDeg}deg)` }}
                 aria-hidden
               />
+            )}
+            {outgoingDirs.length > 0 && (
+              <div className="board-tile-exit-markers" aria-hidden>
+                {outgoingDirs.map((dir, i) => (
+                  <span
+                    key={`${node.id}-exit-${i}`}
+                    className={`board-tile-exit-marker${
+                      dir.isGate ? " board-tile-exit-marker--gate" : ""
+                    }`}
+                    style={{
+                      transform: `translate(-50%, -50%) rotate(${dir.angleDeg}deg)`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            {isButtonTile && buttonHasLinkControl && (
+              <span
+                className="board-tile-button-state"
+                aria-label={buttonOn ? "Button ON" : "Button OFF"}
+              >
+                {buttonOn ? "ON" : "OFF"}
+              </span>
             )}
             {isPoisonTile && (
               <div className="board-hazard-poison" aria-hidden>

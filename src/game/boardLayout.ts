@@ -22,25 +22,44 @@ export type TileType =
   | "ult-orb"
   | "special"
   | "portal"
-  | "button"
-  /** Landing toggles one undirected link open/closed (true door). */
-  | "door";
+  | "button";
 
 /** Legacy tile types from older saves — remapped on load. */
-export type LegacyTileType = TileType | "split" | "merge";
+export type LegacyTileType = TileType | "split" | "merge" | "door";
 
 export type GateId = "g1" | "g2" | "g3" | "g4";
 export type GateBranch = "left" | "right";
 export type GateStates = Record<GateId, GateBranch>;
 
-/** Undirected edge a door tile opens/closes (endpoints unordered in practice). */
+/** Undirected edge endpoints (unordered in practice). */
 export type ControlledEdge = { a: string; b: string };
 
+/** Per-link config on a button tile — openness follows ON/OFF + mapping. */
+export type ButtonLinkConfig = ControlledEdge & {
+  /** Link is open when the button is ON (default true). OFF inverts. */
+  openWhenOn?: boolean;
+  /** Cycle this link's direction when the button is pressed. */
+  flipDirection?: boolean;
+};
+
+/** Which behaviors fire when a player lands on / presses the button. */
+export type ButtonActions = {
+  /** Open/close controlled links from ON/OFF state (default when links exist). */
+  toggleLinks?: boolean;
+  /** Flip direction on links marked `flipDirection`. */
+  flipDirections?: boolean;
+  /** Toggle a Y-gate branch (`controlsGate`). */
+  toggleGate?: boolean;
+};
+
 /**
- * Per-door open/closed map keyed by door tile id.
- * `true` = open (traversable), `false` = closed. Missing keys default to open.
+ * Per-button ON/OFF map keyed by button tile id.
+ * `true` = ON, `false` = OFF. Missing keys use `buttonStartsOn` (default ON).
  */
-export type DoorStates = Record<string, boolean>;
+export type ButtonStates = Record<string, boolean>;
+
+/** @deprecated Use ButtonStates — kept for older online snapshots. */
+export type DoorStates = ButtonStates;
 
 export const GATE_IDS: readonly GateId[] = ["g1", "g2", "g3", "g4"] as const;
 
@@ -84,20 +103,23 @@ export type BoardNode = {
   next: string[];
   /** Gate-filtered exits — active only when that gate's branch matches. */
   gateEdges?: GateEdge[];
-  /** Button tiles: which gate this switch controls. */
+  /** Button: which Y-gate branch this switch toggles (clover petals). */
   controlsGate?: GateId;
+  /** Button: controlled links with per-link ON/OFF mapping and optional direction flip. */
+  buttonLinks?: ButtonLinkConfig[];
+  /** Which actions run when the button is pressed (inferred from links/gate if omitted). */
+  buttonActions?: ButtonActions;
+  /** Initial ON state when a match starts (default true). */
+  buttonStartsOn?: boolean;
   /**
-   * @deprecated Prefer `controlsEdges`. Migrated on load/export.
-   * Door tiles: single undirected board link this switch toggles.
+   * @deprecated Migrated to `buttonLinks` on load. Legacy door single link.
    */
   controlsEdge?: ControlledEdge;
   /**
-   * Door tiles: undirected board links this switch toggles together.
-   * Landing flips one door state that opens/closes all bound links.
-   * Keep an alternate route — closing a sole bridge soft-locks players.
+   * @deprecated Migrated to `buttonLinks` on load. Legacy door multi-link list.
    */
   controlsEdges?: ControlledEdge[];
-  /** Initial open state when a match starts (default true). */
+  /** @deprecated Migrated to `buttonStartsOn` on load. */
   doorStartsOpen?: boolean;
   /**
    * Optional stroke colors for roads to neighbor ids (CSS hex).
@@ -203,130 +225,264 @@ export function normalizeControlledEdge(a: string, b: string): ControlledEdge {
   return a <= b ? { a, b } : { a: b, b: a };
 }
 
-/** Door tiles that bind a controlled link. */
-export function listDoorTiles(
-  nodes: BoardNode[] = boardLayout
-): BoardNode[] {
-  return nodes.filter((n) => n.type === "door");
+/** Normalize a raw node: migrate legacy door fields → unified button model. */
+export function migrateBoardNode(node: BoardNode): BoardNode {
+  if (node.type === ("door" as string)) {
+    node.type = "button";
+  }
+  if (node.type !== "button") return node;
+
+  if (!node.buttonLinks?.length) {
+    const legacy: ButtonLinkConfig[] = [];
+    const seen = new Set<string>();
+    const push = (edge: ControlledEdge, openWhenOn = true) => {
+      const normalized = normalizeControlledEdge(edge.a, edge.b);
+      const key = undirectedEdgeKey(normalized.a, normalized.b);
+      if (seen.has(key)) return;
+      seen.add(key);
+      legacy.push({ ...normalized, openWhenOn });
+    };
+    for (const edge of node.controlsEdges ?? []) push(edge);
+    if (node.controlsEdge) push(node.controlsEdge);
+    if (legacy.length > 0) node.buttonLinks = legacy;
+  }
+  delete node.controlsEdge;
+  delete node.controlsEdges;
+
+  if (node.buttonStartsOn === undefined && node.doorStartsOpen === false) {
+    node.buttonStartsOn = false;
+  }
+  delete node.doorStartsOpen;
+
+  if (!node.buttonActions) {
+    const actions: ButtonActions = {};
+    if (node.buttonLinks?.length) actions.toggleLinks = true;
+    if (node.controlsGate) actions.toggleGate = true;
+    if (Object.keys(actions).length > 0) node.buttonActions = actions;
+  }
+
+  return node;
 }
 
-export function createDefaultDoorStates(
+/** Button tiles on the layout (post-migration). */
+export function listButtonTiles(
   nodes: BoardNode[] = boardLayout
-): DoorStates {
-  const states: DoorStates = {};
+): BoardNode[] {
+  return nodes.filter((n) => n.type === "button");
+}
+
+/** @deprecated Prefer listButtonTiles. */
+export function listDoorTiles(nodes: BoardNode[] = boardLayout): BoardNode[] {
+  return listButtonTiles(nodes);
+}
+
+export function getButtonActions(nodeOrId: BoardNode | string): ButtonActions {
+  const node =
+    typeof nodeOrId === "string" ? getNodeById(nodeOrId) : nodeOrId;
+  if (!node || node.type !== "button") return {};
+  migrateBoardNode(node);
+  if (node.buttonActions) return { ...node.buttonActions };
+  const inferred: ButtonActions = {};
+  if (getButtonControlledLinks(node).length > 0) inferred.toggleLinks = true;
+  if (node.controlsGate) inferred.toggleGate = true;
+  return inferred;
+}
+
+/** Controlled links for a button (deduped, migrated from legacy door fields). */
+export function getButtonControlledLinks(
+  nodeOrId: BoardNode | string
+): ButtonLinkConfig[] {
+  const node =
+    typeof nodeOrId === "string" ? getNodeById(nodeOrId) : nodeOrId;
+  if (!node || node.type !== "button") return [];
+  migrateBoardNode(node);
+  return (node.buttonLinks ?? []).map((link) => ({
+    ...normalizeControlledEdge(link.a, link.b),
+    ...(link.openWhenOn === false ? { openWhenOn: false } : {}),
+    ...(link.flipDirection ? { flipDirection: true } : {}),
+  }));
+}
+
+/** @deprecated Prefer getButtonControlledLinks. */
+export function getDoorControlledEdges(
+  nodeOrId: BoardNode | string
+): ControlledEdge[] {
+  return getButtonControlledLinks(nodeOrId).map(({ a, b }) => ({ a, b }));
+}
+
+/** @deprecated Prefer getButtonControlledLinks. */
+export function getDoorControlledEdge(nodeId: string): ControlledEdge | null {
+  return getButtonControlledLinks(nodeId)[0] ?? null;
+}
+
+/** True when a controlled link is traversable for the given button ON state. */
+export function isLinkOpenForButtonState(
+  link: ButtonLinkConfig,
+  isOn: boolean
+): boolean {
+  const openWhenOn = link.openWhenOn !== false;
+  return isOn ? openWhenOn : !openWhenOn;
+}
+
+export function createDefaultButtonStates(
+  nodes: BoardNode[] = boardLayout
+): ButtonStates {
+  const states: ButtonStates = {};
   for (const node of nodes) {
-    if (node.type !== "door") continue;
-    states[node.id] = node.doorStartsOpen !== false;
+    if (node.type !== "button") continue;
+    migrateBoardNode(node);
+    states[node.id] = node.buttonStartsOn !== false;
   }
   return states;
 }
 
-export function migrateDoorStates(
-  raw?: DoorStates | null,
+/** @deprecated Prefer createDefaultButtonStates. */
+export function createDefaultDoorStates(
   nodes: BoardNode[] = boardLayout
-): DoorStates {
-  const base = createDefaultDoorStates(nodes);
+): ButtonStates {
+  return createDefaultButtonStates(nodes);
+}
+
+export function migrateButtonStates(
+  raw?: ButtonStates | null,
+  nodes: BoardNode[] = boardLayout
+): ButtonStates {
+  const base = createDefaultButtonStates(nodes);
   if (!raw || typeof raw !== "object") return base;
   for (const node of nodes) {
-    if (node.type !== "door") continue;
+    if (node.type !== "button") continue;
     if (typeof raw[node.id] === "boolean") base[node.id] = raw[node.id]!;
   }
   return base;
 }
 
-export function isDoorOpen(
-  doorId: string,
-  doorStates: DoorStates = {}
+/** @deprecated Prefer migrateButtonStates. */
+export function migrateDoorStates(
+  raw?: ButtonStates | null,
+  nodes: BoardNode[] = boardLayout
+): ButtonStates {
+  return migrateButtonStates(raw, nodes);
+}
+
+export function isButtonOn(
+  buttonId: string,
+  buttonStates: ButtonStates = {}
 ): boolean {
-  if (Object.prototype.hasOwnProperty.call(doorStates, doorId)) {
-    return doorStates[doorId] === true;
+  if (Object.prototype.hasOwnProperty.call(buttonStates, buttonId)) {
+    return buttonStates[buttonId] === true;
   }
-  const node = getNodeById(doorId);
-  if (node?.type === "door") return node.doorStartsOpen !== false;
+  const node = getNodeById(buttonId);
+  if (node?.type === "button") {
+    migrateBoardNode(node);
+    return node.buttonStartsOn !== false;
+  }
   return true;
 }
 
-export function toggleDoor(
-  doorStates: DoorStates,
-  doorId: string
-): DoorStates {
+/** @deprecated Prefer isButtonOn — same semantics after door→button merge. */
+export function isDoorOpen(
+  doorId: string,
+  doorStates: ButtonStates = {}
+): boolean {
+  return isButtonOn(doorId, doorStates);
+}
+
+export function toggleButton(
+  buttonStates: ButtonStates,
+  buttonId: string
+): ButtonStates {
   return {
-    ...doorStates,
-    [doorId]: !isDoorOpen(doorId, doorStates),
+    ...buttonStates,
+    [buttonId]: !isButtonOn(buttonId, buttonStates),
   };
 }
 
-/** Normalize legacy `controlsEdge` into `controlsEdges` (deduped). */
-export function getDoorControlledEdges(
-  nodeOrId: BoardNode | string
-): ControlledEdge[] {
-  const node =
-    typeof nodeOrId === "string" ? getNodeById(nodeOrId) : nodeOrId;
-  if (!node || node.type !== "door") return [];
-  const edges: ControlledEdge[] = [];
-  const seen = new Set<string>();
-  const push = (edge: ControlledEdge) => {
-    const normalized = normalizeControlledEdge(edge.a, edge.b);
-    const key = undirectedEdgeKey(normalized.a, normalized.b);
-    if (seen.has(key)) return;
-    seen.add(key);
-    edges.push(normalized);
-  };
-  for (const edge of node.controlsEdges ?? []) push(edge);
-  if (node.controlsEdge) push(node.controlsEdge);
-  return edges;
+/** @deprecated Prefer toggleButton. */
+export function toggleDoor(
+  doorStates: ButtonStates,
+  doorId: string
+): ButtonStates {
+  return toggleButton(doorStates, doorId);
 }
 
-/** @deprecated Prefer getDoorControlledEdges — returns the first bound link. */
-export function getDoorControlledEdge(
-  nodeId: string
-): ControlledEdge | null {
-  return getDoorControlledEdges(nodeId)[0] ?? null;
-}
-
-function doorControlsUndirectedEdge(
+function buttonControlsUndirectedEdge(
   node: BoardNode,
   fromId: string,
   toId: string
-): boolean {
-  return getDoorControlledEdges(node).some((edge) =>
-    isSameUndirectedEdge(edge, fromId, toId)
+): ButtonLinkConfig | null {
+  return (
+    getButtonControlledLinks(node).find((link) =>
+      isSameUndirectedEdge(link, fromId, toId)
+    ) ?? null
   );
 }
 
-/** True when a directed hop is blocked by a closed door controlling that link. */
-export function isEdgeClosedByDoor(
+/** True when a directed hop is blocked by a button-controlled closed link. */
+export function isEdgeClosedByButton(
   fromId: string,
   toId: string,
-  doorStates: DoorStates,
+  buttonStates: ButtonStates,
   nodes: BoardNode[] = boardLayout
 ): boolean {
   for (const node of nodes) {
-    if (node.type !== "door") continue;
-    if (!doorControlsUndirectedEdge(node, fromId, toId)) continue;
-    if (!isDoorOpen(node.id, doorStates)) return true;
+    migrateBoardNode(node);
+    if (node.type !== "button") continue;
+    const actions = getButtonActions(node);
+    if (!actions.toggleLinks && getButtonControlledLinks(node).length === 0) {
+      continue;
+    }
+    const link = buttonControlsUndirectedEdge(node, fromId, toId);
+    if (!link) continue;
+    if (!isLinkOpenForButtonState(link, isButtonOn(node.id, buttonStates))) {
+      return true;
+    }
   }
   return false;
 }
 
-/** Closed door links for barrier visuals (deduped undirected). */
-export function listClosedDoorEdges(
-  doorStates: DoorStates,
+/** @deprecated Prefer isEdgeClosedByButton. */
+export function isEdgeClosedByDoor(
+  fromId: string,
+  toId: string,
+  doorStates: ButtonStates,
   nodes: BoardNode[] = boardLayout
-): { from: string; to: string; doorId: string }[] {
+): boolean {
+  return isEdgeClosedByButton(fromId, toId, doorStates, nodes);
+}
+
+/** Closed button links for barrier visuals (deduped undirected). */
+export function listClosedButtonEdges(
+  buttonStates: ButtonStates,
+  nodes: BoardNode[] = boardLayout
+): { from: string; to: string; buttonId: string }[] {
   const seen = new Set<string>();
-  const result: { from: string; to: string; doorId: string }[] = [];
+  const result: { from: string; to: string; buttonId: string }[] = [];
   for (const node of nodes) {
-    if (node.type !== "door") continue;
-    if (isDoorOpen(node.id, doorStates)) continue;
-    for (const edge of getDoorControlledEdges(node)) {
-      const key = undirectedEdgeKey(edge.a, edge.b);
+    migrateBoardNode(node);
+    if (node.type !== "button") continue;
+    for (const link of getButtonControlledLinks(node)) {
+      if (isLinkOpenForButtonState(link, isButtonOn(node.id, buttonStates))) {
+        continue;
+      }
+      const key = undirectedEdgeKey(link.a, link.b);
       if (seen.has(key)) continue;
       seen.add(key);
-      result.push({ from: edge.a, to: edge.b, doorId: node.id });
+      result.push({ from: link.a, to: link.b, buttonId: node.id });
     }
   }
   return result;
+}
+
+/** @deprecated Prefer listClosedButtonEdges. */
+export function listClosedDoorEdges(
+  doorStates: ButtonStates,
+  nodes: BoardNode[] = boardLayout
+): { from: string; to: string; doorId: string }[] {
+  return listClosedButtonEdges(doorStates, nodes).map((e) => ({
+    from: e.from,
+    to: e.to,
+    doorId: e.buttonId,
+  }));
 }
 
 /**
@@ -335,7 +491,7 @@ export function listClosedDoorEdges(
 export function getNodeExits(
   nodeId: string,
   modeOrStates: GateStates | MidRoadMode = DEFAULT_GATE_STATES,
-  doorStates: DoorStates = {}
+  buttonStates: ButtonStates = {}
 ): string[] {
   const states =
     typeof modeOrStates === "string"
@@ -350,7 +506,7 @@ export function getNodeExits(
     }
   }
   const filtered = exits.filter(
-    (toId) => !isEdgeClosedByDoor(nodeId, toId, doorStates)
+    (toId) => !isEdgeClosedByButton(nodeId, toId, buttonStates)
   );
   // Board tiles must never offer START corridor as a landing / branch option.
   if (!isStartOneWayTile(nodeId)) {
@@ -447,11 +603,18 @@ export function listActiveMidEdges(
   }));
 }
 
-/** Door tile ids currently on the live layout (dynamic; empty on default clover). */
+/** Button tile ids currently on the live layout. */
+export function listButtonTileIds(
+  nodes: BoardNode[] = boardLayout
+): readonly string[] {
+  return listButtonTiles(nodes).map((n) => n.id);
+}
+
+/** @deprecated Prefer listButtonTileIds. */
 export function listDoorTileIds(
   nodes: BoardNode[] = boardLayout
 ): readonly string[] {
-  return listDoorTiles(nodes).map((n) => n.id);
+  return listButtonTileIds(nodes);
 }
 
 /**
@@ -460,7 +623,7 @@ export function listDoorTileIds(
  */
 export function isBoardReachableFromStart(
   gateStates: GateStates = DEFAULT_GATE_STATES,
-  doorStates: DoorStates = {},
+  buttonStates: ButtonStates = {},
   nodes: BoardNode[] = boardLayout
 ): boolean {
   if (nodes.length === 0) return true;
@@ -470,7 +633,7 @@ export function isBoardReachableFromStart(
   const idSet = new Set(nodes.map((n) => n.id));
   const exitsFor = (id: string): string[] => {
     if (nodes === boardLayout) {
-      return getNodeExits(id, gateStates, doorStates);
+      return getNodeExits(id, gateStates, buttonStates);
     }
     const node = nodes.find((n) => n.id === id);
     if (!node) return [];
@@ -480,7 +643,7 @@ export function isBoardReachableFromStart(
     }
     return exits.filter(
       (toId) =>
-        idSet.has(toId) && !isEdgeClosedByDoor(id, toId, doorStates, nodes)
+        idSet.has(toId) && !isEdgeClosedByButton(id, toId, buttonStates, nodes)
     );
   };
   const seen = new Set<string>();
@@ -498,15 +661,30 @@ export function isBoardReachableFromStart(
   return playable.every((n) => seen.has(n.id) || isStartOneWayTile(n.id));
 }
 
-/** True if closing this door would leave some tiles unreachable from start. */
+/** True if turning a button OFF would leave some tiles unreachable from start. */
+export function wouldClosingButtonDisconnectBoard(
+  buttonId: string,
+  gateStates: GateStates = DEFAULT_GATE_STATES,
+  buttonStates: ButtonStates = {},
+  nodes: BoardNode[] = boardLayout
+): boolean {
+  const offPreview: ButtonStates = { ...buttonStates, [buttonId]: false };
+  return !isBoardReachableFromStart(gateStates, offPreview, nodes);
+}
+
+/** @deprecated Prefer wouldClosingButtonDisconnectBoard. */
 export function wouldClosingDoorDisconnectBoard(
   doorId: string,
   gateStates: GateStates = DEFAULT_GATE_STATES,
-  doorStates: DoorStates = {},
+  doorStates: ButtonStates = {},
   nodes: BoardNode[] = boardLayout
 ): boolean {
-  const closedPreview: DoorStates = { ...doorStates, [doorId]: false };
-  return !isBoardReachableFromStart(gateStates, closedPreview, nodes);
+  return wouldClosingButtonDisconnectBoard(
+    doorId,
+    gateStates,
+    doorStates,
+    nodes
+  );
 }
 
 // ── Layout construction ─────────────────────────────────────────────
@@ -748,13 +926,31 @@ function cloneLinkColors(
   return Object.fromEntries(entries);
 }
 
-/** Persist door links as `controlsEdges` only (drops legacy single field). */
+/** Persist button links only (drops legacy door fields). */
+function cloneButtonControls(node: BoardNode): Partial<BoardNode> {
+  migrateBoardNode(node);
+  const links = getButtonControlledLinks(node);
+  const partial: Partial<BoardNode> = {};
+  if (links.length > 0) {
+    partial.buttonLinks = links.map((link) => ({
+      a: link.a,
+      b: link.b,
+      ...(link.openWhenOn === false ? { openWhenOn: false } : {}),
+      ...(link.flipDirection ? { flipDirection: true } : {}),
+    }));
+  }
+  if (node.buttonActions && Object.keys(node.buttonActions).length > 0) {
+    partial.buttonActions = { ...node.buttonActions };
+  }
+  if (node.buttonStartsOn === false) {
+    partial.buttonStartsOn = false;
+  }
+  return partial;
+}
+
+/** @deprecated Prefer cloneButtonControls. */
 function cloneDoorControls(node: BoardNode): Partial<BoardNode> {
-  const edges = getDoorControlledEdges(node);
-  if (edges.length === 0) return {};
-  return {
-    controlsEdges: edges.map((e) => ({ a: e.a, b: e.b })),
-  };
+  return cloneButtonControls(node);
 }
 
 function cloneBoardNodes(nodes: BoardNode[]): BoardNode[] {
@@ -766,8 +962,7 @@ function cloneBoardNodes(nodes: BoardNode[]): BoardNode[] {
     next: [...node.next],
     ...(node.gateEdges ? { gateEdges: node.gateEdges.map((e) => ({ ...e })) } : {}),
     ...(node.controlsGate ? { controlsGate: node.controlsGate } : {}),
-    ...cloneDoorControls(node),
-    ...(node.doorStartsOpen === false ? { doorStartsOpen: false } : {}),
+    ...cloneButtonControls(node),
     ...(cloneLinkColors(node.linkColors)
       ? { linkColors: cloneLinkColors(node.linkColors) }
       : {}),
@@ -837,6 +1032,7 @@ export function loadBoardLayoutFromStorage(): boolean {
         y: rec.y,
         next: rec.next.filter((id): id is string => typeof id === "string"),
       };
+      migrateBoardNode(node);
       if (Array.isArray(rec.gateEdges)) {
         node.gateEdges = rec.gateEdges
           .filter((e): e is GateEdge => {
@@ -861,30 +1057,44 @@ export function loadBoardLayoutFromStorage(): boolean {
       ) {
         node.controlsGate = rec.controlsGate;
       }
-      const controlled: ControlledEdge[] = [];
-      const pushControlled = (raw: unknown) => {
-        if (!raw || typeof raw !== "object") return;
+      const parseButtonLink = (raw: unknown): ButtonLinkConfig | null => {
+        if (!raw || typeof raw !== "object") return null;
         const edge = raw as Record<string, unknown>;
-        if (typeof edge.a === "string" && typeof edge.b === "string") {
-          controlled.push(normalizeControlledEdge(edge.a, edge.b));
-        }
+        if (typeof edge.a !== "string" || typeof edge.b !== "string") return null;
+        const link: ButtonLinkConfig = normalizeControlledEdge(edge.a, edge.b);
+        if (edge.openWhenOn === false) link.openWhenOn = false;
+        if (edge.flipDirection === true) link.flipDirection = true;
+        return link;
+      };
+      const buttonLinks: ButtonLinkConfig[] = [];
+      const pushLink = (link: ButtonLinkConfig | null) => {
+        if (!link) return;
+        const key = undirectedEdgeKey(link.a, link.b);
+        if (buttonLinks.some((l) => undirectedEdgeKey(l.a, l.b) === key)) return;
+        buttonLinks.push(link);
+      };
+      if (Array.isArray(rec.buttonLinks)) {
+        for (const item of rec.buttonLinks) pushLink(parseButtonLink(item));
+      }
+      const pushLegacyEdge = (raw: unknown) => {
+        const parsed = parseButtonLink(raw);
+        if (parsed) pushLink(parsed);
       };
       if (Array.isArray(rec.controlsEdges)) {
-        for (const item of rec.controlsEdges) pushControlled(item);
+        for (const item of rec.controlsEdges) pushLegacyEdge(item);
       }
-      pushControlled(rec.controlsEdge);
-      if (controlled.length > 0) {
-        const seen = new Set<string>();
-        node.controlsEdges = controlled.filter((edge) => {
-          const key = undirectedEdgeKey(edge.a, edge.b);
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
+      pushLegacyEdge(rec.controlsEdge);
+      if (buttonLinks.length > 0) node.buttonLinks = buttonLinks;
+      if (rec.buttonActions && typeof rec.buttonActions === "object") {
+        const actions = rec.buttonActions as Record<string, unknown>;
+        node.buttonActions = {
+          ...(actions.toggleLinks === true ? { toggleLinks: true } : {}),
+          ...(actions.flipDirections === true ? { flipDirections: true } : {}),
+          ...(actions.toggleGate === true ? { toggleGate: true } : {}),
+        };
       }
-      if (rec.doorStartsOpen === false) {
-        node.doorStartsOpen = false;
-      }
+      if (rec.buttonStartsOn === false) node.buttonStartsOn = false;
+      if (rec.doorStartsOpen === false) node.doorStartsOpen = false;
       if (rec.linkColors && typeof rec.linkColors === "object") {
         const colors: Record<string, string> = {};
         for (const [key, value] of Object.entries(
@@ -894,6 +1104,7 @@ export function loadBoardLayoutFromStorage(): boolean {
         }
         if (Object.keys(colors).length > 0) node.linkColors = colors;
       }
+      migrateBoardNode(node);
       nodes.push(node);
     }
     if (nodes.length === 0) return false;
@@ -935,12 +1146,16 @@ export function exportBoardLayoutTypeScript(
       if (node.controlsGate) {
         parts.push(`controlsGate: ${JSON.stringify(node.controlsGate)}`);
       }
-      const doorEdges = getDoorControlledEdges(node);
-      if (doorEdges.length > 0) {
-        parts.push(`controlsEdges: ${JSON.stringify(doorEdges)}`);
+      migrateBoardNode(node);
+      const links = getButtonControlledLinks(node);
+      if (links.length > 0) {
+        parts.push(`buttonLinks: ${JSON.stringify(links)}`);
       }
-      if (node.doorStartsOpen === false) {
-        parts.push(`doorStartsOpen: false`);
+      if (node.buttonActions && Object.keys(node.buttonActions).length > 0) {
+        parts.push(`buttonActions: ${JSON.stringify(node.buttonActions)}`);
+      }
+      if (node.buttonStartsOn === false) {
+        parts.push(`buttonStartsOn: false`);
       }
       if (node.linkColors && Object.keys(node.linkColors).length > 0) {
         parts.push(`linkColors: ${JSON.stringify(node.linkColors)}`);
@@ -991,12 +1206,14 @@ export function setBoardNodeTypes(nodeIds: string[], type: TileType) {
   for (const node of boardLayout) {
     if (!idSet.has(node.id) || node.type === type) continue;
     node.type = type;
-    if (type !== "door") {
+    migrateBoardNode(node);
+    if (type !== "button") {
       delete node.controlsEdge;
       delete node.controlsEdges;
+      delete node.buttonLinks;
+      delete node.buttonActions;
+      delete node.buttonStartsOn;
       delete node.doorStartsOpen;
-    }
-    if (type !== "button") {
       delete node.controlsGate;
     }
     changed = true;
@@ -1045,12 +1262,13 @@ export function removeBoardNode(nodeId: string) {
       node.gateEdges = node.gateEdges.filter((e) => e.to !== nodeId);
       if (node.gateEdges.length === 0) delete node.gateEdges;
     }
-    const doorEdges = getDoorControlledEdges(node).filter(
-      (edge) => edge.a !== nodeId && edge.b !== nodeId
+    const buttonLinks = getButtonControlledLinks(node).filter(
+      (link) => link.a !== nodeId && link.b !== nodeId
     );
     delete node.controlsEdge;
-    if (doorEdges.length > 0) node.controlsEdges = doorEdges;
-    else delete node.controlsEdges;
+    delete node.controlsEdges;
+    if (buttonLinks.length > 0) node.buttonLinks = buttonLinks;
+    else delete node.buttonLinks;
     if (node.linkColors?.[nodeId]) {
       delete node.linkColors[nodeId];
       if (Object.keys(node.linkColors).length === 0) delete node.linkColors;
@@ -1097,12 +1315,13 @@ export function unlinkBoardNodes(aId: string, bId: string) {
     }
   }
   for (const node of boardLayout) {
-    const doorEdges = getDoorControlledEdges(node).filter(
-      (edge) => !isSameUndirectedEdge(edge, aId, bId)
+    const buttonLinks = getButtonControlledLinks(node).filter(
+      (link) => !isSameUndirectedEdge(link, aId, bId)
     );
     delete node.controlsEdge;
-    if (doorEdges.length > 0) node.controlsEdges = doorEdges;
-    else delete node.controlsEdges;
+    delete node.controlsEdges;
+    if (buttonLinks.length > 0) node.buttonLinks = buttonLinks;
+    else delete node.buttonLinks;
   }
   if (a?.linkColors) {
     delete a.linkColors[bId];
@@ -1117,87 +1336,192 @@ export function unlinkBoardNodes(aId: string, bId: string) {
 }
 
 /**
- * Bind a door tile to an undirected link (adds to the multi-link list).
+ * Bind a button tile to an undirected link (adds to the multi-link list).
  * Ensures a bidirectional `next` edge exists so the path is drawn and can be
- * toggled closed at runtime.
+ * toggled closed at runtime via ON/OFF state.
  */
-export function assignDoorControlledEdge(
-  doorId: string,
+export function assignButtonControlledLink(
+  buttonId: string,
   aId: string,
-  bId: string
+  bId: string,
+  opts?: { openWhenOn?: boolean; flipDirection?: boolean }
 ): { ok: boolean; warning?: string } {
   if (aId === bId) return { ok: false, warning: "Pick two different tiles." };
-  const door = boardLayout.find((n) => n.id === doorId);
-  if (!door || door.type !== "door") {
-    return { ok: false, warning: "Select a door tile first." };
+  const button = boardLayout.find((n) => n.id === buttonId);
+  if (!button || button.type !== "button") {
+    return { ok: false, warning: "Select a button tile first." };
   }
   const a = boardLayout.find((n) => n.id === aId);
   const b = boardLayout.find((n) => n.id === bId);
   if (!a || !b) return { ok: false, warning: "Both tiles must exist." };
 
-  // Ensure physical link exists (two-way) so the road is drawn.
   if (!a.next.includes(bId)) a.next.push(bId);
   if (!b.next.includes(aId)) b.next.push(aId);
 
-  const nextEdges = getDoorControlledEdges(door);
+  migrateBoardNode(button);
+  const nextLinks = getButtonControlledLinks(button);
   const normalized = normalizeControlledEdge(aId, bId);
-  if (
-    !nextEdges.some((edge) =>
-      isSameUndirectedEdge(edge, normalized.a, normalized.b)
-    )
-  ) {
-    nextEdges.push(normalized);
+  const existing = nextLinks.find((link) =>
+    isSameUndirectedEdge(link, normalized.a, normalized.b)
+  );
+  if (existing) {
+    if (opts?.openWhenOn === false) existing.openWhenOn = false;
+    if (opts?.flipDirection) existing.flipDirection = true;
+  } else {
+    nextLinks.push({
+      ...normalized,
+      ...(opts?.openWhenOn === false ? { openWhenOn: false } : {}),
+      ...(opts?.flipDirection ? { flipDirection: true } : {}),
+    });
   }
-  door.controlsEdges = nextEdges;
-  delete door.controlsEdge;
+  button.buttonLinks = nextLinks;
+  if (!button.buttonActions) button.buttonActions = {};
+  button.buttonActions.toggleLinks = true;
+  delete button.controlsEdge;
+  delete button.controlsEdges;
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 
   let warning: string | undefined;
-  if (wouldClosingDoorDisconnectBoard(doorId)) {
+  if (wouldClosingButtonDisconnectBoard(buttonId)) {
     warning =
-      "Closing this door may disconnect the board from START — keep an alternate route.";
+      "Turning this button OFF may disconnect the board from START — keep an alternate route.";
   }
   return { ok: true, warning };
 }
 
+/** @deprecated Prefer assignButtonControlledLink. */
+export function assignDoorControlledEdge(
+  doorId: string,
+  aId: string,
+  bId: string
+): { ok: boolean; warning?: string } {
+  return assignButtonControlledLink(doorId, aId, bId);
+}
+
+export function removeButtonControlledLink(
+  buttonId: string,
+  aId: string,
+  bId: string
+) {
+  const button = boardLayout.find((n) => n.id === buttonId);
+  if (!button || button.type !== "button") return;
+  const next = getButtonControlledLinks(button).filter(
+    (link) => !isSameUndirectedEdge(link, aId, bId)
+  );
+  delete button.controlsEdge;
+  delete button.controlsEdges;
+  if (next.length > 0) button.buttonLinks = next;
+  else delete button.buttonLinks;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+/** @deprecated Prefer removeButtonControlledLink. */
 export function removeDoorControlledEdge(
   doorId: string,
   aId: string,
   bId: string
 ) {
-  const door = boardLayout.find((n) => n.id === doorId);
-  if (!door || door.type !== "door") return;
-  const next = getDoorControlledEdges(door).filter(
-    (edge) => !isSameUndirectedEdge(edge, aId, bId)
-  );
-  delete door.controlsEdge;
-  if (next.length > 0) door.controlsEdges = next;
-  else delete door.controlsEdges;
+  removeButtonControlledLink(doorId, aId, bId);
+}
+
+export function clearButtonControlledLinks(buttonId: string) {
+  const button = boardLayout.find((n) => n.id === buttonId);
+  if (!button || button.type !== "button") return;
+  delete button.controlsEdge;
+  delete button.controlsEdges;
+  delete button.buttonLinks;
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 }
 
+/** @deprecated Prefer clearButtonControlledLinks. */
 export function clearDoorControlledEdge(doorId: string) {
-  clearDoorControlledEdges(doorId);
+  clearButtonControlledLinks(doorId);
 }
 
+/** @deprecated Prefer clearButtonControlledLinks. */
 export function clearDoorControlledEdges(doorId: string) {
-  const door = boardLayout.find((n) => n.id === doorId);
-  if (!door || door.type !== "door") return;
-  delete door.controlsEdge;
-  delete door.controlsEdges;
+  clearButtonControlledLinks(doorId);
+}
+
+export function setButtonLinkOpenWhenOn(
+  buttonId: string,
+  aId: string,
+  bId: string,
+  openWhenOn: boolean
+) {
+  const button = boardLayout.find((n) => n.id === buttonId);
+  if (!button || button.type !== "button") return;
+  const links = getButtonControlledLinks(button);
+  const link = links.find((l) => isSameUndirectedEdge(l, aId, bId));
+  if (!link) return;
+  if (openWhenOn) delete link.openWhenOn;
+  else link.openWhenOn = false;
+  button.buttonLinks = links;
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
 }
 
-export function setDoorStartsOpen(doorId: string, startsOpen: boolean) {
-  const door = boardLayout.find((n) => n.id === doorId);
-  if (!door || door.type !== "door") return;
-  if (startsOpen) delete door.doorStartsOpen;
-  else door.doorStartsOpen = false;
+export function setButtonLinkFlipDirection(
+  buttonId: string,
+  aId: string,
+  bId: string,
+  flipDirection: boolean
+) {
+  const button = boardLayout.find((n) => n.id === buttonId);
+  if (!button || button.type !== "button") return;
+  const links = getButtonControlledLinks(button);
+  const link = links.find((l) => isSameUndirectedEdge(l, aId, bId));
+  if (!link) return;
+  if (flipDirection) link.flipDirection = true;
+  else delete link.flipDirection;
+  button.buttonLinks = links;
+  if (flipDirection) {
+    if (!button.buttonActions) button.buttonActions = {};
+    button.buttonActions.flipDirections = true;
+  }
   persistBoardLayoutToStorage();
   notifyBoardLayoutListeners();
+}
+
+export function setButtonActions(
+  buttonId: string,
+  actions: ButtonActions
+) {
+  const button = boardLayout.find((n) => n.id === buttonId);
+  if (!button || button.type !== "button") return;
+  const next: ButtonActions = {};
+  if (actions.toggleLinks) next.toggleLinks = true;
+  if (actions.flipDirections) next.flipDirections = true;
+  if (actions.toggleGate) next.toggleGate = true;
+  if (Object.keys(next).length > 0) button.buttonActions = next;
+  else delete button.buttonActions;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+export function setButtonStartsOn(buttonId: string, startsOn: boolean) {
+  const button = boardLayout.find((n) => n.id === buttonId);
+  if (!button || button.type !== "button") return;
+  if (startsOn) delete button.buttonStartsOn;
+  else button.buttonStartsOn = false;
+  persistBoardLayoutToStorage();
+  notifyBoardLayoutListeners();
+}
+
+/** @deprecated Prefer setButtonStartsOn. */
+export function setDoorStartsOpen(doorId: string, startsOpen: boolean) {
+  setButtonStartsOn(doorId, startsOpen);
+}
+
+/** Apply direction flips configured on a button's controlled links. */
+export function applyButtonDirectionFlips(buttonId: string) {
+  const links = getButtonControlledLinks(buttonId).filter((l) => l.flipDirection);
+  for (const link of links) {
+    cycleEdgeDirection(link.a, link.b);
+  }
 }
 
 /** Resolve stroke color for an undirected road (either endpoint may store it). */
@@ -1463,6 +1787,7 @@ export function migrateBoardPosition(nodeId: string | null | undefined): string 
 /** Normalize legacy split/merge types if present on a node snapshot. */
 export function migrateTileType(type: string): TileType {
   if (type === "split" || type === "merge") return "normal";
+  if (type === "door") return "button";
   if (KNOWN_TILE_TYPES.has(type)) return type as TileType;
   return "normal";
 }
@@ -1472,7 +1797,7 @@ export function movePlayerBySteps(
   steps: number,
   preferredPath?: string[],
   states: GateStates = DEFAULT_GATE_STATES,
-  doorStates: DoorStates = {}
+  doorStates: ButtonStates = {}
 ): string {
   let currentId = migrateBoardPosition(startNodeId);
 
@@ -1494,7 +1819,7 @@ export function movePlayerBySteps(
 
 export function listBoardBranchPoints(
   states: GateStates = DEFAULT_GATE_STATES,
-  doorStates: DoorStates = {}
+  doorStates: ButtonStates = {}
 ): BoardNode[] {
   return boardLayout.filter(
     (node) => getNodeExits(node.id, states, doorStates).length > 1
@@ -1511,14 +1836,12 @@ export function listBoardLandmarks(): { id: string; label: string }[] {
   const buttons = boardLayout
     .filter((n) => n.type === "button")
     .map((n) => n.id);
-  const doors = boardLayout.filter((n) => n.type === "door").map((n) => n.id);
   return [
     { id: "kingdom", label: "Kingdom Facility" },
     { id: "start", label: "Start" },
     ...shops.slice(0, 2).map((id) => ({ id, label: "Shop" })),
     ...portals.slice(0, 2).map((id) => ({ id, label: "Portal" })),
-    ...buttons.slice(0, 2).map((id) => ({ id, label: "Gate" })),
-    ...doors.slice(0, 2).map((id) => ({ id, label: "Door" })),
+    ...buttons.slice(0, 4).map((id) => ({ id, label: "Button" })),
     ...spikes.slice(0, 1).map((id) => ({ id, label: "Spike" })),
   ];
 }

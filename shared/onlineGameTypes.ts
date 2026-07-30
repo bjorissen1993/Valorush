@@ -140,10 +140,13 @@ export type OnlineGameSnapshot = {
    */
   gateStates?: Record<string, "left" | "right">;
   /**
-   * Per-door open/closed map keyed by door tile id (`true` = open).
+   * Per-button ON/OFF map keyed by button tile id (`true` = ON).
    * Shared so all clients block closed links the same way.
+   * @deprecated Alias `doorStates` — same shape, kept for older snapshots.
    */
   doorStates?: Record<string, boolean>;
+  /** Preferred name for per-button ON/OFF sync (same as doorStates). */
+  buttonStates?: Record<string, boolean>;
   /**
    * @deprecated Prefer gateStates. Still accepted for older snapshots.
    */

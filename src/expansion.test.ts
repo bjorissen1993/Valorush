@@ -185,6 +185,30 @@ describe("expansion board", () => {
     }
   });
 
+  it("applies inverted open-when-OFF link polarity per button state", () => {
+    const buttonId = "__test-button-polarity__";
+    const a = "n0";
+    const b = "n1";
+    boardLayout.push({
+      id: buttonId,
+      type: "button",
+      x: 48,
+      y: 10,
+      next: [],
+      buttonLinks: [{ a, b, openWhenOn: false }],
+      buttonActions: { toggleLinks: true },
+    });
+    try {
+      const on = { [buttonId]: true };
+      const off = { [buttonId]: false };
+      expect(getNodeExits(a, DEFAULT_GATE_STATES, on)).not.toContain(b);
+      expect(getNodeExits(a, DEFAULT_GATE_STATES, off)).toContain(b);
+    } finally {
+      const idx = boardLayout.findIndex((n) => n.id === buttonId);
+      if (idx >= 0) boardLayout.splice(idx, 1);
+    }
+  });
+
   it("migrates legacy positions", () => {
     expect(migrateBoardPosition("top-split")).toBe("i7");
     expect(migrateBoardPosition("m-top-2")).toBe("g1L");

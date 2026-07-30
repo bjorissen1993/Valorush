@@ -1,6 +1,7 @@
 import {
   EDGE_COLOR_PRESETS,
-  type ControlledEdge,
+  type ButtonActions,
+  type ButtonLinkConfig,
   type TileType,
 } from "../game/boardLayout";
 import type { UltimateDefinition } from "../../shared/ultimates";
@@ -11,7 +12,7 @@ export type BoardEditorTool =
   | "add"
   | "link"
   | "unlink"
-  | "assign-door"
+  | "assign-button"
   | "color-link"
   | "delete";
 
@@ -27,7 +28,6 @@ const TILE_TYPES: TileType[] = [
   "special",
   "portal",
   "button",
-  "door",
   "start",
   "empty",
 ];
@@ -42,20 +42,29 @@ type Props = {
   linkFromId: string | null;
   bidirectionalLinks: boolean;
   onBidirectionalLinksChange: (value: boolean) => void;
-  doorControlledEdges: ControlledEdge[];
-  doorIsOpen: boolean | null;
-  doorStartsOpen: boolean | null;
-  doorSoftLockWarning: string | null;
-  onClearDoorLinks: () => void;
-  onRemoveDoorLink: (a: string, b: string) => void;
-  onToggleDoorPreview: () => void;
-  onDoorStartsOpenChange: (startsOpen: boolean) => void;
+  buttonControlledLinks: ButtonLinkConfig[];
+  buttonIsOn: boolean | null;
+  buttonStartsOn: boolean | null;
+  buttonActions: ButtonActions;
+  buttonSoftLockWarning: string | null;
+  onClearButtonLinks: () => void;
+  onRemoveButtonLink: (a: string, b: string) => void;
+  onToggleButtonPreview: () => void;
+  onButtonStartsOnChange: (startsOn: boolean) => void;
+  onSetButtonLinkOpenWhenOn: (a: string, b: string, openWhenOn: boolean) => void;
+  onSetButtonLinkFlipDirection: (
+    a: string,
+    b: string,
+    flipDirection: boolean
+  ) => void;
+  onSetButtonActions: (actions: ButtonActions) => void;
   selectedEdge: { from: string; to: string } | null;
   selectedEdgeColor: string | null;
   onSelectedEdgeColorChange: (color: string | null) => void;
   onChangeSelectedType: (type: TileType) => void;
   onFlipDirections: () => void;
   onCycleDirections: () => void;
+  onDeleteSelection: () => void;
   ultimatePreviewOptions: UltimateDefinition[];
   ultimatePreviewId: string | null;
   onUltimatePreviewIdChange: (id: string | null) => void;
@@ -85,9 +94,9 @@ const TOOLS: { id: BoardEditorTool; label: string; hint: string }[] = [
     hint: "Click a path or two tiles to remove the edge",
   },
   {
-    id: "assign-door",
+    id: "assign-button",
     label: "Assign link",
-    hint: "Select a door, then click edges/tiles to add controlled links",
+    hint: "Select a button, then click edges/tiles to bind controlled links",
   },
   {
     id: "color-link",
@@ -107,20 +116,25 @@ export default function BoardEditorBar({
   linkFromId,
   bidirectionalLinks,
   onBidirectionalLinksChange,
-  doorControlledEdges,
-  doorIsOpen,
-  doorStartsOpen,
-  doorSoftLockWarning,
-  onClearDoorLinks,
-  onRemoveDoorLink,
-  onToggleDoorPreview,
-  onDoorStartsOpenChange,
+  buttonControlledLinks,
+  buttonIsOn,
+  buttonStartsOn,
+  buttonActions,
+  buttonSoftLockWarning,
+  onClearButtonLinks,
+  onRemoveButtonLink,
+  onToggleButtonPreview,
+  onButtonStartsOnChange,
+  onSetButtonLinkOpenWhenOn,
+  onSetButtonLinkFlipDirection,
+  onSetButtonActions,
   selectedEdge,
   selectedEdgeColor,
   onSelectedEdgeColorChange,
   onChangeSelectedType,
   onFlipDirections,
   onCycleDirections,
+  onDeleteSelection,
   ultimatePreviewOptions,
   ultimatePreviewId,
   onUltimatePreviewIdChange,
@@ -131,18 +145,20 @@ export default function BoardEditorBar({
   onClose,
 }: Props) {
   const primaryId = selectedNodeIds[selectedNodeIds.length - 1] ?? null;
-  const isDoorSelected = selectedNodeType === "door" && selectedNodeIds.length === 1;
+  const isButtonSelected =
+    selectedNodeType === "button" && selectedNodeIds.length === 1;
   const selectionCount = selectedNodeIds.length;
+  const multiSelected = selectionCount > 1;
 
   const status =
-    tool === "assign-door"
-      ? !primaryId || selectedNodeType !== "door"
-        ? "Select a door tile, then pick paths it controls"
+    tool === "assign-button"
+      ? !primaryId || selectedNodeType !== "button"
+        ? "Select a button tile, then pick paths it controls"
         : linkFromId
-          ? `Door ${primaryId}: from ${linkFromId} — click target tile or edge`
-          : doorControlledEdges.length > 0
-            ? `Door ${primaryId}: ${doorControlledEdges.length} link(s) — click edge/tiles to add`
-            : `Door ${primaryId}: click an edge or two tiles to assign`
+          ? `Button ${primaryId}: from ${linkFromId} — click target tile or edge`
+          : buttonControlledLinks.length > 0
+            ? `Button ${primaryId}: ${buttonControlledLinks.length} link(s) — click edge/tiles to add`
+            : `Button ${primaryId}: click an edge or two tiles to assign`
       : tool === "link" || tool === "unlink"
         ? linkFromId
           ? `From: ${linkFromId} — click target tile`
@@ -193,69 +209,127 @@ export default function BoardEditorBar({
         ))}
       </div>
 
+      {multiSelected && (
+        <div className="board-editor-bar__selection-menu">
+          <p className="board-editor-bar__door-title">
+            Selection ({selectionCount} tiles)
+          </p>
+          <div className="board-editor-bar__row">
+            <label className="board-editor-bar__label">
+              Change type
+              <select
+                value=""
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  onChangeSelectedType(e.target.value as TileType);
+                }}
+                className="board-editor-bar__select"
+              >
+                <option value="" disabled>
+                  Set type…
+                </option>
+                {TILE_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="board-editor-bar__btn"
+              onClick={onFlipDirections}
+              title="Reverse one-way links among the selection"
+            >
+              Flip directions
+            </button>
+            <button
+              type="button"
+              className="board-editor-bar__btn"
+              onClick={onCycleDirections}
+              title="Cycle one-way ↔ reverse ↔ two-way among selection"
+            >
+              Cycle directions
+            </button>
+            <button
+              type="button"
+              className="board-editor-bar__btn board-editor-bar__btn--danger"
+              onClick={onDeleteSelection}
+            >
+              Delete selected
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!multiSelected && (
+        <div className="board-editor-bar__row">
+          <label className="board-editor-bar__label">
+            Add type
+            <select
+              value={addTileType}
+              onChange={(e) => onAddTileTypeChange(e.target.value as TileType)}
+              className="board-editor-bar__select"
+              disabled={tool !== "add"}
+            >
+              {TILE_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="board-editor-bar__label">
+            Change type
+            <select
+              value={selectedNodeType ?? ""}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                onChangeSelectedType(e.target.value as TileType);
+              }}
+              className="board-editor-bar__select"
+              disabled={selectionCount === 0}
+            >
+              <option value="" disabled>
+                {selectionCount === 0 ? "Select tiles…" : "Set type…"}
+              </option>
+              {TILE_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="board-editor-bar__check">
+            <input
+              type="checkbox"
+              checked={bidirectionalLinks}
+              onChange={(e) => onBidirectionalLinksChange(e.target.checked)}
+            />
+            Two-way links
+          </label>
+          <button
+            type="button"
+            className="board-editor-bar__btn"
+            onClick={onFlipDirections}
+            disabled={selectionCount < 2 && !selectedEdge}
+            title="Reverse one-way links among the selection"
+          >
+            Flip directions
+          </button>
+          <button
+            type="button"
+            className="board-editor-bar__btn"
+            onClick={onCycleDirections}
+            disabled={selectionCount < 2 && !selectedEdge}
+            title="Cycle one-way ↔ reverse ↔ two-way among selection"
+          >
+            Cycle directions
+          </button>
+        </div>
+      )}
+
       <div className="board-editor-bar__row">
-        <label className="board-editor-bar__label">
-          Add type
-          <select
-            value={addTileType}
-            onChange={(e) => onAddTileTypeChange(e.target.value as TileType)}
-            className="board-editor-bar__select"
-            disabled={tool !== "add"}
-          >
-            {TILE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type === "door" ? "door (gate switch)" : type}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="board-editor-bar__label">
-          Change type
-          <select
-            value={selectedNodeType ?? ""}
-            onChange={(e) => {
-              if (!e.target.value) return;
-              onChangeSelectedType(e.target.value as TileType);
-            }}
-            className="board-editor-bar__select"
-            disabled={selectionCount === 0}
-          >
-            <option value="" disabled>
-              {selectionCount === 0 ? "Select tiles…" : "Set type…"}
-            </option>
-            {TILE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="board-editor-bar__check">
-          <input
-            type="checkbox"
-            checked={bidirectionalLinks}
-            onChange={(e) => onBidirectionalLinksChange(e.target.checked)}
-          />
-          Two-way links
-        </label>
-        <button
-          type="button"
-          className="board-editor-bar__btn"
-          onClick={onFlipDirections}
-          disabled={selectionCount < 2 && !selectedEdge}
-          title="Reverse one-way links among the selection"
-        >
-          Flip directions
-        </button>
-        <button
-          type="button"
-          className="board-editor-bar__btn"
-          onClick={onCycleDirections}
-          disabled={selectionCount < 2 && !selectedEdge}
-          title="Cycle one-way ↔ reverse ↔ two-way among selection"
-        >
-          Cycle directions
-        </button>
         <button type="button" className="board-editor-bar__btn" onClick={onExportJson}>
           Export JSON
         </button>
@@ -348,75 +422,153 @@ export default function BoardEditorBar({
         </p>
       </div>
 
-      {isDoorSelected && primaryId && (
+      {isButtonSelected && primaryId && (
         <div className="board-editor-bar__door">
-          <p className="board-editor-bar__door-title">Door / gate control</p>
+          <p className="board-editor-bar__door-title">Button / gate control</p>
           <p className="board-editor-bar__door-meta">
-            {doorControlledEdges.length > 0
-              ? `Controls ${doorControlledEdges.length} link(s)`
+            {buttonControlledLinks.length > 0
+              ? `Controls ${buttonControlledLinks.length} link(s) — ON/OFF toggles open/closed per mapping`
               : "No links assigned — use Assign link, then click an edge or two tiles."}
           </p>
-          {doorControlledEdges.length > 0 && (
+          {buttonControlledLinks.length > 0 && (
             <ul className="board-editor-bar__link-list">
-              {doorControlledEdges.map((edge) => (
-                <li key={`${edge.a}|${edge.b}`}>
-                  <span>
-                    {edge.a} ↔ {edge.b}
-                  </span>
-                  <button
-                    type="button"
-                    className="board-editor-bar__btn"
-                    onClick={() => onRemoveDoorLink(edge.a, edge.b)}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
+              {buttonControlledLinks.map((link) => {
+                const openWhenOn = link.openWhenOn !== false;
+                const flipDir = link.flipDirection === true;
+                return (
+                  <li key={`${link.a}|${link.b}`}>
+                    <div className="board-editor-bar__link-row">
+                      <span>
+                        {link.a} ↔ {link.b}
+                      </span>
+                      <button
+                        type="button"
+                        className="board-editor-bar__btn"
+                        onClick={() => onRemoveButtonLink(link.a, link.b)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="board-editor-bar__link-opts">
+                      <label className="board-editor-bar__check">
+                        <input
+                          type="checkbox"
+                          checked={openWhenOn}
+                          onChange={(e) =>
+                            onSetButtonLinkOpenWhenOn(
+                              link.a,
+                              link.b,
+                              e.target.checked
+                            )
+                          }
+                        />
+                        Open when ON
+                      </label>
+                      <label className="board-editor-bar__check">
+                        <input
+                          type="checkbox"
+                          checked={flipDir}
+                          onChange={(e) =>
+                            onSetButtonLinkFlipDirection(
+                              link.a,
+                              link.b,
+                              e.target.checked
+                            )
+                          }
+                        />
+                        Flip direction
+                      </label>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
           <div className="board-editor-bar__row">
             <span className="board-editor-bar__door-state">
-              Preview:{" "}
-              {doorIsOpen == null ? "—" : doorIsOpen ? "Open" : "Closed"}
+              State: {buttonIsOn == null ? "—" : buttonIsOn ? "ON" : "OFF"}
             </span>
             <button
               type="button"
               className="board-editor-bar__btn"
-              onClick={onToggleDoorPreview}
-              disabled={doorControlledEdges.length === 0}
+              onClick={onToggleButtonPreview}
+              disabled={buttonControlledLinks.length === 0}
             >
               Toggle preview
             </button>
             <button
               type="button"
               className="board-editor-bar__btn"
-              onClick={onClearDoorLinks}
-              disabled={doorControlledEdges.length === 0}
+              onClick={onClearButtonLinks}
+              disabled={buttonControlledLinks.length === 0}
             >
               Clear all links
             </button>
             <label className="board-editor-bar__check">
               <input
                 type="checkbox"
-                checked={doorStartsOpen !== false}
-                onChange={(e) => onDoorStartsOpenChange(e.target.checked)}
+                checked={buttonStartsOn !== false}
+                onChange={(e) => onButtonStartsOnChange(e.target.checked)}
               />
-              Starts open
+              Starts ON
             </label>
           </div>
-          {doorSoftLockWarning && (
-            <p className="board-editor-bar__door-warn">{doorSoftLockWarning}</p>
+          <div className="board-editor-bar__row">
+            <label className="board-editor-bar__check">
+              <input
+                type="checkbox"
+                checked={
+                  buttonActions.toggleLinks !== false &&
+                  buttonControlledLinks.length > 0
+                }
+                disabled={buttonControlledLinks.length === 0}
+                onChange={(e) =>
+                  onSetButtonActions({
+                    ...buttonActions,
+                    toggleLinks: e.target.checked,
+                  })
+                }
+              />
+              Toggle links (doors)
+            </label>
+            <label className="board-editor-bar__check">
+              <input
+                type="checkbox"
+                checked={buttonActions.flipDirections === true}
+                onChange={(e) =>
+                  onSetButtonActions({
+                    ...buttonActions,
+                    flipDirections: e.target.checked,
+                  })
+                }
+              />
+              Flip directions
+            </label>
+            <label className="board-editor-bar__check">
+              <input
+                type="checkbox"
+                checked={buttonActions.toggleGate === true}
+                onChange={(e) =>
+                  onSetButtonActions({
+                    ...buttonActions,
+                    toggleGate: e.target.checked,
+                  })
+                }
+              />
+              Toggle Y-gate
+            </label>
+          </div>
+          {buttonSoftLockWarning && (
+            <p className="board-editor-bar__door-warn">{buttonSoftLockWarning}</p>
           )}
         </div>
       )}
 
       <p className="board-editor-bar__hint">
-        <strong>Select</strong> tiles (Shift-click or marquee), change type, flip
-        walk directions, or <strong>Move</strong> the group. Add type{" "}
-        <strong>door</strong>, then <strong>Assign link</strong> to bind one or
-        more paths — landing toggles all bound links together. Color links and
-        preview ultimate ranges without casting. Saves to localStorage; export
-        JSON/TS for snippets. Alt+drag empty space to pan.
+        <strong>Select</strong> tiles (Shift-click or marquee). Buttons open/close
+        links or flip directions — set per-link <strong>Open when ON</strong> so one
+        door opens while another closes. Arrows show walk direction on tiles and paths.
+        Alt+drag to pan.
       </p>
     </div>
   );

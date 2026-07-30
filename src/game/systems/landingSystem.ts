@@ -147,12 +147,8 @@ export function resolveLandingTile({
     return { kind: "special" };
   }
 
-  if (landedNode.type === "button") {
+  if (landedNode.type === "button" || landedNode.type === "door") {
     return { kind: "button" };
-  }
-
-  if (landedNode.type === "door") {
-    return { kind: "door" };
   }
 
   if (landedNode.type === "portal") {
@@ -235,12 +231,7 @@ export function getNormalTileMessage(
     case "button":
       return {
         title: "Button",
-        subtitle: "Flipped mid-road directions and doors for everyone.",
-      };
-    case "door":
-      return {
-        title: "Door",
-        subtitle: "Toggled a path link open or closed.",
+        subtitle: "Flipped ON/OFF and applied configured link or gate actions.",
       };
     case "portal":
       return {
